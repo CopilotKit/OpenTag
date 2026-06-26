@@ -1,6 +1,6 @@
-# OpenTag — an open-source alternative to Claude in Slack
+# OpenTag: an open-source alternative to Claude in Slack
 
-Run your own AI agent inside Slack — it reads a thread, answers, calls your tools, and
+Run your own AI agent inside Slack: it reads a thread, answers, calls your tools, and
 renders rich results right in the conversation. Think of it as having Claude in your
 workspace, except **open-source and self-hosted**: you own the runtime, bring your own
 model, and wire it to your own tools. No per-seat pricing, no lock-in.
@@ -16,16 +16,16 @@ https://github.com/user-attachments/assets/a74fa1cb-add0-463e-a23c-aa09b95d5135
 
 ▶️ **[Watch the demo](https://github.com/user-attachments/assets/a74fa1cb-add0-463e-a23c-aa09b95d5135)** (~50s) — an OpenTag agent working a Slack thread: it renders a breakdown, a table, and a bar chart inline (**generative UI**) and files a ticket only after an **Approve** gate (**human-in-the-loop**).
 
-> **Two ways to run it:** **host it yourself** with the open-source SDK below — or skip the ops and **[sign up for the managed service →](https://go.copilotkit.ai/beyond-the-web-form)** (coming soon).
+> **Two ways to run it:** **host it yourself** with the open-source SDK below — or skip the ops and **[sign up for the managed service →](https://go.copilotkit.ai/opentag-managed-gh)** coming soon from CopilotKit.
 
 ## Quick start (self-hosted)
 
 OpenTag ships inside the [CopilotKit monorepo](https://github.com/CopilotKit/CopilotKit) as a
-first-class example (`examples/slack`) — that's the dependable way to run it today while the
+first-class example (`examples/slack`). That's the dependable way to run it today while the
 bot SDK packages finish publishing to npm. (A standalone `npm install` from this repo lights
 up the moment they land — see [setup.md](./setup.md).)
 
-You'll run two processes — the **agent** (the LLM backend) and the **bot** (the Slack
+You'll run two processes: the **agent** (the LLM backend) and the **bot** (the Slack
 connection) — and set three secrets.
 
 **1. Create a Slack app.** At [api.slack.com/apps](https://api.slack.com/apps?new_app=1) →
@@ -54,7 +54,9 @@ pnpm --filter slack-example dev        # the bot
 > @OpenTag summarize this thread and file it as a bug
 
 That's the whole loop. To wire up Linear, Notion, inline charts, Redis persistence, or to run
-on Discord / Telegram / WhatsApp, see **[setup.md](./setup.md)**.
+on Discord / Telegram / WhatsApp, see **[setup.md](./setup.md)**.  
+
+We won't lie to you, though. Setting up hosting for chat agents is not easy. To skip all of that heartache, go join the wait list for the CopilotKit managed service hosted on our Intelligence platform.
 
 ## Make it your own
 
@@ -74,12 +76,11 @@ The full architecture, the file-by-file map, and every integration live in
 ## Don't want to host it yourself?
 
 Self-hosting means you run and scale the runtime, persistence, and inspection tooling yourself.
-A **managed CopilotKit service** is coming soon — the same agent, without the ops: durable
+A **managed CopilotKit service** is on its way. It's the same agent, without the ops: durable
 threads, persistence, hosted inspection, and agents that improve from feedback (**Continuous
-Learning from Human Feedback**). Read more about
-[CopilotKit Intelligence](https://www.copilotkit.ai/copilotkit-intelligence).
+Learning from Human Feedback**). 
 
-- **[Sign up for early access →](https://go.copilotkit.ai/beyond-the-web-form)** — be first in when the managed service opens.
+- **[Join the waitlist →](https://go.copilotkit.ai/opentag-managed-gh)** — be first in when the managed service opens.
 - **[Talk to an engineer →](https://copilotkit.ai/talk-to-an-engineer)** — building something real on this? We'd love to help you ship it.
 
 ## Learn more
