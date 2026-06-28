@@ -18,7 +18,15 @@ export function getBrowser(): Promise<Browser> {
     return Promise.reject(new Error("renderer is shutting down"));
   }
   if (!browserPromise) {
-    browserPromise = chromium.launch({ args: ["--no-sandbox"] });
+    // Don't cache a REJECTED launch: if chromium.launch() fails (transient OOM,
+    // missing binary mid-startup, etc.), clear the memo so the next getBrowser()
+    // retries instead of handing back the same rejected promise forever. The
+    // identity guard avoids clobbering a newer promise (e.g. after closeBrowser).
+    const launching = chromium.launch({ args: ["--no-sandbox"] });
+    browserPromise = launching;
+    launching.catch(() => {
+      if (browserPromise === launching) browserPromise = undefined;
+    });
   }
   return browserPromise;
 }
