@@ -125,6 +125,8 @@ describe("render_table tool", () => {
       | undefined;
     // 99 data rows + 1 header row.
     expect(table?.rows).toHaveLength(100);
+    // ...and the overflow must be reported to the user, not silently dropped.
+    expect(JSON.stringify(blocks)).toContain("99 of 150");
   });
 
   it("clamps to 20 columns and reports the drop", async () => {
@@ -143,6 +145,8 @@ describe("render_table tool", () => {
       | TableBlock
       | undefined;
     expect(table?.rows?.[0]).toHaveLength(20);
+    // ...and the overflow must be reported to the user, not silently dropped.
+    expect(JSON.stringify(blocks)).toContain("20 of 25");
   });
 });
 

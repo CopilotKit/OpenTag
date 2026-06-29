@@ -11,7 +11,7 @@
  * bridge gives GFM tables in prose.
  */
 import { z } from "zod";
-import { Message, Header, Section, Table, Row, Cell } from "@copilotkit/bot-ui";
+import { Message, Header, Section, Table, Row, Cell, Context } from "@copilotkit/bot-ui";
 import { defineBotTool } from "@copilotkit/bot";
 
 const schema = z.object({
@@ -98,7 +98,7 @@ export const renderTableTool = defineBotTool({
     "isn't the right shape. Max 20 columns and 100 rows.",
   parameters: schema,
   async handler({ title, columns, rows }, { thread }) {
-    const { cols, dataRows } = clamp(columns, rows);
+    const { cols, dataRows, notes } = clamp(columns, rows);
 
     const table = (
       <Message>
@@ -112,6 +112,7 @@ export const renderTableTool = defineBotTool({
             </Row>
           ))}
         </Table>
+        {notes.length ? <Context>{notes.join(" · ")}</Context> : null}
       </Message>
     );
 
@@ -127,6 +128,7 @@ export const renderTableTool = defineBotTool({
         <Message>
           {title ? <Header>{title}</Header> : null}
           <Section>{mono}</Section>
+          {notes.length ? <Context>{notes.join(" · ")}</Context> : null}
         </Message>
       );
       await thread.post(fallback);
