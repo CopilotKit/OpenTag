@@ -76,6 +76,10 @@ async function main() {
   bot.onMessage(async ({ thread, message }) => {
     try {
       await thread.runAgent({
+        // The managed adapter delivers a single turn and reconstructs no prior
+        // history (unlike the direct Slack adapter), so feed the turn text as
+        // the prompt — otherwise the agent runs with empty input.
+        prompt: message.contentParts ?? message.text,
         context: senderContext(message.user, thread.platform),
       });
     } catch (err) {
