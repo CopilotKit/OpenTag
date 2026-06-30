@@ -1,0 +1,10 @@
+blockExoticSubdeps: false
+onlyBuiltDependencies:
+  - esbuild
+ignoredBuiltDependencies:
+  - "@scarf/scarf"
+overrides:
+  rxjs: 7.8.2
+allowBuilds:
+  '@scarf/scarf': set this to true or false
+  esbuild: set this to true or false

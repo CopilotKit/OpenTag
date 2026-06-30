@@ -2,14 +2,14 @@
 
 Everything beyond the [quick start](./README.md#quick-start): the full Slack app walkthrough,
 the complete environment reference, running standalone vs. from the monorepo, wiring up Linear /
-Notion / inline charts / Redis, the other chat platforms, slash commands, tests, and how the
+Notion / inline charts, the other chat platforms, slash commands, tests, and how the
 pieces fit together.
 
 - [How it fits together](#how-it-fits-together)
 - [Running it](#running-it) — monorepo today, standalone soon
 - [1. Create a Slack app](#1-create-a-slack-app)
 - [2. Environment variables](#2-environment-variables)
-- [3. Integrations](#3-integrations) — Linear, Notion, charts, Redis
+- [3. Integrations](#3-integrations) — Linear, Notion, charts
 - [Other platforms](#other-platforms) — Discord, Telegram, WhatsApp
 - [Slash commands](#slash-commands)
 - [Files → charts, diagrams & tables](#files--charts-diagrams--tables)
@@ -84,7 +84,7 @@ npm run dev            # terminal 3 — the bot
 
 The chart/diagram renderers need a Chromium binary: `npx playwright install chromium`.
 
-> **Why not standalone yet?** `@copilotkit/bot-telegram`, `-whatsapp`, and `-store-redis` aren't
+> **Why not standalone yet?** `@copilotkit/bot-telegram` and `-whatsapp` aren't
 > on npm yet, and the published bot packages need a coherent `0.1.x` release. The moment they
 > land, `npm install` in this repo works as-is.
 
@@ -122,7 +122,6 @@ cp .env.example .env
 | `DISCORD_BOT_TOKEN` / `DISCORD_APP_ID` | Run on Discord. |
 | `TELEGRAM_BOT_TOKEN` | Run on Telegram. |
 | `WHATSAPP_ACCESS_TOKEN` (+ siblings) | Run on WhatsApp Cloud API. |
-| `REDIS_URL` | Optional durable store (see [Redis](#redis-persistence)). |
 | `AGENT_URL` | Where the bot POSTs (defaults to the local runtime: `…/agent/triage/run`). |
 
 Every integration is independent — set only what you need. The full annotated list, including the
@@ -167,14 +166,6 @@ call that tool and wait for a **Create / Cancel** click before it performs the w
 The chart/diagram libraries load from a CDN into a **local** headless browser (override
 `CHART_JS_URL` / `MERMAID_URL`) — your data is rendered locally and never sent to a rendering
 service. Requires a Chromium binary: `npx playwright install chromium`.
-
-### Redis persistence
-
-By default, interactive state is in-memory. Pass a
-[`@copilotkit/bot-store-redis`](https://github.com/CopilotKit/CopilotKit/tree/main/packages/bot-store-redis)
-store to `createBot` (set `REDIS_URL`; `docker compose up -d` starts a local Redis) so an
-Approve/Cancel click still resolves **after a restart** — see
-[`app/demo-restart.tsx`](./app/demo-restart.tsx) and the `demo:restart` script.
 
 ## Other platforms
 
