@@ -43,6 +43,7 @@ import { createServer } from "node:http";
 import {
   BuiltInAgent,
   CopilotSseRuntime,
+  InMemoryAgentRunner,
   convertInputToTanStackAI,
 } from "@copilotkit/runtime/v2";
 import { createCopilotNodeListener } from "@copilotkit/runtime/v2/node";
@@ -321,6 +322,10 @@ const agent = new BuiltInAgent({
 
 const runtime = new CopilotSseRuntime({
   agents: { triage: agent },
+  // Supersede a still-running (or wedged) prior run on the same thread instead
+  // of erroring "Thread already running" — a fast follow-up turn (or one after
+  // a dropped/aborted run) cleanly replaces the previous one.
+  runner: new InMemoryAgentRunner({ onConcurrentRun: "supersede" }),
 });
 
 const listener = createCopilotNodeListener({
