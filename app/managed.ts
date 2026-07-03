@@ -27,8 +27,12 @@ import { defaultSlackContext, SanitizingHttpAgent } from "@copilotkit/bot-slack"
 import { appTools } from "./tools/index.js";
 import { appContext } from "./context/app-context.js";
 import { appCommands } from "./commands/index.js";
+import { pickJoke } from "./components/index.js";
 import { senderContext } from "./sender-context.js";
 import { closeBrowser } from "./render/browser.js";
+
+// Slack's shortname for 🔄 (arrives as `event.reaction`, without colons).
+const REDO_EMOJI = "arrows_counterclockwise";
 
 const required = (name: string): string => {
   const v = process.env[name];
@@ -87,6 +91,21 @@ async function main() {
       await thread
         .post("Sorry — I hit an error handling that. Please try again.")
         .catch(() => {});
+    }
+  });
+
+  // 🔄 reaction demo — react with the counterclockwise-arrows emoji on ANY
+  // message and the bot replies with a random joke. Registered as a GLOBAL
+  // reaction handler (not `<Message onReaction>`): on the managed path the
+  // per-message handler is keyed by the SDK's post-time ref, but the reaction
+  // arrives keyed by the real Slack ts (which app-api doesn't map back yet), so
+  // only a global handler resolves. Fires on ADD only, ignores other emoji.
+  bot.onReaction(async ({ added, rawEmoji, thread }) => {
+    if (!added || rawEmoji !== REDO_EMOJI) return;
+    try {
+      await thread.post(`🎲 ${pickJoke()}`);
+    } catch (err) {
+      console.error("[managed] reaction joke failed", err);
     }
   });
 

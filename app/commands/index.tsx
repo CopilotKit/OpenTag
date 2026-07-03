@@ -14,7 +14,7 @@
 import { defineBotCommand } from "@copilotkit/bot";
 import type { BotCommand } from "@copilotkit/bot";
 import { senderContext } from "../sender-context.js";
-import { IssueCard } from "../components/index.js";
+import { IssueCard, JokeCard } from "../components/index.js";
 import { FileIssueModal } from "../modals/file-issue.js";
 
 export const appCommands: BotCommand[] = [
@@ -130,6 +130,19 @@ export const appCommands: BotCommand[] = [
           `I couldn't open the form${res.error ? `: ${res.error}` : ""}.`,
         );
       }
+    },
+  }),
+
+  // `/joke` — reaction demo. Posts a card carrying its OWN `<Message
+  // onReaction>` handler: react 👍 on the card and the per-message handler
+  // tells a joke. (Reacting 🔄 on any message uses the global handler in
+  // app/managed.ts.) Posted as a component element (`<JokeCard/>`) so the
+  // handler persists durably and survives a managed-loop restart.
+  defineBotCommand({
+    name: "joke",
+    description: "Post a card — react 👍 on it and it tells a joke.",
+    async handler({ thread }) {
+      await thread.post(<JokeCard />);
     },
   }),
 ];

@@ -14,3 +14,5 @@ export type { IssueListProps } from "./issue-list.js";
 
 export { PageList, pageListSchema } from "./page-list.js";
 export type { PageListProps } from "./page-list.js";
+
+export { JokeCard, pickJoke } from "./joke-card.js";
