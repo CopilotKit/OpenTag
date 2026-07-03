@@ -53,4 +53,41 @@ describe("confirm_write tool", () => {
       "The user DECLINED — do not write; acknowledge and stop.",
     );
   });
+
+  it("managed (no blocking choice): posts the picker and ends the turn without blocking", async () => {
+    const posted: unknown[] = [];
+    let awaitChoiceCalled = false;
+    const thread = {
+      supportsBlockingChoice: false,
+      async post(ui: unknown) {
+        posted.push(ui);
+        return { id: "m1" };
+      },
+      async awaitChoice() {
+        awaitChoiceCalled = true;
+        return { confirmed: true };
+      },
+    };
+
+    const result = await confirmWriteTool.handler(
+      { action: "Create Linear issue", detail: "CPK-9: Checkout 500s" },
+      { thread, platform: "slack" } as never,
+    );
+
+    // Must NOT block on a managed surface (that would deadlock the claim loop).
+    expect(awaitChoiceCalled).toBe(false);
+    // Posts the ConfirmWrite picker (amber accent, action in header).
+    expect(posted).toHaveLength(1);
+    const { blocks, accent } = renderSlackMessage(
+      renderToIR(posted[0] as BotNode),
+    );
+    expect(accent).toBe("#E2B340");
+    const header = blocks.find((b) => b.type === "header") as
+      | { text: { text: string } }
+      | undefined;
+    expect(header?.text.text).toContain("Create Linear issue");
+    // Returns a sentinel telling the agent to stop and wait for the follow-up.
+    expect(result).toMatch(/posted/i);
+    expect(result).toMatch(/STOP|stop/);
+  });
 });

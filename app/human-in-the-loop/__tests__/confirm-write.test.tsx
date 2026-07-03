@@ -172,4 +172,47 @@ describe("ConfirmWrite", () => {
       | undefined;
     expect(context?.elements[0]?.text).toContain("Declined");
   });
+
+  it("approve onClick (managed surface): updates the card AND runs a follow-up turn to perform the write", async () => {
+    const ir = renderToIR(
+      <ConfirmWrite action="Create Linear issue" detail="CPK-9: 500s" />,
+    );
+    const create = buttonByText(ir, "Create");
+
+    const update = vi.fn(async () => ({ id: "m1" }));
+    const runAgent = vi.fn(async () => ({ id: "m2" }));
+    const ctx = {
+      thread: { supportsBlockingChoice: false, update, runAgent },
+      message: { ref: { id: "m1" } },
+    } as unknown as InteractionContext;
+
+    await (create.props.onClick as ClickHandler)(ctx);
+
+    expect(update).toHaveBeenCalledTimes(1);
+    expect(runAgent).toHaveBeenCalledTimes(1);
+    const prompt = (runAgent.mock.calls[0]![0] as { prompt: string }).prompt;
+    expect(prompt).toContain("APPROVED");
+    expect(prompt).toContain("Create Linear issue");
+  });
+
+  it("cancel onClick (managed surface): updates the card AND runs a follow-up turn to acknowledge the cancellation", async () => {
+    const ir = renderToIR(
+      <ConfirmWrite action="Create Linear issue" detail="CPK-9: 500s" />,
+    );
+    const cancel = buttonByText(ir, "Cancel");
+
+    const update = vi.fn(async () => ({ id: "m1" }));
+    const runAgent = vi.fn(async () => ({ id: "m2" }));
+    const ctx = {
+      thread: { supportsBlockingChoice: false, update, runAgent },
+      message: { ref: { id: "m1" } },
+    } as unknown as InteractionContext;
+
+    await (cancel.props.onClick as ClickHandler)(ctx);
+
+    expect(update).toHaveBeenCalledTimes(1);
+    expect(runAgent).toHaveBeenCalledTimes(1);
+    const prompt = (runAgent.mock.calls[0]![0] as { prompt: string }).prompt;
+    expect(prompt).toContain("DECLINED");
+  });
 });

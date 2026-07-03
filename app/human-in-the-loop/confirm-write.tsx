@@ -1,16 +1,23 @@
 /**
  * `confirm_write` — the human-in-the-loop gate in front of every Linear /
- * Notion write. The agent is instructed (see the system prompt in
- * `runtime.ts`) to confirm BEFORE creating an issue or a page: a tool handler
- * calls `await thread.awaitChoice(<ConfirmWrite .../>)`, which posts this
- * interactive card and **blocks until the user clicks Create or Cancel**,
- * resolving to the clicked button's `value` (`{ confirmed: true | false }`).
- * The agent only performs the write once it resolves with `{ confirmed: true }`.
+ * Notion write. The agent is instructed (see the system prompt in `runtime.ts`)
+ * to confirm BEFORE creating an issue or a page.
  *
- * Each button also carries an `onClick` that updates the picker in place to a
- * resolved / declined state — so the card reflects the decision the moment it's
- * clicked, even minutes later (the "approve the action 20 minutes later"
- * durability story).
+ * Each button carries a `value` and an `onClick`. The `onClick` always updates
+ * the picker in place to a resolved / declined state — so the card reflects the
+ * decision the moment it's clicked, even minutes later (the "approve the action
+ * 20 minutes later" durability story).
+ *
+ * The card drives BOTH HITL modes (gated on `thread.supportsBlockingChoice`):
+ *   • Interactive surfaces (native Socket Mode, …): the tool handler
+ *     `await`s `thread.awaitChoice(<ConfirmWrite/>)`, which blocks until the
+ *     click resolves to the button's `value` (`{ confirmed: boolean }`); the
+ *     same run then performs the write. The `onClick` only repaints the card.
+ *   • Managed (Intelligence HTTP, `supportsBlockingChoice === false`): the tool
+ *     posts this card and ends the turn (a blocking wait would deadlock the
+ *     claim loop); the button `onClick` additionally runs a FOLLOW-UP turn
+ *     (`thread.runAgent`) to perform / cancel the gated write when the click's
+ *     `interaction` delivery is processed.
  *
  * The Slack-side equivalent of React's `useHumanInTheLoop`, expressed as a
  * plain JSX component over the cross-platform bot-ui vocabulary.
@@ -50,6 +57,21 @@ export function ConfirmWrite({ action, detail }: ConfirmWriteProps) {
                 <Context>{"✅  Approved — writing now."}</Context>
               </Message>,
             );
+            // Managed (ack-first) surface: the original run already ended after
+            // posting this card, so the approval can't resolve an in-run
+            // `awaitChoice`. Drive the write as a follow-up turn — this runs as
+            // the click's `interaction` delivery, reusing the same thread state.
+            // (Native/blocking surfaces skip this: `awaitChoice` resolves and
+            // the original run continues.)
+            if (thread.supportsBlockingChoice === false) {
+              await thread.runAgent({
+                prompt:
+                  `The user APPROVED the pending action: "${action}"` +
+                  (detail ? ` — ${detail}` : "") +
+                  ". Perform it now using your tools, then confirm completion. " +
+                  "Do not call confirm_write again for this same action.",
+              });
+            }
           }}
         >
           Create
@@ -65,6 +87,14 @@ export function ConfirmWrite({ action, detail }: ConfirmWriteProps) {
                 <Context>{"🚫  Declined — nothing was written."}</Context>
               </Message>,
             );
+            if (thread.supportsBlockingChoice === false) {
+              await thread.runAgent({
+                prompt:
+                  `The user DECLINED the pending action: "${action}". Do not ` +
+                  "perform it. Briefly acknowledge the cancellation. Do not " +
+                  "call confirm_write again for this same action.",
+              });
+            }
           }}
         >
           Cancel
