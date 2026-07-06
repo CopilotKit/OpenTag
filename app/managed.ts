@@ -27,7 +27,7 @@ import { defaultSlackContext, SanitizingHttpAgent } from "@copilotkit/bot-slack"
 import { appTools } from "./tools/index.js";
 import { appContext } from "./context/app-context.js";
 import { appCommands } from "./commands/index.js";
-import { pickJoke } from "./components/index.js";
+import { JokeCard, pickJoke } from "./components/index.js";
 import { senderContext } from "./sender-context.js";
 import { closeBrowser } from "./render/browser.js";
 
@@ -69,6 +69,11 @@ async function main() {
     // needs a live Slack connection, which the managed path doesn't own.
     context: [...appContext, ...defaultSlackContext],
     commands: appCommands,
+    // Register components rendered via `thread.post(<Component/>)` so their
+    // `<Message onReaction>` handlers survive a managed-loop restart: the
+    // durable reaction snapshot re-renders the named component from this
+    // registry (the in-process hot cache is lost across restarts).
+    components: [JokeCard],
     // The only adapter (managed adapters are exclusive). Config-free: the HTTP
     // transport to Intelligence is resolved from env + this bot's name.
     adapters: [intelligenceAdapter()],
@@ -83,7 +88,22 @@ async function main() {
         // The managed adapter delivers a single turn and reconstructs no prior
         // history (unlike the direct Slack adapter), so feed the turn text as
         // the prompt — otherwise the agent runs with empty input.
-        prompt: message.contentParts ?? message.text,
+        //
+        // A turn can carry BOTH the instruction (`message.text`, e.g. "draw me a
+        // bar chart") AND file content parts (`message.contentParts`, e.g. an
+        // uploaded CSV/image). The adapter builds contentParts from FILES ONLY —
+        // it does not fold in the instruction — so `contentParts ?? text` would
+        // drop the instruction and hand the model a bare data dump, which it
+        // answers with "what would you like me to do?". Merge them: instruction
+        // first, then the file parts.
+        prompt: message.contentParts?.length
+          ? [
+              ...(message.text
+                ? [{ type: "text" as const, text: message.text }]
+                : []),
+              ...message.contentParts,
+            ]
+          : message.text,
         context: senderContext(message.user, thread.platform),
       });
     } catch (err) {

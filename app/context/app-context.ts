@@ -21,6 +21,18 @@ export const appContext: ReadonlyArray<ContextEntry> = [
     ].join("\n"),
   },
   {
+    description: "Acting on data & visualization requests",
+    value: [
+      "When the user gives an explicit instruction alongside data — uploaded or",
+      "pasted (CSV, table, JSON) — DO IT, don't offer a menu. 'draw a bar chart',",
+      "'chart trends', 'graph this' → call render_chart NOW with a Chart.js config",
+      "built from the data (map the requested kind: 'bar chart' -> type 'bar',",
+      "'pie' -> 'pie', 'trend/over time' -> 'line'). Only ask what they want when",
+      "a file arrives with NO instruction. Never reply 'what would you like me to",
+      "do' when they already told you.",
+    ].join("\n"),
+  },
+  {
     description: "Triage policy",
     value: [
       "When asked to file an issue or write a postmortem from a thread, read the",
