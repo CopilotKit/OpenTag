@@ -11,6 +11,8 @@ pieces fit together.
 - [2. Environment variables](#2-environment-variables)
 - [3. Integrations](#3-integrations) — Linear, Notion, charts, Redis
 - [Other platforms](#other-platforms) — Discord, Telegram, WhatsApp
+- [Self-hosted smoke checklist](#self-hosted-smoke-checklist)
+- [Troubleshooting](#troubleshooting)
 - [Slash commands](#slash-commands)
 - [Files → charts, diagrams & tables](#files--charts-diagrams--tables)
 - [Tests](#tests)
@@ -191,6 +193,50 @@ components, the HITL gate, rendering) is shared verbatim.
   The server listens on `$PORT` for the webhook.
 
 Per-platform details are documented inline in [`.env.example`](./.env.example).
+
+## Self-hosted smoke checklist
+
+Use this checklist after creating the Slack app and filling in `.env` to verify that a
+self-hosted install is wired correctly before debugging integrations:
+
+1. Start the agent backend in one terminal:
+
+   ```bash
+   npm run runtime
+   ```
+
+   It should print the AG-UI endpoint, by default
+   `http://localhost:8200/api/copilotkit/agent/triage/run`.
+
+2. Start the chat-platform bot in a second terminal:
+
+   ```bash
+   npm run dev
+   ```
+
+3. In Slack, invite the bot to the channel you want to test, then mention it in a thread:
+
+   ```text
+   @OpenTag summarize this thread
+   ```
+
+4. If you changed the runtime port or deployed it separately, make sure `AGENT_URL` in `.env`
+   points at the same `/api/copilotkit/agent/triage/run` endpoint the runtime printed.
+
+5. Keep the first smoke test Linear/Notion-free unless you are specifically testing those MCP
+   integrations. OpenTag can reply without them as long as a model API key is configured.
+
+## Troubleshooting
+
+| Symptom | Check |
+| --- | --- |
+| The bot never responds in Slack | Confirm Socket Mode is enabled, `SLACK_APP_TOKEN` starts with `xapp-`, and the app-level token has `connections:write`. |
+| Slash commands or assistant events do not arrive | Reinstall the Slack app after changing scopes, events, slash commands, or the manifest. |
+| The bot works in DMs but not a channel | Invite the bot to the channel, or confirm the channel scopes in the manifest match the channel type (`channels:*` for public, `groups:*` for private). |
+| The bot responds but cannot reach the agent | Confirm `npm run runtime` is still running and that `AGENT_URL` matches its printed endpoint. |
+| Approve/Cancel buttons stop working after a restart | Configure `REDIS_URL` and pass the Redis store so interactive state survives bot restarts. |
+| Chart, diagram, or table rendering fails | Install Chromium with `npx playwright install chromium` on the host running the renderer. |
+| WhatsApp webhook does not receive traffic | Unlike Slack Socket Mode and Telegram long-polling, WhatsApp needs a public HTTPS webhook that routes to `$PORT`. |
 
 ## Slash commands
 
