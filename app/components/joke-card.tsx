@@ -1,5 +1,5 @@
 /**
- * `joke-card` — a reaction demo authored with the `@copilotkit/bot-ui` JSX
+ * `joke-card` — a reaction demo authored with the `@copilotkit/channels-ui` JSX
  * vocabulary. The card carries its OWN reaction handler via `<Message
  * onReaction>`: react 👍 on it and the per-message handler posts a joke.
  *
@@ -10,8 +10,8 @@
  * reverse-maps (ts → ref) so the SDK can find it. Self-contained: needs no
  * message text or thread history (which the managed path doesn't reconstruct).
  */
-import { Context, Message, Section } from "@copilotkit/bot-ui";
-import type { BotNode } from "@copilotkit/bot-ui";
+import { Context, Message, Section } from "@copilotkit/channels-ui";
+import type { BotNode } from "@copilotkit/channels-ui";
 
 export const JOKES = [
   "Why do programmers prefer dark mode? Because light attracts bugs.",

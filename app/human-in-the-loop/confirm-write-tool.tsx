@@ -19,7 +19,7 @@
  *     delivery is processed (see {@link ConfirmWrite}).
  */
 import { z } from "zod";
-import { defineBotTool } from "@copilotkit/bot";
+import { defineBotTool } from "@copilotkit/channels";
 import { ConfirmWrite } from "./confirm-write.js";
 
 export const confirmWriteSchema = z.object({

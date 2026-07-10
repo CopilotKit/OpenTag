@@ -8,3 +8,7 @@ e2e/results
 state.db
 state.db-shm
 state.db-wal
+
+# Local dev/runtime process logs & bundles
+.*.log
+.*-bundle.mjs

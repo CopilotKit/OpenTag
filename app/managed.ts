@@ -21,9 +21,9 @@
  * (AGENT_URL), exactly like the direct path.
  */
 import "dotenv/config";
-import { createBot } from "@copilotkit/bot";
-import { intelligenceAdapter } from "@copilotkit/bot-intelligence";
-import { defaultSlackContext, SanitizingHttpAgent } from "@copilotkit/bot-slack";
+import { createBot } from "@copilotkit/channels";
+import { intelligenceAdapter } from "@copilotkit/channels-intelligence";
+import { defaultSlackContext, SanitizingHttpAgent } from "@copilotkit/channels-slack";
 import { appTools } from "./tools/index.js";
 import { appContext } from "./context/app-context.js";
 import { appCommands } from "./commands/index.js";
@@ -74,8 +74,10 @@ async function main() {
     // durable reaction snapshot re-renders the named component from this
     // registry (the in-process hot cache is lost across restarts).
     components: [JokeCard],
-    // The only adapter (managed adapters are exclusive). Config-free: the HTTP
-    // transport to Intelligence is resolved from env + this bot's name.
+    // The only adapter (managed adapters are exclusive). Config-free and
+    // provider-agnostic: one runtime instance serves this bot across every
+    // channel it has attached (Slack, Teams, ...). Intelligence decides the
+    // outbound provider per delivery from the delivery's reply_context.
     adapters: [intelligenceAdapter()],
   });
 
