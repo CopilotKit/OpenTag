@@ -28,6 +28,7 @@ import { appTools } from "./tools/index.js";
 import { appContext } from "./context/app-context.js";
 import { appCommands } from "./commands/index.js";
 import { JokeCard, pickJoke } from "./components/index.js";
+import { ConfirmWrite } from "./human-in-the-loop/index.js";
 import { senderContext } from "./sender-context.js";
 import { closeBrowser } from "./render/browser.js";
 
@@ -70,10 +71,13 @@ async function main() {
     context: [...appContext, ...defaultSlackContext],
     commands: appCommands,
     // Register components rendered via `thread.post(<Component/>)` so their
-    // `<Message onReaction>` handlers survive a managed-loop restart: the
-    // durable reaction snapshot re-renders the named component from this
-    // registry (the in-process hot cache is lost across restarts).
-    components: [JokeCard],
+    // interactive handlers survive the managed delivery boundary: the durable
+    // snapshot re-renders the named component from this registry to resolve the
+    // clicked action (the in-process hot cache is lost across deliveries).
+    // ConfirmWrite carries the HITL approve/cancel `onClick`, so it MUST be here
+    // or a Teams Action.Submit click can't resolve and the interaction
+    // dead-letters (JokeCard is here for the same reason, for reactions).
+    components: [JokeCard, ConfirmWrite],
     // The only adapter (managed adapters are exclusive). Config-free and
     // provider-agnostic: one runtime instance serves this bot across every
     // channel it has attached (Slack, Teams, ...). Intelligence decides the
@@ -123,7 +127,21 @@ async function main() {
   // arrives keyed by the real Slack ts (which app-api doesn't map back yet), so
   // only a global handler resolves. Fires on ADD only, ignores other emoji.
   bot.onReaction(async ({ added, rawEmoji, thread }) => {
-    if (!added || rawEmoji !== REDO_EMOJI) return;
+    // Slack sends emoji shortnames (e.g. `arrows_counterclockwise`); Teams sends
+    // its fixed reaction types (`like`/`heart`/`laugh`/`surprised`/`sad`/`angry`).
+    // Trigger on the Slack redo emoji OR any Teams reaction so the demo works on
+    // both surfaces.
+    const TEAMS_REACTIONS = new Set([
+      "like",
+      "heart",
+      "laugh",
+      "surprised",
+      "sad",
+      "angry",
+    ]);
+    if (!added || (rawEmoji !== REDO_EMOJI && !TEAMS_REACTIONS.has(rawEmoji))) {
+      return;
+    }
     try {
       await thread.post(`🎲 ${pickJoke()}`);
     } catch (err) {
