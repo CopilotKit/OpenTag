@@ -19,7 +19,7 @@
  *     delivery is processed (see {@link ConfirmWrite}).
  */
 import { z } from "zod";
-import { defineBotTool } from "@copilotkit/channels";
+import { defineChannelTool } from "@copilotkit/channels";
 import { ConfirmWrite } from "./confirm-write.js";
 
 export const confirmWriteSchema = z.object({
@@ -36,7 +36,7 @@ export const confirmWriteSchema = z.object({
     ),
 });
 
-export const confirmWriteTool = defineBotTool({
+export const confirmWriteTool = defineChannelTool({
   name: "confirm_write",
   description:
     "Ask the user to approve a write before you perform it. Posts a " +

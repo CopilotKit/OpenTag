@@ -11,7 +11,7 @@
  * message text or thread history (which the managed path doesn't reconstruct).
  */
 import { Context, Message, Section } from "@copilotkit/channels-ui";
-import type { BotNode } from "@copilotkit/channels-ui";
+import type { ChannelNode } from "@copilotkit/channels-ui";
 
 export const JOKES = [
   "Why do programmers prefer dark mode? Because light attracts bugs.",
@@ -30,7 +30,7 @@ export const pickJoke = (): string =>
 const THUMBS_UP = new Set(["+1", "thumbsup"]);
 
 /** A card whose OWN `<Message onReaction>` tells a joke when you react 👍. */
-export function JokeCard(): BotNode {
+export function JokeCard(): ChannelNode {
   return (
     <Message
       onReaction={async (_emoji, reaction) => {

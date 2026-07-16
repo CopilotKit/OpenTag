@@ -16,7 +16,13 @@ const WORKER = join(dirname(fileURLToPath(import.meta.url)), "render-worker.mjs"
 const CHART_JS_CDN = process.env["CHART_JS_URL"];
 // A cold Chromium launch + CDN fetch + screenshot; generous but bounded so a
 // wedged browser can never hang the turn (the child is killed on timeout).
-const RENDER_TIMEOUT_MS = 30_000;
+// Each render pays a full cold-launch, which on a memory-pressured host can
+// take tens of seconds, so the ceiling is generous — but still well under the
+// Intelligence turn timeout (120s) so a truly wedged browser fails the frame
+// rather than hanging the turn.
+// ponytail: raising the ceiling absorbs a slow host; a warm/persistent render
+// server (launch Chromium once, reuse) is the real fix if renders stay slow.
+const RENDER_TIMEOUT_MS = 90_000;
 
 export function renderChart(
   spec: Record<string, unknown>,

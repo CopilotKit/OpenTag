@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { renderToIR, type BotNode } from "@copilotkit/channels-ui";
+import { renderToIR, type ChannelNode } from "@copilotkit/channels-ui";
 import { renderSlackMessage } from "@copilotkit/channels-slack";
 import { confirmWriteTool } from "../confirm-write-tool.js";
 
@@ -32,7 +32,7 @@ describe("confirm_write tool", () => {
     // The posted UI is a ConfirmWrite picker: amber accent + header carrying the action.
     expect(awaited).toHaveLength(1);
     const { blocks, accent } = renderSlackMessage(
-      renderToIR(awaited[0] as BotNode),
+      renderToIR(awaited[0] as ChannelNode),
     );
     expect(accent).toBe("#E2B340");
     const header = blocks.find((b) => b.type === "header") as
@@ -79,7 +79,7 @@ describe("confirm_write tool", () => {
     // Posts the ConfirmWrite picker (amber accent, action in header).
     expect(posted).toHaveLength(1);
     const { blocks, accent } = renderSlackMessage(
-      renderToIR(posted[0] as BotNode),
+      renderToIR(posted[0] as ChannelNode),
     );
     expect(accent).toBe("#E2B340");
     const header = blocks.find((b) => b.type === "header") as

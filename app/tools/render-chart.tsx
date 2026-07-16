@@ -8,7 +8,7 @@
  */
 import { z } from "zod";
 import { Context } from "@copilotkit/channels-ui";
-import { defineBotTool } from "@copilotkit/channels";
+import { defineChannelTool } from "@copilotkit/channels";
 import { renderChart } from "../render/chart.js";
 
 const schema = z.object({
@@ -24,7 +24,10 @@ const schema = z.object({
       data: z
         .object({
           labels: z
-            .array(z.string())
+            // Coerce numeric labels (e.g. years 2024, 2025) to strings — the
+            // model routinely emits numbers here, which a bare z.string()
+            // rejects and fails the whole tool call.
+            .array(z.coerce.string())
             .describe("X-axis / category labels, e.g. ['2026-01','2026-02']."),
           datasets: z
             .array(
@@ -35,7 +38,9 @@ const schema = z.object({
                     .optional()
                     .describe("Series name in the legend, e.g. 'Sev1'."),
                   data: z
-                    .array(z.number())
+                    // Coerce stringified numbers ("42") to numbers — models
+                    // often quote them, which a bare z.number() rejects.
+                    .array(z.coerce.number())
                     .describe("One numeric value per label."),
                 })
                 // Allow Chart.js dataset extras: stack, backgroundColor, fill…
@@ -45,11 +50,16 @@ const schema = z.object({
             .describe("One entry per data series."),
         })
         .describe("Chart.js data — inline the actual numbers."),
+      // Accept whatever shape the model emits for options (an object, or the
+      // occasional array/null/string) so a malformed `options` can't fail
+      // tool-arg validation and kill the whole chart. The render worker
+      // tolerates a non-object (it spreads `options ?? {}` and Chart.js ignores
+      // stray keys). ponytail: widen at the boundary, don't hand-validate.
       options: z
-        .record(z.string(), z.any())
+        .unknown()
         .optional()
         .describe(
-          "Optional Chart.js options. Stacked bar: " +
+          "Optional Chart.js options OBJECT. Stacked bar: " +
             "{ scales: { x: { stacked: true }, y: { stacked: true } } }.",
         ),
     })
@@ -65,7 +75,7 @@ function slug(s: string): string {
   );
 }
 
-export const renderChartTool = defineBotTool({
+export const renderChartTool = defineChannelTool({
   name: "render_chart",
   description:
     "Render a chart as an image and post it to the conversation thread. Pass " +
@@ -107,6 +117,12 @@ export const renderChartTool = defineBotTool({
       }
       return "Rendered and posted the chart image to the thread.";
     } catch (e) {
+      // Surface the real reason in the runtime log — the tool otherwise only
+      // returns the message to the model, so a render failure is invisible here.
+      console.error(
+        "[render_chart] render failed:",
+        (e as Error)?.stack ?? String(e),
+      );
       return `Chart render failed: ${(e as Error).message}`;
     }
   },

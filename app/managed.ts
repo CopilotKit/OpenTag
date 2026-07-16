@@ -15,13 +15,13 @@
  *   COPILOTKIT_INTELLIGENCE_URL   e.g. http://localhost:7050
  *   COPILOTKIT_API_KEY            project runtime API key (cpk-…), minted in the
  *                                 Intelligence UI (project → API keys)
- * and the bot name from `createBot({ name })` below.
+ * and the bot name from `createChannel({ name })` below.
  *
  * The agent backend is unchanged: this still POSTs each turn to `runtime.ts`
  * (AGENT_URL), exactly like the direct path.
  */
 import "dotenv/config";
-import { createBot } from "@copilotkit/channels";
+import { createChannel } from "@copilotkit/channels";
 import { intelligenceAdapter } from "@copilotkit/channels-intelligence";
 import { defaultSlackContext, SanitizingHttpAgent } from "@copilotkit/channels-slack";
 import { appTools } from "./tools/index.js";
@@ -56,7 +56,7 @@ async function main() {
   // Intelligence UI.
   const botName = process.env.MANAGED_BOT_NAME ?? "opentagbot";
 
-  const bot = createBot({
+  const channel = createChannel({
     name: botName,
     // Same BuiltInAgent backend as the direct path (runtime.ts on AGENT_URL).
     agent: (threadId) => {
@@ -88,7 +88,7 @@ async function main() {
   // Intelligence only delivers turns this bot should answer (the Slack app's
   // subscribed app_mention / DM events), so every delivered turn runs the
   // agent. `onMessage` fires for each delivered turn.
-  bot.onMessage(async ({ thread, message }) => {
+  channel.onMessage(async ({ thread, message }) => {
     try {
       await thread.runAgent({
         // The managed adapter delivers a single turn and reconstructs no prior
@@ -126,12 +126,15 @@ async function main() {
   // per-message handler is keyed by the SDK's post-time ref, but the reaction
   // arrives keyed by the real Slack ts (which app-api doesn't map back yet), so
   // only a global handler resolves. Fires on ADD only, ignores other emoji.
-  bot.onReaction(async ({ added, rawEmoji, thread }) => {
-    // Slack sends emoji shortnames (e.g. `arrows_counterclockwise`); Teams sends
-    // its fixed reaction types (`like`/`heart`/`laugh`/`surprised`/`sad`/`angry`).
+  channel.onReaction(async ({ added, rawEmoji, thread }) => {
     // Trigger on the Slack redo emoji OR any Teams reaction so the demo works on
-    // both surfaces.
-    const TEAMS_REACTIONS = new Set([
+    // both surfaces. Slack sends emoji shortnames (e.g. `arrows_counterclockwise`).
+    // Teams sends its OWN reaction codes: the classic set (`like`/`heart`/`laugh`/
+    // `surprised`/`sad`/`angry`) AND — for every other emoji, including the 🔄
+    // family — a `<unicode-codepoint>_<name>` code like `1f504_refresh`. Match
+    // both Teams forms by shape rather than a fixed allowlist that can't keep up
+    // with Teams' expanding emoji set.
+    const CLASSIC_TEAMS_REACTIONS = new Set([
       "like",
       "heart",
       "laugh",
@@ -139,7 +142,9 @@ async function main() {
       "sad",
       "angry",
     ]);
-    if (!added || (rawEmoji !== REDO_EMOJI && !TEAMS_REACTIONS.has(rawEmoji))) {
+    const isTeamsReaction =
+      CLASSIC_TEAMS_REACTIONS.has(rawEmoji) || /^[0-9a-f]{4,6}_/i.test(rawEmoji);
+    if (!added || (rawEmoji !== REDO_EMOJI && !isTeamsReaction)) {
       return;
     }
     try {
@@ -149,15 +154,24 @@ async function main() {
     }
   });
 
-  await bot.start();
+  await channel.start();
   console.log(
     `[managed] bot "${botName}" listening for Intelligence-delivered events ` +
       `(intelligence=${process.env.COPILOTKIT_INTELLIGENCE_URL ?? "<unset>"})`,
   );
 
+  // The Intelligence HTTP delivery source paces its poll loop with unref()'d
+  // timers (0.2.0: so it composes under a hosted supervisor), so once it goes
+  // idle between polls nothing else refs the event loop and Node would exit.
+  // Hold the process open until a shutdown signal.
+  // ponytail: a ref'd no-op interval is the minimal keep-alive; a supervising
+  // ChannelManager (startChannels) would own this in a hosted deployment.
+  const keepAlive = setInterval(() => {}, 1 << 30);
+
   const shutdown = async (signal: string) => {
     console.log(`\n[managed] received ${signal}, stopping…`);
-    await bot.stop();
+    clearInterval(keepAlive);
+    await channel.stop();
     await closeBrowser();
     process.exit(0);
   };
