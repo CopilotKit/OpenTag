@@ -32,9 +32,6 @@ import { ConfirmWrite } from "./human-in-the-loop/index.js";
 import { senderContext } from "./sender-context.js";
 import { closeBrowser } from "./render/browser.js";
 
-// Slack's shortname for 🔄 (arrives as `event.reaction`, without colons).
-const REDO_EMOJI = "arrows_counterclockwise";
-
 const required = (name: string): string => {
   const v = process.env[name];
   if (!v) {
@@ -126,25 +123,12 @@ async function main() {
   // per-message handler is keyed by the SDK's post-time ref, but the reaction
   // arrives keyed by the real Slack ts (which app-api doesn't map back yet), so
   // only a global handler resolves. Fires on ADD only, ignores other emoji.
-  channel.onReaction(async ({ added, rawEmoji, thread }) => {
-    // Trigger on the Slack redo emoji OR any Teams reaction so the demo works on
-    // both surfaces. Slack sends emoji shortnames (e.g. `arrows_counterclockwise`).
-    // Teams sends its OWN reaction codes: the classic set (`like`/`heart`/`laugh`/
-    // `surprised`/`sad`/`angry`) AND — for every other emoji, including the 🔄
-    // family — a `<unicode-codepoint>_<name>` code like `1f504_refresh`. Match
-    // both Teams forms by shape rather than a fixed allowlist that can't keep up
-    // with Teams' expanding emoji set.
-    const CLASSIC_TEAMS_REACTIONS = new Set([
-      "like",
-      "heart",
-      "laugh",
-      "surprised",
-      "sad",
-      "angry",
-    ]);
-    const isTeamsReaction =
-      CLASSIC_TEAMS_REACTIONS.has(rawEmoji) || /^[0-9a-f]{4,6}_/i.test(rawEmoji);
-    if (!added || (rawEmoji !== REDO_EMOJI && !isTeamsReaction)) {
+  channel.onReaction(async ({ added, emoji, thread }) => {
+    // `emoji` is the canonical cross-platform name (channels 0.2.1+): 🔄
+    // normalizes to "refresh" whether it arrived as Slack
+    // `arrows_counterclockwise`, Teams `1f504_refresh`, or the unicode form on
+    // Discord/Telegram/WhatsApp — so the demo needs no per-platform matching.
+    if (!added || emoji !== "refresh") {
       return;
     }
     try {
