@@ -236,7 +236,8 @@ Learning from Human Feedback**).
 
 The **[CopilotKit Slack quickstart](https://docs.copilotkit.ai/slack)** is the canonical guide
 to building a Slack agent — read it alongside this starter. Detailed setup and configuration
-lives in **[setup.md](./setup.md)**.
+lives in **[setup.md](./setup.md)**. For token-handling and reporting guidance, see
+**[SECURITY.md](./SECURITY.md)**.
 
 ## License
 
