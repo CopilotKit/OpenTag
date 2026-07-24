@@ -26,7 +26,7 @@
     "@copilotkit/channels-telegram": "^0.2.1",
     "@copilotkit/channels-ui": "^0.2.1",
     "@copilotkit/channels-whatsapp": "^0.2.1",
-    "@copilotkit/runtime": "^1.62.3",
+    "@copilotkit/runtime": "^1.63.2",
     "@notionhq/notion-mcp-server": "^2.4.0",
     "@slack/bolt": "^4.2.0",
     "@slack/types": "^2.21.1",
