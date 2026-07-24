@@ -62,7 +62,6 @@ It's built on:
 - **[`@copilotkit/channels`](https://github.com/CopilotKit/CopilotKit/tree/main/packages/channels)** — the platform-agnostic bot engine.
 - **[`@copilotkit/channels-slack`](https://github.com/CopilotKit/CopilotKit/tree/main/packages/channels-slack)** / **[`-discord`](https://github.com/CopilotKit/CopilotKit/tree/main/packages/channels-discord)** / **[`-telegram`](https://github.com/CopilotKit/CopilotKit/tree/main/packages/channels-telegram)** / **[`-whatsapp`](https://github.com/CopilotKit/CopilotKit/tree/main/packages/channels-whatsapp)** — the platform adapters.
 - **[`@copilotkit/channels-ui`](https://github.com/CopilotKit/CopilotKit/tree/main/packages/channels-ui)** — a cross-platform JSX vocabulary for rich messages (Block Kit on Slack, Components V2 on Discord, HTML on Telegram).
-- **[`@copilotkit/channels-intelligence`](https://github.com/CopilotKit/CopilotKit/tree/main/packages/channels-intelligence)** — runs the same KiteBot over the CopilotKit Intelligence Realtime Gateway (Intelligence Gateway mode, no platform tokens in this process).
 - **[`@copilotkit/runtime`](https://github.com/CopilotKit/CopilotKit/tree/main/packages/runtime)** — the AG-UI agent backend.
 
 ## Running it

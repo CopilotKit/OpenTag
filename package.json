@@ -21,7 +21,6 @@
   "dependencies": {
     "@copilotkit/channels": "^0.2.1",
     "@copilotkit/channels-discord": "^0.2.1",
-    "@copilotkit/channels-intelligence": "^0.2.1",
     "@copilotkit/channels-slack": "^0.2.1",
     "@copilotkit/channels-telegram": "^0.2.1",
     "@copilotkit/channels-ui": "^0.2.1",
