@@ -9,7 +9,7 @@
 import { describe, it, expect, vi } from "vitest";
 import { renderToIR } from "@copilotkit/channels-ui";
 import type {
-  BotNode,
+  ChannelNode,
   InteractionContext,
   ClickHandler,
 } from "@copilotkit/channels-ui";
@@ -43,29 +43,29 @@ function fakeThread() {
 
 /** Depth-first: find the first IR node whose `type` matches and that has the named prop. */
 function findWithProp(
-  nodes: BotNode[],
+  nodes: ChannelNode[],
   type: string,
   prop: string,
-): BotNode | undefined {
+): ChannelNode | undefined {
   return findAllWithProp(nodes, type, prop)[0];
 }
 
 /** Depth-first: find every IR node whose `type` matches and that has the named prop. */
 function findAllWithProp(
-  nodes: BotNode[],
+  nodes: ChannelNode[],
   type: string,
   prop: string,
-): BotNode[] {
-  const matches: BotNode[] = [];
+): ChannelNode[] {
+  const matches: ChannelNode[] = [];
   for (const node of nodes) {
     if (node.type === type && node.props && prop in node.props) {
       matches.push(node);
     }
     const children = node.props?.children;
     const childArr = Array.isArray(children)
-      ? (children as BotNode[])
+      ? (children as ChannelNode[])
       : children && typeof children === "object"
-        ? [children as BotNode]
+        ? [children as ChannelNode]
         : [];
     matches.push(...findAllWithProp(childArr, type, prop));
   }

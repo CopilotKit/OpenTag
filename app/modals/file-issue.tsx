@@ -120,7 +120,7 @@ export function FileIssueModal({ rich }: { rich: boolean }): ModalView {
         </RadioButtons>
       ) : null}
     </Modal>
-    // JSX expressions type as `JSX.Element` (= `BotNode`, not `ModalView`) per
+    // JSX expressions type as `JSX.Element` (= `ChannelNode`, not `ModalView`) per
     // the channels-ui jsx-runtime, so the narrower literal `type: "modal"` needs
     // an explicit assertion even though `Modal` itself returns `ModalView`.
   ) as ModalView;
