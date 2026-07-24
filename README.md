@@ -81,11 +81,9 @@ SLACK_BOT_TOKEN=xoxb-...
 SLACK_APP_TOKEN=xapp-...
 
 # Intelligence Gateway mode — full list in .env.example:
+INTELLIGENCE_API_URL=https://...
 INTELLIGENCE_GATEWAY_WS_URL=wss://...
 INTELLIGENCE_API_KEY=cpk-...
-INTELLIGENCE_ORG_ID=org_...
-INTELLIGENCE_PROJECT_ID=...
-INTELLIGENCE_CHANNEL_ID=channel_...
 ```
 
 **3. Run it:**
@@ -117,7 +115,7 @@ OpenTag is deliberately small and hackable:
 - **Copy `app/` to start your own bot.** It's the platform-agnostic bot (tools, components, the
   human-in-the-loop gate). `runtime.ts` is the agent backend: one CopilotKit `BuiltInAgent` (an
   LLM + optional MCP tools — no Python, no LangGraph), served over AG-UI.
-- **One platform, or all of them.** `createBot` takes an array of adapters; set the secrets for
+- **One platform, or all of them.** `createChannel` takes an array of adapters; set the secrets for
   whichever platform(s) you want and the bot starts an adapter for each.
 
 The full architecture, the file-by-file map, and every integration live in
@@ -193,15 +191,14 @@ railway config apply         # from the repo root: provisions agent + notion-mcp
   service from `resources` in [`.railway/railway.ts`](./.railway/railway.ts) and delete the
   agent's `NOTION_MCP_URL` / `NOTION_MCP_AUTH_TOKEN` lines; the agent still runs (chat, UI, and —
   with `TAVILY_API_KEY` — web research).
-- **`channel`** — `INTELLIGENCE_GATEWAY_WS_URL`, `INTELLIGENCE_API_KEY`, `INTELLIGENCE_ORG_ID`,
-  `INTELLIGENCE_PROJECT_ID`, `INTELLIGENCE_CHANNEL_ID` (from your CopilotKit Intelligence
-  project + channel).
+- **`channel`** — `INTELLIGENCE_API_URL`, `INTELLIGENCE_GATEWAY_WS_URL`, `INTELLIGENCE_API_KEY`
+  (from your CopilotKit Intelligence project).
 
 The inter-service URLs/ports are wired for you in [`.railway/railway.ts`](./.railway/railway.ts).
 Two values are left unmanaged by the IaC so a UI override survives `railway config apply`: the
 agent's `OPENAI_MODEL` (defaults to `gpt-5.5`) and the channel's `INTELLIGENCE_CHANNEL_NAME`
-(defaults to `kitebot`). Set either in that service's *Variables* to change it — e.g. set
-`INTELLIGENCE_CHANNEL_NAME` if your Intelligence channel isn't named `kitebot`.
+(defaults to `kite-opentag`). Set either in that service's *Variables* to change it — e.g. set
+`INTELLIGENCE_CHANNEL_NAME` if your Intelligence channel isn't named `kite-opentag`.
 
 Applying the config creates the services and their wiring; **KiteBot goes live only once the
 secrets are set and the `channel` service connects** — that's when your Intelligence dashboard

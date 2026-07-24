@@ -89,7 +89,11 @@ export default defineRailway(() => {
     },
   });
 
-  // KiteBot channel host — runs the bot over the Intelligence Realtime Gateway.
+  // KiteBot channel host — runs the bot via CopilotKit Intelligence v2:
+  // createChannel() feeds a CopilotRuntime({ channels }) into
+  // createCopilotNodeListener(). There are no org/project/channel IDs to wire
+  // up: the runtime derives that identity from the API credentials plus the
+  // channel name below.
   const channel = service("channel", {
     source: github(REPO),
     start: "pnpm channel",
@@ -104,16 +108,14 @@ export default defineRailway(() => {
       // pins PORT=8123, so ${{agent.PORT}} resolves to the port uvicorn binds.
       AGENT_URL: "http://${{agent.RAILWAY_PRIVATE_DOMAIN}}:${{agent.PORT}}/",
       // INTELLIGENCE_CHANNEL_NAME is intentionally NOT set here: app/managed.ts
-      // already defaults it to "kitebot", and leaving it unmanaged means a
+      // already defaults it to "kite-opentag", and leaving it unmanaged means a
       // deployer can set their own channel name in the Railway UI without a
       // later `config apply` clobbering it. Set it in the channel service's
       // Variables if your Intelligence channel is named something else.
-      // secrets (set in Railway UI):
-      INTELLIGENCE_GATEWAY_WS_URL: preserve(),
+      INTELLIGENCE_API_URL: "https://dev.intelligence.copilotkit.ai",
+      INTELLIGENCE_GATEWAY_WS_URL: "wss://dev.intelligence.copilotkit.ai/runner",
+      // secret (set in Railway UI):
       INTELLIGENCE_API_KEY: preserve(),
-      INTELLIGENCE_ORG_ID: preserve(),
-      INTELLIGENCE_PROJECT_ID: preserve(),
-      INTELLIGENCE_CHANNEL_ID: preserve(),
     },
   });
 
