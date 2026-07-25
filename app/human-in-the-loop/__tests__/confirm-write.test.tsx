@@ -105,6 +105,27 @@ describe("ConfirmWrite", () => {
     expect(blocks.some((b) => b.type === "section")).toBe(false);
   });
 
+  it("truncates a very long detail so the section text stays within the cap and the card still renders", () => {
+    // Well beyond both our 600-char cap and Slack's ~3000-char section-text
+    // budget — this is the "agent hands back a huge detail" regression case:
+    // before the cap, the confirm card could fail to post, and the blocking
+    // awaitChoice in confirm-write-tool.tsx would then never resolve.
+    const longDetail = "This is a very long piece of detail text. ".repeat(200);
+    expect(longDetail.length).toBeGreaterThan(3000);
+
+    const ir = renderToIR(
+      <ConfirmWrite action="Create Linear issue" detail={longDetail} />,
+    );
+    const { blocks } = renderSlackMessage(ir);
+
+    const section = blocks.find((b) => b.type === "section") as
+      | { text: { text: string } }
+      | undefined;
+    expect(section).toBeDefined();
+    expect(section!.text.text).toBe(`${longDetail.slice(0, 600)}…`);
+    expect(section!.text.text.length).toBeLessThanOrEqual(601);
+  });
+
   it("approve onClick updates the picker in place to the resolved (green) state", async () => {
     const ir = renderToIR(
       <ConfirmWrite action="Create Linear issue" detail="CPK-9: ..." />,

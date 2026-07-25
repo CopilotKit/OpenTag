@@ -112,9 +112,14 @@ export default defineRailway(() => {
       // deployer can set their own channel name in the Railway UI without a
       // later `config apply` clobbering it. Set it in the channel service's
       // Variables if your Intelligence channel is named something else.
-      INTELLIGENCE_API_URL: "https://dev.intelligence.copilotkit.ai",
-      INTELLIGENCE_GATEWAY_WS_URL: "wss://dev.intelligence.copilotkit.ai/runner",
-      // secret (set in Railway UI):
+      //
+      // All three INTELLIGENCE_* connection vars below are deployer-supplied
+      // secrets/values (from your CopilotKit Intelligence project) — declared
+      // with preserve() so they're never hardcoded here, and `railway config
+      // apply` never clobbers what you set in the Railway UI (see README
+      // "Deploy to Railway"):
+      INTELLIGENCE_API_URL: preserve(),
+      INTELLIGENCE_GATEWAY_WS_URL: preserve(),
       INTELLIGENCE_API_KEY: preserve(),
     },
   });

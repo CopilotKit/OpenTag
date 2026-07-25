@@ -19,6 +19,61 @@ import { IssueCard } from "../components/index.js";
 import { FileIssueModal } from "../modals/file-issue.js";
 
 /**
+ * Every awaited call in the handlers below — `runAgent`, `post`,
+ * `postEphemeral`, `openModal` — is a network round-trip to the platform API
+ * and can reject (backend failure, rate limit, network error). Left bare, a
+ * rejection only surfaces as an `unhandledRejection` and the user sees
+ * nothing, breaking these handlers' own "Degrade, never throw" contract.
+ * `safely` and `safePost` are the shared guards: they log the failure and
+ * turn it into the same user-facing feedback a normal "unavailable" result
+ * would get, instead of throwing.
+ */
+
+/**
+ * Await a platform round-trip that can reject, logging the failure and
+ * resolving to `fallback` instead of letting the rejection propagate.
+ * `fallback` should be whatever resolved-but-unavailable value the caller
+ * already knows how to degrade for (e.g. `null`, `{ ok: false }`), so a
+ * rejection is absorbed by the caller's existing resolved-outcome handling
+ * rather than needing a separate branch.
+ */
+async function safely<T>(
+  commandName: string,
+  op: string,
+  call: () => Promise<T>,
+  fallback: T,
+): Promise<T> {
+  try {
+    return await call();
+  } catch (err) {
+    console.error(`[command] ${commandName} ${op} failed`, err);
+    return fallback;
+  }
+}
+
+/**
+ * Post to the thread, logging (never throwing) if the post itself rejects.
+ * These status/usage/error messages are fire-and-forget — nothing branches
+ * on the resulting `MessageRef` — so on rejection there's nowhere further to
+ * degrade to; this just guarantees it's logged instead of a silent
+ * unhandledRejection.
+ */
+async function safePost(
+  commandName: string,
+  thread: Pick<BotThread, "post">,
+  ui: Parameters<BotThread["post"]>[0],
+): Promise<void> {
+  await safely<void>(
+    commandName,
+    "post",
+    async () => {
+      await thread.post(ui);
+    },
+    undefined,
+  );
+}
+
+/**
  * `thread.runAgent` can reject (backend failure, network error, etc). Unlike
  * `onMention` (which wraps its own call), the slash-command handlers below
  * called it bare, so a failure only surfaced as an unhandledRejection and the
@@ -34,11 +89,11 @@ async function runAgentSafely(
     await thread.runAgent(input);
   } catch (err) {
     console.error(`[command] ${commandName} run failed`, err);
-    await thread
-      .post("Sorry — I hit an error handling that. Please try again.")
-      .catch((postErr: unknown) =>
-        console.error(`[command] ${commandName} failed to post error`, postErr),
-      );
+    await safePost(
+      commandName,
+      thread,
+      "Sorry — I hit an error handling that. Please try again.",
+    );
   }
 }
 
@@ -52,7 +107,7 @@ export const appCommands: ChannelCommand[] = [
     description: "Ask the triage agent anything (no @mention needed).",
     async handler({ thread, text, user }) {
       if (!text) {
-        await thread.post("Usage: `/agent <your question>`");
+        await safePost("agent", thread, "Usage: `/agent <your question>`");
         return;
       }
       await runAgentSafely("agent", thread, {
@@ -90,33 +145,45 @@ export const appCommands: ChannelCommand[] = [
     description: "Privately preview the issue I'd file (only you see it).",
     async handler({ thread, text, user, platform }) {
       if (!text) {
-        await thread.post("Usage: `/preview <issue title>`");
+        await safePost("preview", thread, "Usage: `/preview <issue title>`");
         return;
       }
       if (!user) {
-        await thread.post(
+        await safePost(
+          "preview",
+          thread,
           "I couldn't tell who you are, so I can't send a private preview here.",
         );
         return;
       }
+      const invoker = user;
       const draft = IssueCard({
         identifier: "DRAFT",
         title: text,
         state: "Triage",
         description: "_Draft — nothing is filed until you run_ `/file-issue`.",
       });
-      const res = await thread.postEphemeral(user, draft, {
-        fallbackToDM: true,
-      });
-      // Degrade, never throw: report what actually happened.
+      const res = await safely(
+        "preview",
+        "postEphemeral",
+        () => thread.postEphemeral(invoker, draft, { fallbackToDM: true }),
+        null,
+      );
+      // Degrade, never throw: report what actually happened (this also
+      // covers a rejected postEphemeral, which `safely` normalizes to the
+      // same `null` this branch already handles).
       if (!res || !res.ok) {
-        await thread.post(
+        await safePost(
+          "preview",
+          thread,
           `I couldn't send a private preview on ${platform}. Run \`/file-issue\` to file it.`,
         );
         return;
       }
       if (res.usedFallback) {
-        await thread.post(
+        await safePost(
+          "preview",
+          thread,
           "📬 I sent you the draft as a direct message (this surface has no private messages).",
         );
       }
@@ -135,7 +202,9 @@ export const appCommands: ChannelCommand[] = [
     description: "Open a form to file a Linear issue.",
     async handler({ thread, openModal, platform, user }) {
       if (!openModal) {
-        await thread.post(
+        await safePost(
+          "file-issue",
+          thread,
           "Modals aren't supported here — let's do it in chat instead. " +
             "Tell me the issue title and a short description and I'll file it.",
         );
@@ -147,11 +216,17 @@ export const appCommands: ChannelCommand[] = [
         });
         return;
       }
-      const res = await openModal(
-        FileIssueModal({ rich: platform === "slack" }),
+      const openModalFn = openModal;
+      const res = await safely(
+        "file-issue",
+        "openModal",
+        () => openModalFn(FileIssueModal({ rich: platform === "slack" })),
+        { ok: false, error: "unexpected error" },
       );
       if (!res.ok) {
-        await thread.post(
+        await safePost(
+          "file-issue",
+          thread,
           `I couldn't open the form${res.error ? `: ${res.error}` : ""}.`,
         );
       }

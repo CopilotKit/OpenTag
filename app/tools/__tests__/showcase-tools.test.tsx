@@ -24,6 +24,13 @@ type IncidentCtx = Parameters<typeof showIncidentTool.handler>[1];
 type StatusCtx = Parameters<typeof showStatusTool.handler>[1];
 type LinksCtx = Parameters<typeof showLinksTool.handler>[1];
 
+/** The subset of a Slack `section` block's shape these tests need. */
+interface SectionBlockShape {
+  type: string;
+  text?: { type: string; text: string };
+  fields?: Array<{ type: string; text: string }>;
+}
+
 /** A fake `thread` recording posts and updates. */
 function fakeThread() {
   const posts: unknown[] = [];
@@ -242,6 +249,30 @@ describe("show_status render-tool", () => {
     expect(text).toContain("*Queue depth*");
     expect(text).toContain("operational");
   });
+
+  it("clamps to 10 fields (Slack's per-section max) and reports the drop", async () => {
+    const { posts, thread } = fakeThread();
+    const manyFields = Array.from({ length: 14 }, (_, i) => ({
+      label: `Field ${i}`,
+      value: `v${i}`,
+    }));
+    const result = await showStatusTool.handler(
+      { heading: "Service health", fields: manyFields },
+      { thread } as unknown as StatusCtx,
+    );
+
+    // The drop is reported back to the agent...
+    expect(result).toBe(
+      "Posted the status card to the user. Showing 10 of 14 fields.",
+    );
+
+    // ...and only 10 fields actually reach the rendered card.
+    const { blocks } = renderSlackMessage(renderToIR(posts[0] as never));
+    const fieldsBlock = blocks.find(
+      (b) => b.type === "section" && "fields" in b,
+    ) as SectionBlockShape | undefined;
+    expect(fieldsBlock?.fields).toHaveLength(10);
+  });
 });
 
 describe("show_links render-tool", () => {
@@ -265,5 +296,45 @@ describe("show_links render-tool", () => {
     expect(text).toContain("<https://example.com/dash|Dashboard>");
     // No leftover markdown link syntax.
     expect(text).not.toContain("](http");
+  });
+
+  it("clamps links to stay within the section-text budget and reports the drop", async () => {
+    const { posts, thread } = fakeThread();
+    // 100 links whose joined markdown comfortably exceeds Slack's
+    // ~3000-char section-text budget (SLACK_LIMITS.sectionText).
+    const manyLinks = Array.from({ length: 100 }, (_, i) => ({
+      label: `Runbook ${i}`,
+      url: `https://example.com/runbooks/${i}`,
+    }));
+    const result = (await showLinksTool.handler(
+      { heading: "Runbooks", links: manyLinks },
+      { thread } as unknown as LinksCtx,
+    )) as string;
+
+    // The drop is reported back to the agent...
+    const match = result.match(
+      /^Posted the links to the user\. Showing (\d+) of (\d+) links\.$/,
+    );
+    expect(match).not.toBeNull();
+    const shown = Number(match?.[1]);
+    const supplied = Number(match?.[2]);
+    expect(supplied).toBe(100);
+    expect(shown).toBeGreaterThan(0);
+    expect(shown).toBeLessThan(100);
+
+    // ...and the rendered section text actually stays within budget instead
+    // of relying on (or hitting) the renderer's own truncation.
+    const { blocks } = renderSlackMessage(renderToIR(posts[0] as never));
+    const sectionBlock = blocks.find(
+      (b) => b.type === "section" && "text" in b,
+    ) as SectionBlockShape | undefined;
+    const renderedText = sectionBlock?.text?.text ?? "";
+    expect(renderedText.length).toBeLessThanOrEqual(3000);
+    // No ellipsis truncation marker — the clamp stopped short of the
+    // renderer ever having to truncate mid-link.
+    expect(renderedText).not.toContain("…");
+    // Rendered link count (dot-separated pieces) matches the "Showing N of
+    // M" count in the returned status.
+    expect(renderedText.split("·")).toHaveLength(shown);
   });
 });

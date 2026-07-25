@@ -8,7 +8,10 @@
  * and posted via `thread.post`. If the platform rejects the native Table block,
  * we fall back to a column-aligned monospace (code-fenced) table posted as a
  * platform-neutral `<Message>` so the data always lands — the same look the
- * bridge gives GFM tables in prose.
+ * bridge gives GFM tables in prose. That fallback is itself size-budgeted: a
+ * large table can render to more text than a single `<Section>` block can
+ * hold, so we truncate it ourselves (at a row boundary) rather than letting
+ * the renderer silently cut it off mid-row.
  */
 import { z } from "zod";
 import {
@@ -120,6 +123,66 @@ export function toMonospaceTable(cols: Column[], dataRows: string[][]): string {
   return "```\n" + [fmt(header), ...body.map(fmt)].join("\n") + "\n```";
 }
 
+// A single <Section> block's text is capped by the channel's renderer — e.g.
+// Slack's Section blocks truncate at ~3000 chars (see
+// `SLACK_LIMITS.sectionText` in @copilotkit/channels-slack's render budget)
+// — and that cap is enforced by silently slicing the string and appending
+// "…", with no signal that anything was lost. A large monospace-fallback
+// table (up to MAX_DATA_ROWS x MAX_COLUMNS wide cells) can easily blow past
+// that budget, and unlike the native `<Table>` path (whose row/column count
+// limits `clamp` above always reports), the fallback would go quiet — the
+// renderer just chops it off mid-row. Stay comfortably under the real limit
+// (headroom across channel adapters we don't control) and drive the
+// truncation ourselves instead of leaning on the renderer's blind one.
+const MONOSPACE_SECTION_BUDGET = 2800;
+
+/**
+ * Budget-aware wrapper around `toMonospaceTable` for the fallback path. If
+ * the full render fits under `MONOSPACE_SECTION_BUDGET`, it's returned
+ * unchanged (identical to calling `toMonospaceTable` directly, so small
+ * tables — the happy path — are unaffected). Otherwise, trailing DATA rows
+ * are dropped — never splitting a row's text — until the fenced text fits,
+ * and how many rows made it in is reported so the caller can annotate the
+ * drop the same way `clamp` annotates its own limits.
+ */
+export function toBudgetedMonospaceTable(
+  cols: Column[],
+  dataRows: string[][],
+): { text: string; shownRows: number } {
+  const full = toMonospaceTable(cols, dataRows);
+  if (full.length <= MONOSPACE_SECTION_BUDGET) {
+    return { text: full, shownRows: dataRows.length };
+  }
+
+  // `full` is "```\n" + [header, ...bodyLines].join("\n") + "\n```" — split
+  // back into lines so we can drop whole body rows, never a partial row.
+  const lines = full.split("\n");
+  const openFence = lines[0];
+  const headerLine = lines[1];
+  const closeFence = lines[lines.length - 1];
+  const bodyLines = lines.slice(2, -1);
+
+  for (let shownRows = bodyLines.length - 1; shownRows >= 0; shownRows--) {
+    const candidate = [
+      openFence,
+      headerLine,
+      ...bodyLines.slice(0, shownRows),
+      closeFence,
+    ].join("\n");
+    if (candidate.length <= MONOSPACE_SECTION_BUDGET) {
+      return { text: candidate, shownRows };
+    }
+  }
+  // Pathological case: even the header alone (zero data rows) overflows the
+  // budget (e.g. MAX_COLUMNS columns of very long headers). Nothing smaller
+  // and still a well-formed table can be produced — return the header-only
+  // fence.
+  return {
+    text: [openFence, headerLine, closeFence].join("\n"),
+    shownRows: 0,
+  };
+}
+
 export const renderTableTool = defineChannelTool({
   name: "render_table",
   description:
@@ -164,17 +227,35 @@ export const renderTableTool = defineChannelTool({
         "[render-table] native table post failed, falling back to monospace",
         err,
       );
-      const mono = toMonospaceTable(cols, dataRows);
+      const { text: mono, shownRows } = toBudgetedMonospaceTable(cols, dataRows);
+      // Unlike the native path (limited by row/column COUNT, reported by
+      // `clamp` above), the fallback can also be limited by rendered TEXT
+      // SIZE. Fold that into the same notes/suffix convention so a
+      // size-driven drop is surfaced exactly like a count-driven one — never
+      // silent.
+      const fallbackNotes =
+        shownRows < dataRows.length
+          ? [
+              ...notes,
+              `only the first ${shownRows} of ${dataRows.length} rows shown in the text fallback (rendered table was too large to post in full)`,
+            ]
+          : notes;
+      const fallbackNoteBlock =
+        fallbackNotes.length > 0 ? (
+          <Context>{fallbackNotes.join("; ")}</Context>
+        ) : null;
+      const fallbackNoteSuffix =
+        fallbackNotes.length > 0 ? ` (${fallbackNotes.join("; ")})` : "";
       const fallback = (
         <Message>
           {title ? <Header>{title}</Header> : null}
           <Section>{mono}</Section>
-          {noteBlock}
+          {fallbackNoteBlock}
         </Message>
       );
       try {
         await thread.post(fallback);
-        return `Rendered the table (monospace fallback) for the user.${noteSuffix}`;
+        return `Rendered the table (monospace fallback) for the user.${fallbackNoteSuffix}`;
       } catch (fallbackErr) {
         // Both the native table and the monospace fallback were rejected —
         // likely the same transient/platform failure hit both posts. Return a
@@ -184,7 +265,7 @@ export const renderTableTool = defineChannelTool({
           "[render-table] monospace fallback post also failed",
           fallbackErr,
         );
-        return `The table couldn't be posted (both native and monospace rendering failed).${noteSuffix}`;
+        return `The table couldn't be posted (both native and monospace rendering failed).${fallbackNoteSuffix}`;
       }
     }
   },

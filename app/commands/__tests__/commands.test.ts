@@ -281,4 +281,87 @@ describe("example slash commands", () => {
       expect.stringMatching(/couldn.t send a private preview|file-issue/i),
     );
   });
+
+  it("/preview logs and posts a fallback when postEphemeral rejects (network/API error)", async () => {
+    const preview = byName("preview");
+    const postEphemeral = vi
+      .fn()
+      .mockRejectedValueOnce(new Error("slack api unavailable"));
+    const post = vi.fn().mockResolvedValue({ id: "1" });
+    const consoleError = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => {});
+
+    // Must not throw/reject — a bare rejection here would previously only
+    // surface as an unhandledRejection with no user feedback.
+    await preview.handler({
+      thread: { postEphemeral, post } as never,
+      command: "preview",
+      text: "Login broken",
+      options: {},
+      user: { id: "U1", name: "Ada" },
+      platform: "discord",
+    } as never);
+
+    expect(postEphemeral).toHaveBeenCalledTimes(1);
+    expect(consoleError).toHaveBeenCalled();
+    expect(post).toHaveBeenCalledTimes(1);
+    expect(post).toHaveBeenCalledWith(
+      expect.stringMatching(/couldn.t send a private preview|file-issue/i),
+    );
+
+    consoleError.mockRestore();
+  });
+
+  it("/file-issue logs and posts a fallback when openModal rejects (network/API error)", async () => {
+    const cmd = byName("file-issue");
+    const post = vi.fn().mockResolvedValue({ id: "1" });
+    const openModal = vi
+      .fn()
+      .mockRejectedValueOnce(new Error("view_id expired"));
+    const consoleError = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => {});
+
+    // Must not throw/reject — a bare rejection here would previously only
+    // surface as an unhandledRejection with no user feedback.
+    await cmd.handler({
+      thread: { post } as never,
+      command: "file-issue",
+      text: "",
+      options: {},
+      user: { id: "U1" },
+      platform: "slack",
+      openModal,
+    } as never);
+
+    expect(openModal).toHaveBeenCalledTimes(1);
+    expect(consoleError).toHaveBeenCalled();
+    expect(post).toHaveBeenCalledTimes(1);
+    expect(post).toHaveBeenCalledWith(
+      expect.stringMatching(/couldn.t open the form/i),
+    );
+
+    consoleError.mockRestore();
+  });
+
+  it("/agent does not throw when the bare usage post itself rejects", async () => {
+    const thread = fakeThread();
+    thread.post.mockRejectedValueOnce(new Error("channel archived"));
+    const consoleError = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => {});
+
+    // Even the fallback-of-last-resort (posting the usage string) can reject;
+    // there's nowhere further to degrade to, but it must still be logged
+    // rather than thrown.
+    await byName("agent").handler(
+      ctx({ command: "agent", text: "", thread: thread as never }),
+    );
+
+    expect(thread.post).toHaveBeenCalledTimes(1);
+    expect(consoleError).toHaveBeenCalled();
+
+    consoleError.mockRestore();
+  });
 });

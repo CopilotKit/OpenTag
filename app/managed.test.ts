@@ -20,6 +20,24 @@ describe("createKiteChannel", () => {
     expect(ch.name).toBe("kite-staging");
   });
 
+  it("normalizes an empty channel name to the default", () => {
+    // INTELLIGENCE_CHANNEL_NAME="" must not defeat the default the way `??`
+    // would (an empty string is not nullish).
+    const ch = createKiteChannel({
+      agentUrl: "http://localhost:8123/",
+      channelName: "",
+    });
+    expect(ch.name).toBe("kite-opentag");
+  });
+
+  it("normalizes a whitespace-only channel name to the default", () => {
+    const ch = createKiteChannel({
+      agentUrl: "http://localhost:8123/",
+      channelName: "   ",
+    });
+    expect(ch.name).toBe("kite-opentag");
+  });
+
   it("registers the app's slash commands on the channel", () => {
     const ch = createKiteChannel({ agentUrl: "http://localhost:8123/" });
     // createChannel normalizes slash-command names (hyphens -> underscores):

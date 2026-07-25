@@ -20,6 +20,7 @@
  */
 import "dotenv/config";
 import { createServer } from "node:http";
+import { pathToFileURL } from "node:url";
 import { createChannel } from "@copilotkit/channels";
 import type { Channel } from "@copilotkit/channels";
 import type { AgentContentPart } from "@copilotkit/channels-ui";
@@ -81,7 +82,11 @@ export function buildAgentHeaders(
  * no env reads — so it is unit-testable.
  */
 export function createKiteChannel(opts: CreateKiteChannelOptions): Channel {
-  const channelName = opts.channelName ?? "kite-opentag";
+  // Normalize blank/whitespace-only names to the default. `main()` passes
+  // process.env.INTELLIGENCE_CHANNEL_NAME straight through, so an env var set to
+  // "" (or "   ") would otherwise reach createChannel({ name: "" }) — `??` only
+  // guards nullish, not empty strings.
+  const channelName = opts.channelName?.trim() || "kite-opentag";
   const agentHeaders = buildAgentHeaders(opts.agentAuthHeader);
 
   const channel = createChannel({
@@ -193,9 +198,33 @@ async function main() {
     runtime,
     basePath: "/api/copilotkit",
   });
-  const server = createServer(listener).listen(port, () => {
+
+  const server = createServer(listener);
+  // Fail loud on a bind failure. Without an 'error' handler an EADDRINUSE/EACCES
+  // during listen() surfaces only as a logged-but-swallowed uncaughtException
+  // while the process keeps running with no listener — Railway's ON_FAILURE
+  // never fires. Attach BEFORE listen() so the bind error is caught here.
+  server.on("error", (err) => {
+    console.error(`[channel] HTTP listener failed to bind on :${port}`, err);
+    process.exit(1);
+  });
+
+  server.listen(port, async () => {
+    // The socket is bound, but the managed channel is not necessarily live yet.
+    // Await activation before claiming success: `channels.ready()` rejects if any
+    // declared channel settled to `error` (bad INTELLIGENCE_API_KEY, unreachable
+    // INTELLIGENCE_GATEWAY_WS_URL, org/project mismatch), so a failed activation
+    // must NOT log the success line. `channels` is absent when no managed
+    // channels are declared / activation was opted out — then this is a no-op and
+    // a bound socket alone counts as success.
+    try {
+      await listener.channels?.ready?.();
+    } catch (err) {
+      console.error("[channel] Intelligence channel activation failed", err);
+      process.exit(1);
+    }
     console.log(
-      `[channel] KiteBot channel "${channel.name}" mounted on :${port} → Intelligence gateway`,
+      `[channel] KiteBot channel "${channel.name}" mounted on :${port} → Intelligence gateway (channel live)`,
     );
   });
 
@@ -240,9 +269,17 @@ process.on("uncaughtException", (err) => {
   console.error("[channel] uncaughtException:", err);
 });
 
-// Only build the runtime + mount the listener when executed directly
-// (`pnpm channel`), not when the test imports `createKiteChannel`.
-if (process.argv[1] && process.argv[1].endsWith("managed.ts")) {
+// Only build the runtime + mount the listener when this module is the process
+// entry point (`pnpm channel` / `tsx app/managed.ts`), not when the test imports
+// `createKiteChannel`. Compare the module URL to the entry URL rather than
+// matching a filename: endsWith("managed.ts") silently fails to boot if the
+// entry is ever compiled to .js/.mjs or renamed. Under a test import,
+// import.meta.url is this module while process.argv[1] is the test runner, so
+// they differ and main() does not run.
+if (
+  process.argv[1] &&
+  import.meta.url === pathToFileURL(process.argv[1]).href
+) {
   main().catch((err: unknown) => {
     console.error("[channel] fatal: failed to start channel runtime", err);
     process.exit(1);

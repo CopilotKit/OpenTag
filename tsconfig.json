@@ -16,6 +16,6 @@
     "jsx": "react-jsx",
     "jsxImportSource": "@copilotkit/channels-ui"
   },
-  "include": ["app/**/*.ts", "app/**/*.tsx", "runtime.ts", "scripts/**/*.ts"],
+  "include": ["app/**/*.ts", "app/**/*.tsx", "runtime.ts", "scripts/**/*.ts", ".railway/**/*.ts"],
   "exclude": ["node_modules", "e2e"]
 }
