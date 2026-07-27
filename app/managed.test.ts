@@ -280,31 +280,41 @@ describe("channelWatchdogTick", () => {
 
 describe("closeServer", () => {
   it("does not resolve until the server reports closed", async () => {
+    // Categorical, not a microtask race: after a full macrotask turn, a correct
+    // implementation is still pending because the close callback has not fired.
+    // (A Promise.race against a sentinel only catches a synchronously-resolved
+    // mutant — one resolving a few microtasks late would still win.)
     let finish: (() => void) | undefined;
+    let settled = false;
     const pending = closeServer({
       close(cb) {
         finish = () => cb();
       },
     });
-    const sentinel = Symbol("pending");
-    expect(await Promise.race([pending, Promise.resolve(sentinel)])).toBe(
-      sentinel,
-    );
+    void pending.then(() => {
+      settled = true;
+    });
+    await new Promise<void>((r) => setImmediate(r));
+    expect(settled).toBe(false);
     finish?.();
     await expect(pending).resolves.toBeUndefined();
   });
 
-  it("force-closes in-flight connections once close() is initiated", async () => {
-    let closeAllConnectionsCalled = false;
-    await closeServer({
+  it("force-closes in-flight connections only after close() is initiated", () => {
+    // Order is the invariant: closeAllConnections() must come AFTER close(), so
+    // no new connection is accepted in the gap. A boolean flag cannot catch a
+    // swap of the two lines — a call log can.
+    const calls: string[] = [];
+    void closeServer({
       close(cb) {
+        calls.push("close");
         cb();
       },
       closeAllConnections() {
-        closeAllConnectionsCalled = true;
+        calls.push("closeAllConnections");
       },
     });
-    expect(closeAllConnectionsCalled).toBe(true);
+    expect(calls).toEqual(["close", "closeAllConnections"]);
   });
 
   it("resolves even when the server was never listening", async () => {
