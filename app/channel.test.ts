@@ -84,6 +84,7 @@ function findButton(
 
 afterEach(async () => {
   await Promise.all(channels.splice(0).map((channel) => channel.ɵruntime.stop()));
+  vi.restoreAllMocks();
 });
 
 function makeChannel(options: {
@@ -234,8 +235,40 @@ describe("createOpenTagChannel", () => {
     );
   });
 
+  it("surfaces a structured recoverable error when suggested prompts fail", async () => {
+    const consoleError = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => undefined);
+    const { adapter, channel } = makeChannel({ platform: "slack" });
+    adapter.setSuggestedPrompts = vi.fn(async () => {
+      throw new Error("suggested prompts unavailable");
+    });
+
+    await channel.ɵruntime.start();
+    await adapter.emitThreadStarted({
+      conversationKey: "c1",
+      replyTarget: {},
+      user: { id: "U1", name: "Ada" },
+    });
+
+    expect(consoleError).toHaveBeenCalledWith(
+      "[channel] recoverable error",
+      expect.objectContaining({
+        error: expect.any(Error),
+        context: {
+          operation: "set_suggested_prompts",
+          recovery: "continue_without_suggested_prompts",
+        },
+        timestamp: expect.any(String),
+      }),
+    );
+  });
+
   it("posts a user-facing error when the agent run fails", async () => {
     const error = new Error("agent unavailable");
+    const consoleError = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => undefined);
     const { adapter, channel } = makeChannel({
       platform: "slack",
       agent: new FakeAgent([
@@ -255,6 +288,17 @@ describe("createOpenTagChannel", () => {
     });
 
     expect(JSON.stringify(adapter.posted)).toMatch(/sorry.*error/i);
+    expect(consoleError).toHaveBeenCalledWith(
+      "[channel] recoverable error",
+      expect.objectContaining({
+        error,
+        context: {
+          operation: "run_agent",
+          recovery: "posted_user_facing_error",
+        },
+        timestamp: expect.any(String),
+      }),
+    );
   });
 
   it("posts a real JSON-stringified confirm_write interrupt card and returns immediately", async () => {

@@ -9,9 +9,10 @@ to prevent subagent text from leaking to the frontend via LangChain callback pro
 """
 
 import os
-import sys
 import asyncio
 import json
+import logging
+from datetime import datetime, timezone
 from typing import Any
 from concurrent.futures import ThreadPoolExecutor
 from langchain_core.tools import BaseTool, tool
@@ -24,6 +25,31 @@ from langchain_mcp_adapters.interceptors import (
 )
 from copilotkit.langgraph import copilotkit_interrupt
 from mcp.types import CallToolResult, TextContent
+
+
+logger = logging.getLogger(__name__)
+
+
+def _emit_internal_source_error(
+    error: BaseException,
+    *,
+    message: str,
+    source: str,
+    recovery: str,
+) -> None:
+    """Emit an observable error without logging credentials or server details."""
+    logger.error(
+        {
+            "error": message,
+            "context": {
+                "component": "internal_source_tools",
+                "exception_type": type(error).__name__,
+                "recovery": recovery,
+                "source": source,
+            },
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        }
+    )
 
 
 @tool
@@ -279,14 +305,14 @@ def internal_source_tools() -> list:
     async-only; this function runs it to completion on a short-lived event
     loop (`asyncio.run`) so it can be called synchronously from
     `build_agent()`. Each server is connected individually so one server
-    failing to load never drops the other's tools, and a down or
-    misconfigured MCP server is logged and skipped rather than raised -
-    this must never break agent startup.
+    failing to load never drops the other's tools. These integrations are
+    optional deployment enhancements, so a down or misconfigured server emits
+    a structured error event and is skipped instead of blocking agent startup.
 
     Returns:
-        list: LangChain tools from the configured MCP server(s), or an
-            empty list when neither `LINEAR_API_KEY` nor
-            `NOTION_MCP_AUTH_TOKEN` is set (or all configured servers fail).
+        list: LangChain tools from the configured MCP server(s), or an empty
+            list when neither integration is configured (or every configured
+            optional integration emitted an error and was skipped).
     """
     connections: dict[str, dict[str, Any]] = {}
 
@@ -331,33 +357,36 @@ def internal_source_tools() -> list:
                     f"[TOOLS] internal_source_tools: loaded {len(server_tools)} "
                     f"tool(s) from {name}"
                 )
-            except asyncio.TimeoutError:
-                # This source WAS configured (its token/URL is set) but is
-                # unreachable — a real, silent degradation (the agent runs
-                # without its tools). Warn loudly on stderr so it's not confused
-                # with a source the operator intentionally left disabled. On
-                # Railway a cold-start race can cause this; redeploy once the
-                # sidecar is up (see README "Cold-start note").
-                print(
-                    f"[TOOLS] WARNING: {name} is configured but its MCP server "
-                    f"timed out after 8s — running WITHOUT {name} tools",
-                    file=sys.stderr,
+            except asyncio.TimeoutError as error:
+                # Optional MCP integrations must not block the core agent, but
+                # a configured source failing is distinct from an intentionally
+                # disabled source and must remain observable.
+                _emit_internal_source_error(
+                    error,
+                    message="Configured MCP server timed out while loading tools",
+                    source=name,
+                    recovery="skip_optional_integration",
                 )
-            except Exception as e:
-                print(
-                    f"[TOOLS] WARNING: {name} is configured but its MCP server "
-                    f"is unavailable — running WITHOUT {name} tools ({e})",
-                    file=sys.stderr,
+            except Exception as error:
+                _emit_internal_source_error(
+                    error,
+                    message=(
+                        "Configured MCP server was unavailable while loading tools"
+                    ),
+                    source=name,
+                    recovery="skip_optional_integration",
                 )
         return loaded
 
     try:
         return asyncio.run(_load_all())
-    except Exception as e:
-        # Belt-and-suspenders: even a failure in the event-loop plumbing
-        # itself (not just an individual server) must not break startup.
-        print(
-            f"[TOOLS] WARNING: failed to load internal-source MCP tools ({e})",
-            file=sys.stderr,
+    except Exception as error:
+        # Loading optional integrations is recoverable for the core agent, but
+        # event-loop failures still surface as structured operational errors.
+        _emit_internal_source_error(
+            error,
+            message="Failed to initialize MCP tool loading",
+            source="all",
+            recovery="skip_optional_integrations",
         )
         return []

@@ -13,6 +13,17 @@ import { parseConfirmWriteInterrupt } from "./interrupt.js";
 import { FILE_ISSUE_CALLBACK, fileIssueSubmit } from "./modals/file-issue.js";
 import { appTools } from "./tools/index.js";
 
+function reportRecoverableError(
+  error: unknown,
+  context: { operation: string; recovery: string },
+): void {
+  console.error("[channel] recoverable error", {
+    error: error instanceof Error ? error : new Error(String(error)),
+    context,
+    timestamp: new Date().toISOString(),
+  });
+}
+
 export interface CreateOpenTagChannelOptions {
   name: string;
   adapters: PlatformAdapter[];
@@ -41,12 +52,23 @@ export function createOpenTagChannel(
     try {
       await thread.runAgent(mentionRunInput(message, thread.platform));
     } catch (error) {
-      console.error("[channel] agent run failed", error);
-      await thread
-        .post("Sorry — I hit an error handling that. Please try again.")
-        .catch((postError: unknown) =>
-          console.error("[channel] failed to post agent error", postError),
+      try {
+        await thread.post(
+          "Sorry — I hit an error handling that. Please try again.",
         );
+      } catch (postError) {
+        throw new AggregateError(
+          [error, postError],
+          "The agent run and its user-facing error reply both failed",
+        );
+      }
+
+      // A failed turn is isolated from future turns. Once the user receives an
+      // explicit failure response, the Channel can safely remain available.
+      reportRecoverableError(error, {
+        operation: "run_agent",
+        recovery: "posted_user_facing_error",
+      });
     }
   });
 
@@ -77,7 +99,12 @@ export function createOpenTagChannel(
         },
       ]);
     } catch (error) {
-      console.error("[channel] onThreadStarted failed", error);
+      // Suggested prompts are an optional affordance; their absence does not
+      // affect message delivery, agent execution, or later thread turns.
+      reportRecoverableError(error, {
+        operation: "set_suggested_prompts",
+        recovery: "continue_without_suggested_prompts",
+      });
     }
   });
 

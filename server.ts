@@ -150,6 +150,8 @@ export async function startOpenTagServer(
   };
 
   const onSignal = (): void => {
+    // Signal callbacks cannot be awaited by EventEmitter. The terminal catch
+    // reports cleanup failure and sets a non-zero process exit code.
     void shutdown().catch(onShutdownError);
   };
   signalTarget.once("SIGINT", onSignal);
@@ -210,8 +212,10 @@ const isMain =
   import.meta.url === pathToFileURL(process.argv[1]).href;
 
 if (isMain) {
-  void main().catch((error: unknown) => {
+  try {
+    await main();
+  } catch (error) {
     console.error("[opentag] startup failed", error);
     process.exitCode = 1;
-  });
+  }
 }
