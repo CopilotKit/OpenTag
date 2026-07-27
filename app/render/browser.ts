@@ -31,6 +31,16 @@ export async function closeBrowser(): Promise<void> {
   closing = true;
   const pending = browserPromise;
   browserPromise = undefined;
-  const b = await pending.catch(() => undefined);
-  await b?.close().catch(() => {});
+  // Let both failure modes propagate instead of swallowing them: a launch
+  // that never produced a browser, and a `close()` that fails on one that
+  // did. The caller in `managed.ts` already has a `.catch` on this call
+  // specifically to log an orphaned/wedged Chromium during shutdown — that
+  // handler was unreachable dead code while this function ate every error,
+  // leaving the operator with no signal that teardown didn't actually
+  // happen. `closeBrowser()` is still a clean no-op for the common case of
+  // "never launched" (the early return above), and still idempotent: once
+  // `browserPromise` is detached, a later call short-circuits there too,
+  // launch/close failure or not.
+  const b = await pending;
+  await b.close();
 }
