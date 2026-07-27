@@ -19,7 +19,6 @@
  *
  * Run: `pnpm channel` with INTELLIGENCE_* + AGENT_URL set (see .env.example).
  */
-import "dotenv/config";
 import { createHash, timingSafeEqual } from "node:crypto";
 import { createServer } from "node:http";
 import { pathToFileURL } from "node:url";
@@ -42,13 +41,75 @@ import { senderContext } from "./sender-context.js";
 import { fileIssueSubmit, FILE_ISSUE_CALLBACK } from "./modals/file-issue.js";
 import { closeBrowser } from "./render/browser.js";
 
+/**
+ * Validate a required env var's already-read value: trimmed and non-blank.
+ *
+ * `!v` alone rejects `""` and `undefined` but lets `"   "` through — trivially
+ * produced by pasting into the Railway UI — so `AGENT_URL="   "` used to boot
+ * green, the channel would activate, the host would log "(channel live)", and
+ * every single turn would then fail inside `onMention` with "Sorry — I hit an
+ * error handling that." `channelName` and `CHANNEL_HTTP_TOKEN` elsewhere in
+ * this file are already `.trim()`-normalized; this was the missed one.
+ *
+ * Pure: takes the value instead of reading `process.env` itself, and throws
+ * instead of exiting, so it stays unit-testable and `main()` (via `required`
+ * below) remains the only place that owns `process.exit`.
+ */
+export function requireNonBlank(name: string, value: string | undefined): string {
+  const trimmed = value?.trim();
+  if (!trimmed) {
+    throw new Error(`Missing required env var: ${name}`);
+  }
+  return trimmed;
+}
+
+/**
+ * Validate that a required URL-shaped env var actually parses as a URL.
+ *
+ * AGENT_URL is otherwise never validated as a URL, so `AGENT_URL=not-a-url`
+ * boots exactly as green as a correct value — the failure only surfaces later,
+ * deep inside `SanitizingHttpAgent`, on the first turn. Fail fast at boot
+ * instead and name the bad value, so a deployer doesn't have to reproduce a
+ * live turn to find out why it was rejected.
+ *
+ * Pure: throws rather than exiting, for the same reason as `requireNonBlank`.
+ */
+export function requireUrl(name: string, value: string): string {
+  try {
+    void new URL(value); // constructing is the validation; the result is unused
+  } catch {
+    throw new Error(`${name} is not a valid URL: "${value}"`);
+  }
+  return value;
+}
+
+/**
+ * Read a required env var and exit the process if it is missing or blank.
+ * The validation itself lives in the pure, exported `requireNonBlank` above;
+ * this wrapper is the one place that reads `process.env` and calls
+ * `process.exit`, same as before.
+ */
 const required = (name: string): string => {
-  const v = process.env[name];
-  if (!v) {
-    console.error(`Missing required env var: ${name}`);
+  try {
+    return requireNonBlank(name, process.env[name]);
+  } catch (err) {
+    console.error(err instanceof Error ? err.message : String(err));
     process.exit(1);
   }
-  return v;
+};
+
+/**
+ * `required()` plus the URL-shape check from `requireUrl`, for AGENT_URL
+ * specifically — the only required env var this host treats as a URL rather
+ * than an opaque string.
+ */
+const requiredUrl = (name: string): string => {
+  try {
+    return requireUrl(name, requireNonBlank(name, process.env[name]));
+  } catch (err) {
+    console.error(err instanceof Error ? err.message : String(err));
+    process.exit(1);
+  }
 };
 
 /**
@@ -105,11 +166,20 @@ export function promptFromMessage(message: {
     : parts;
 }
 
-/** Build the Authorization header object forwarded to the agent, if any. */
+/**
+ * Build the Authorization header object forwarded to the agent, if any.
+ *
+ * `AGENT_AUTH_HEADER` reaches here raw from `process.env`, and `"   "` is
+ * truthy — without trimming, a whitespace-only value would ship
+ * `{ Authorization: "   " }` on every agent request instead of being treated
+ * as unset. Trim first, the same way `channelName` and `CHANNEL_HTTP_TOKEN`
+ * are normalized elsewhere in this file.
+ */
 export function buildAgentHeaders(
   authHeader?: string,
 ): { Authorization: string } | undefined {
-  return authHeader ? { Authorization: authHeader } : undefined;
+  const trimmed = authHeader?.trim();
+  return trimmed ? { Authorization: trimmed } : undefined;
 }
 
 /** Constant-time compare of two strings, via fixed-length digests. */
@@ -160,7 +230,8 @@ export interface ChannelHealth {
 }
 
 /**
- * Every declared channel that is not `online`, as `"<name>=<status>"`.
+ * Every declared channel that is not `online`, as `"<name>=<status>"` — plus
+ * `overall` itself when it disagrees with an all-clear per-channel map.
  *
  * `channels.ready()` resolving is NOT proof of liveness: it resolves once each
  * channel reaches a terminal state, and `setup_required` (declared, but no
@@ -168,12 +239,26 @@ export interface ChannelHealth {
  * carrying a direct adapter this handler doesn't own — resolves immediately and
  * likewise implies no health. Only `online` means the channel can actually
  * send, so the boot's success line must be gated on this returning empty.
+ *
+ * That per-channel map is not the whole story, though: per the installed
+ * `ChannelManager.status()`, before activation completes it returns
+ * `{ overall: "connecting", channels: {} }` — an EMPTY map — and after
+ * `stop()` it returns `{ overall: "stopped", channels: {} }`. Filtering only
+ * `health.channels` sees nothing to filter and reports `[]`, so the boot gate
+ * would log "(channel live)" for a channel that never activated. Fold
+ * `overall` in: when the per-channel map has nothing to say (e.g. it's empty)
+ * but `overall` itself is not `online`, surface that as `"overall=<status>"`
+ * so the false-success case this gate exists to catch can't slip through.
  */
 export function unhealthyChannels(health: ChannelHealth | undefined): string[] {
   if (!health) return [];
-  return Object.entries(health.channels)
+  const perChannel = Object.entries(health.channels)
     .filter(([, status]) => status !== "online")
     .map(([name, status]) => `${name}=${status}`);
+  if (perChannel.length === 0 && health.overall !== "online") {
+    return [`overall=${health.overall}`];
+  }
+  return perChannel;
 }
 
 /** What a watchdog tick wants `main()` to do. */
@@ -361,7 +446,7 @@ const CHANNEL_READY_TIMEOUT_MS = 30_000;
 const CHANNEL_WATCHDOG_INTERVAL_MS = 60_000;
 
 async function main() {
-  const agentUrl = required("AGENT_URL");
+  const agentUrl = requiredUrl("AGENT_URL");
   const agentAuthHeader = process.env.AGENT_AUTH_HEADER;
 
   const channel = createKiteChannel({
@@ -590,16 +675,6 @@ async function main() {
   process.on("SIGTERM", () => runShutdown("SIGTERM"));
 }
 
-// Fail loud, not silent: surface any stray async error (e.g. a throw deep in an
-// interaction/callback path) instead of letting it kill the process with no
-// log. Log and keep running — one bad turn shouldn't take the host down.
-process.on("unhandledRejection", (reason) => {
-  console.error("[channel] unhandledRejection:", reason);
-});
-process.on("uncaughtException", (err) => {
-  console.error("[channel] uncaughtException:", err);
-});
-
 // Only build the runtime + mount the listener when this module is the process
 // entry point (`pnpm channel` / `tsx app/managed.ts`), not when the test imports
 // `createKiteChannel`. Compare the module URL to the entry URL rather than
@@ -607,10 +682,37 @@ process.on("uncaughtException", (err) => {
 // entry is ever compiled to .js/.mjs or renamed. Under a test import,
 // import.meta.url is this module while process.argv[1] is the test runner, so
 // they differ and main() does not run.
+//
+// This same guard is where dotenv's load and the two `process.on` handlers
+// below belong, and for the identical reason `main()` itself is gated here:
+// a plain module-scope `import "dotenv/config"` and module-scope `process.on`
+// calls fire on IMPORT, not on execution as the entry point. Without this,
+// `managed.test.ts` importing this module for its pure helpers would install
+// global `unhandledRejection`/`uncaughtException` handlers into the vitest
+// worker process and load the developer's local `.env` into the test run —
+// exactly the kind of process-global side effect this file goes to trouble to
+// avoid for `main()` itself.
 if (
   process.argv[1] &&
   import.meta.url === pathToFileURL(process.argv[1]).href
 ) {
+  // Load .env BEFORE anything reads `process.env` — `main()` (via `required`/
+  // `requiredUrl`) is the first thing to do so, and a dynamic import's promise
+  // only resolves once dotenv/config's own top-level code (which populates
+  // `process.env` synchronously) has already run, so awaiting it here is
+  // sufficient ordering.
+  await import("dotenv/config");
+
+  // Fail loud, not silent: surface any stray async error (e.g. a throw deep in
+  // an interaction/callback path) instead of letting it kill the process with
+  // no log. Log and keep running — one bad turn shouldn't take the host down.
+  process.on("unhandledRejection", (reason) => {
+    console.error("[channel] unhandledRejection:", reason);
+  });
+  process.on("uncaughtException", (err) => {
+    console.error("[channel] uncaughtException:", err);
+  });
+
   main().catch((err: unknown) => {
     console.error("[channel] fatal: failed to start channel runtime", err);
     process.exit(1);

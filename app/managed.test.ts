@@ -10,6 +10,8 @@ import {
   channelWatchdogTick,
   closeServer,
   onceShutdown,
+  requireNonBlank,
+  requireUrl,
 } from "./managed.js";
 
 describe("createKiteChannel", () => {
@@ -167,6 +169,52 @@ describe("httpAuthGate", () => {
   });
 });
 
+describe("requireNonBlank", () => {
+  it("rejects an undefined value", () => {
+    expect(() => requireNonBlank("AGENT_URL", undefined)).toThrow(
+      "Missing required env var: AGENT_URL",
+    );
+  });
+
+  it("rejects an empty string", () => {
+    expect(() => requireNonBlank("AGENT_URL", "")).toThrow(
+      "Missing required env var: AGENT_URL",
+    );
+  });
+
+  it("rejects a whitespace-only value", () => {
+    // THE REGRESSION: `!v` alone lets "   " through — trivially pasted into
+    // the Railway UI — so AGENT_URL="   " used to boot green and then fail
+    // every single turn inside onMention instead of failing at boot.
+    expect(() => requireNonBlank("AGENT_URL", "   ")).toThrow(
+      "Missing required env var: AGENT_URL",
+    );
+  });
+
+  it("trims and returns a valid value", () => {
+    expect(requireNonBlank("AGENT_URL", "  http://localhost:8123/  ")).toBe(
+      "http://localhost:8123/",
+    );
+  });
+});
+
+describe("requireUrl", () => {
+  it("rejects a value that does not parse as a URL", () => {
+    // AGENT_URL was never validated as a URL, so "not-a-url" used to boot just
+    // as green as a correct value and only fail later, deep inside
+    // SanitizingHttpAgent, on the first turn.
+    expect(() => requireUrl("AGENT_URL", "not-a-url")).toThrow(
+      'AGENT_URL is not a valid URL: "not-a-url"',
+    );
+  });
+
+  it("returns the value unchanged when it parses as a URL", () => {
+    expect(requireUrl("AGENT_URL", "http://localhost:8123/")).toBe(
+      "http://localhost:8123/",
+    );
+  });
+});
+
 describe("buildAgentHeaders", () => {
   it("returns undefined when no auth header is given", () => {
     expect(buildAgentHeaders(undefined)).toBeUndefined();
@@ -174,6 +222,19 @@ describe("buildAgentHeaders", () => {
 
   it("wraps the auth header value in an Authorization object", () => {
     expect(buildAgentHeaders("Bearer abc123")).toEqual({
+      Authorization: "Bearer abc123",
+    });
+  });
+
+  it("treats a whitespace-only header as absent", () => {
+    // THE REGRESSION: `authHeader ? ... : undefined` treats "   " as truthy,
+    // so buildAgentHeaders used to ship `{ Authorization: "   " }` on every
+    // agent request.
+    expect(buildAgentHeaders("   ")).toBeUndefined();
+  });
+
+  it("trims surrounding whitespace from a real header value", () => {
+    expect(buildAgentHeaders("  Bearer abc123  ")).toEqual({
       Authorization: "Bearer abc123",
     });
   });
@@ -228,6 +289,30 @@ describe("unhealthyChannels", () => {
         channels: { a: "online", b: "setup_required", c: "reconnecting" },
       }),
     ).toEqual(["b=setup_required", "c=reconnecting"]);
+  });
+
+  it("reports overall=connecting when activation hasn't produced any channel entries yet", () => {
+    // THE REGRESSION: per the installed ChannelManager.status(), before
+    // activation completes status() returns { overall: "connecting", channels:
+    // {} } — an EMPTY map. Filtering only `channels` finds nothing to filter
+    // and used to return [], so the boot gate logged "(channel live)" for a
+    // channel that never activated.
+    expect(
+      unhealthyChannels({ overall: "connecting", channels: {} }),
+    ).toEqual(["overall=connecting"]);
+  });
+
+  it("reports overall=stopped once every managed channel has been torn down", () => {
+    expect(unhealthyChannels({ overall: "stopped", channels: {} })).toEqual([
+      "overall=stopped",
+    ]);
+  });
+
+  it("reports nothing when overall is online and there are no declared channels", () => {
+    // Per ChannelManager.status(): with no declared channels at all, overall
+    // is "online" (nothing is degraded) — this must not be mistaken for the
+    // connecting/stopped false-success case above.
+    expect(unhealthyChannels({ overall: "online", channels: {} })).toEqual([]);
   });
 });
 
@@ -386,5 +471,31 @@ describe("onceShutdown", () => {
     );
     expect(() => run("SIGTERM")).not.toThrow();
     await new Promise((resolve) => setTimeout(resolve, 0));
+  });
+});
+
+describe("module import safety", () => {
+  it("does not register process-global exception handlers merely by importing the module", async () => {
+    // THE REGRESSION: process.on("unhandledRejection"/"uncaughtException")
+    // used to be registered at module scope, so importing this module for its
+    // pure helpers (as every test in this file does) installed global
+    // exception handlers into the vitest worker process. Both must now live
+    // behind the entry-point guard, so importing the module — even a fresh,
+    // uncached copy of it — must be a no-op on `process`'s listener counts.
+    const before = {
+      unhandled: process.listenerCount("unhandledRejection"),
+      uncaught: process.listenerCount("uncaughtException"),
+    };
+    // A query-suffixed specifier forces Vitest's Vite-backed loader to
+    // evaluate a fresh copy of the module (bypassing the module cache used by
+    // the static import at the top of this file), so this exercises the
+    // module's top-level code again rather than reusing the already-imported
+    // instance.
+    await import(/* @vite-ignore */ `./managed.js?import-safety-check=${Date.now()}`);
+    const after = {
+      unhandled: process.listenerCount("unhandledRejection"),
+      uncaught: process.listenerCount("uncaughtException"),
+    };
+    expect(after).toEqual(before);
   });
 });
