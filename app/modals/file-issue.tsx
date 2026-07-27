@@ -70,7 +70,7 @@ export const fileIssueSubmit: ModalSubmitHandler = async ({
       ...platformRunInput(privateMetadata ?? thread.platform, user),
     })
     .catch((err) => {
-      console.error("[bot] file-issue modal run failed", err);
+      console.error("[opentag] file-issue modal run failed", err);
       void thread
         .post("Sorry — I couldn't file that issue. Please try again.")
         .catch((postErr: unknown) =>

@@ -35,6 +35,32 @@ class CapturingAgent extends FakeAgent {
 
 const channels: Channel[] = [];
 
+function confirmWriteEnvelope(
+  action = "Create Linear issue",
+  detail: string | null = "CPK-9: Checkout 500s",
+) {
+  return {
+    __copilotkit_interrupt_value__: {
+      action: "confirm_write",
+      args: { action, detail },
+    },
+    __copilotkit_messages__: [
+      {
+        content: "",
+        type: "ai",
+        tool_calls: [
+          {
+            id: "tool-confirm-write",
+            name: "confirm_write",
+            args: { action, detail },
+            type: "tool_call",
+          },
+        ],
+      },
+    ],
+  };
+}
+
 function findButton(
   nodes: ChannelNode[],
   confirmed: boolean,
@@ -231,20 +257,14 @@ describe("createOpenTagChannel", () => {
     expect(JSON.stringify(adapter.posted)).toMatch(/sorry.*error/i);
   });
 
-  it("posts a valid confirm_write interrupt card and returns immediately", async () => {
+  it("posts a real JSON-stringified confirm_write interrupt card and returns immediately", async () => {
     const agent = new FakeAgent([
       (subscriber) => {
         subscriber.onCustomEvent?.({
           event: {
             type: EventType.CUSTOM,
             name: "on_interrupt",
-            value: {
-              action: "confirm_write",
-              args: {
-                action: "Create Linear issue",
-                detail: "CPK-9: Checkout 500s",
-              },
-            },
+            value: JSON.stringify(confirmWriteEnvelope()),
           },
         } as never);
       },
@@ -287,10 +307,13 @@ describe("createOpenTagChannel", () => {
           event: {
             type: EventType.CUSTOM,
             name: "on_interrupt",
-            value: {
-              action: "unexpected_action",
-              args: { action: "Injected write" },
-            },
+            value: JSON.stringify({
+              ...confirmWriteEnvelope("Injected write"),
+              __copilotkit_interrupt_value__: {
+                action: "unexpected_action",
+                args: { action: "Injected write" },
+              },
+            }),
           },
         } as never);
       },
@@ -324,10 +347,7 @@ describe("createOpenTagChannel", () => {
           event: {
             type: EventType.CUSTOM,
             name: "on_interrupt",
-            value: {
-              action: "confirm_write",
-              args: { action: "Create Linear issue", detail: "CPK-9" },
-            },
+            value: confirmWriteEnvelope("Create Linear issue", "CPK-9"),
           },
         } as never);
       },

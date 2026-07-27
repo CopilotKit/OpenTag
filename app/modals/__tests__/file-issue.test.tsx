@@ -160,6 +160,9 @@ describe("fileIssueSubmit", () => {
   });
 
   it("posts a failure message to the thread when runAgent rejects", async () => {
+    const consoleError = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => undefined);
     const post = vi.fn().mockResolvedValue({ id: "m1" });
     const thread = {
       runAgent: vi.fn(() => Promise.reject(new Error("LLM timeout"))),
@@ -175,5 +178,10 @@ describe("fileIssueSubmit", () => {
     expect(post).toHaveBeenCalledWith(
       expect.stringMatching(/couldn.t file|try again/i),
     );
+    expect(consoleError).toHaveBeenCalledWith(
+      "[opentag] file-issue modal run failed",
+      expect.any(Error),
+    );
+    consoleError.mockRestore();
   });
 });

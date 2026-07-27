@@ -1,4 +1,5 @@
 import tools
+import copilotkit.langgraph
 
 
 def test_do_internet_search_formats_results(monkeypatch):
@@ -59,14 +60,13 @@ def test_internal_source_tools_loads_when_env_set(monkeypatch):
 
 def test_confirm_write_interrupts_with_structured_action(monkeypatch):
     calls = []
-    expected_answer = '{"confirmed": true}'
     expected_response = {"confirmed": True}
 
-    def fake_interrupt(*, action, args):
-        calls.append({"action": action, "args": args})
-        return expected_answer, expected_response
+    def fake_interrupt(value):
+        calls.append(value)
+        return expected_response
 
-    monkeypatch.setattr(tools, "copilotkit_interrupt", fake_interrupt, raising=False)
+    monkeypatch.setattr(copilotkit.langgraph, "interrupt", fake_interrupt)
     confirm_write = getattr(tools, "confirm_write", None)
 
     assert confirm_write is not None
@@ -77,13 +77,29 @@ def test_confirm_write_interrupts_with_structured_action(monkeypatch):
         }
     )
 
-    assert calls == [
+    assert len(calls) == 1
+    assert set(calls[0]) == {
+        "__copilotkit_interrupt_value__",
+        "__copilotkit_messages__",
+    }
+    assert calls[0]["__copilotkit_interrupt_value__"] == {
+        "action": "confirm_write",
+        "args": {
+            "action": "Create Linear issue",
+            "detail": "CPK-9: Checkout 500s",
+        },
+    }
+    assert len(calls[0]["__copilotkit_messages__"]) == 1
+    interrupt_message = calls[0]["__copilotkit_messages__"][0]
+    assert interrupt_message.tool_calls == [
         {
-            "action": "confirm_write",
+            "name": "confirm_write",
             "args": {
                 "action": "Create Linear issue",
                 "detail": "CPK-9: Checkout 500s",
             },
-        }
+            "id": interrupt_message.tool_calls[0]["id"],
+            "type": "tool_call",
+        },
     ]
-    assert result == expected_answer
+    assert result == '{"confirmed": true}'

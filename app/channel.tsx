@@ -1,5 +1,4 @@
 import type { AbstractAgent } from "@ag-ui/client";
-import { z } from "zod";
 import {
   createChannel,
   type Channel,
@@ -10,16 +9,9 @@ import { appCommands } from "./commands/index.js";
 import { IssueCard, IssueList, PageList } from "./components/index.js";
 import { appContext } from "./context/app-context.js";
 import { ConfirmWrite } from "./human-in-the-loop/index.js";
+import { parseConfirmWriteInterrupt } from "./interrupt.js";
 import { FILE_ISSUE_CALLBACK, fileIssueSubmit } from "./modals/file-issue.js";
 import { appTools } from "./tools/index.js";
-
-const confirmWriteInterruptSchema = z.object({
-  action: z.literal("confirm_write"),
-  args: z.object({
-    action: z.string().min(1),
-    detail: z.string().nullish(),
-  }),
-});
 
 export interface CreateOpenTagChannelOptions {
   name: string;
@@ -61,7 +53,7 @@ export function createOpenTagChannel(
   channel.onModalSubmit(FILE_ISSUE_CALLBACK, fileIssueSubmit);
 
   channel.onInterrupt("on_interrupt", async ({ payload, thread }) => {
-    const { args } = confirmWriteInterruptSchema.parse(payload);
+    const { args } = parseConfirmWriteInterrupt(payload);
     await thread.post(
       <ConfirmWrite
         action={args.action}
