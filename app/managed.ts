@@ -424,9 +424,25 @@ export function closeServer(server: {
  * idempotent; nothing enforces that, and the first `process.exit` to land
  * truncates whatever the other run was still awaiting.
  *
- * The FIRST signal wins and its promise is reused: later signals attach to the
- * run already in flight instead of starting a new one. `onError` is invoked at
- * most once, for the signal that actually started the run.
+ * The FIRST signal wins: it starts `run` and the resulting promise is stashed
+ * in `inFlight` purely as a memo guard, not as a handle anyone gets back —
+ * the returned function is `void`, `inFlight` is never read except by the
+ * `??=` check, and nothing awaits it. Later signals arriving before the run
+ * settles do NOT "attach" to it in any observable sense; they are silent
+ * no-ops. `onError` is invoked at most once, for the signal that actually
+ * started the run.
+ *
+ * `run` is called synchronously (so callers that assert on its side effects
+ * without awaiting still see them), but a run that throws SYNCHRONOUSLY is
+ * just as much a failure as one that rejects, and must be memoized and routed
+ * to `onError` the same way — never left to escape into the caller (a signal
+ * handler) and start a second, competing run on the next signal. The
+ * try/catch below converts a synchronous throw into a rejected promise
+ * BEFORE the `.catch` is attached, so both paths join the same memoized
+ * promise with identical microtask timing — an `async () => run(...)`
+ * wrapper would also catch the throw, but adds an extra microtask hop before
+ * a rejecting `run` reaches `onError`, changing observable timing for every
+ * caller (including ones that already await a fixed number of ticks).
  *
  * `exitCode` lets a non-signal caller (Finding 3: the watchdog's fatal path)
  * request a specific exit code from the SAME run — e.g. `1`, so a fatal
@@ -443,9 +459,14 @@ export function onceShutdown(
 ): (signal: string, exitCode?: number) => void {
   let inFlight: Promise<void> | undefined;
   return (signal: string, exitCode?: number): void => {
-    inFlight ??= run(signal, exitCode).catch((err: unknown) =>
-      onError(signal, err),
-    );
+    if (inFlight) return;
+    let started: Promise<void>;
+    try {
+      started = run(signal, exitCode);
+    } catch (err) {
+      started = Promise.reject(err as unknown);
+    }
+    inFlight = started.catch((err: unknown) => onError(signal, err));
   };
 }
 
@@ -664,12 +685,20 @@ async function main() {
       );
       return;
     }
-    fatal(
-      listening
-        ? `[channel] HTTP server error on :${port}`
-        : `[channel] HTTP listener failed to bind on :${port}`,
-      err,
-    );
+    if (!listening) {
+      // Genuine bind failure (EADDRINUSE/EACCES): nothing bound yet, nothing to
+      // tear down, no listener to close. Exit directly — simple and immediate,
+      // same as before.
+      fatal(`[channel] HTTP listener failed to bind on :${port}`, err);
+    }
+    // A live, post-bind socket error is the same hazard class as the
+    // watchdog's fatal path above: exiting straight here (the old behavior)
+    // bypasses `channels.stop()` and `closeBrowser()`, leaving Intelligence to
+    // time out this runtime's lease and orphaning Chromium. Route through the
+    // SAME memoized teardown the signal handlers and watchdog use, with a
+    // non-zero exit code, instead of calling `fatal()` directly.
+    console.error(`[channel] HTTP server error on :${port}`, err);
+    runShutdown("server-error", 1);
   });
 
   // Fail loud, not silent: surface any stray uncaught throw (a bad turn's

@@ -509,6 +509,11 @@ describe("closeServer", () => {
 describe("onceShutdown", () => {
   it("runs the shutdown routine once across repeated signals", async () => {
     const signals: string[] = [];
+    // Recorded instead of thrown: `onError` runs inside `.catch(...)` on a
+    // promise nobody awaits, so a throw in here would surface (if at all) as
+    // an out-of-band unhandled rejection, never as a failure of THIS `it()`.
+    // Asserting on the array is the only way this block can actually fail.
+    const errors: Array<{ signal: string; err: unknown }> = [];
     let release: (() => void) | undefined;
     const run = onceShutdown(
       (signal) => {
@@ -517,8 +522,8 @@ describe("onceShutdown", () => {
           release = resolve;
         });
       },
-      () => {
-        throw new Error("onError must not fire on a clean run");
+      (signal, err) => {
+        errors.push({ signal, err });
       },
     );
 
@@ -530,11 +535,17 @@ describe("onceShutdown", () => {
     expect(signals).toEqual(["SIGTERM"]);
 
     release?.();
-    await Promise.resolve();
+    // A single microtask tick is NOT enough to settle the memoized promise
+    // through its `.catch` reaction — a real macrotask boundary is required,
+    // otherwise a "resets on settle" mutant (e.g.
+    // `.finally(() => { inFlight = undefined })`) would let a signal arriving
+    // here start a second run and this test would still pass.
+    await new Promise((resolve) => setTimeout(resolve, 0));
     // Signals arriving AFTER the run settled must still not start a second one:
     // the first run owns the process exit.
     run("SIGTERM");
     expect(signals).toEqual(["SIGTERM"]);
+    expect(errors).toEqual([]);
   });
 
   it("reports a rejecting shutdown once, for the signal that started it", async () => {
@@ -555,12 +566,31 @@ describe("onceShutdown", () => {
   it("does not surface the shutdown rejection as an unhandled rejection", async () => {
     // The memoized promise is handed to every later caller, so the catch has to
     // live INSIDE the memo — otherwise a rejecting shutdown escapes.
-    const run = onceShutdown(
-      () => Promise.reject(new Error("teardown blew up")),
-      () => {},
-    );
-    expect(() => run("SIGTERM")).not.toThrow();
-    await new Promise((resolve) => setTimeout(resolve, 0));
+    //
+    // `expect(...).not.toThrow()` alone is trivially true for any
+    // void-returning synchronous function and cannot detect an unhandled
+    // rejection at all — that failure mode is invisible to the channel this
+    // `it()` observes. Install a real `process.on("unhandledRejection")` spy
+    // for the test's duration and assert it never fired.
+    const unhandled: unknown[] = [];
+    const onUnhandledRejection = (reason: unknown): void => {
+      unhandled.push(reason);
+    };
+    process.on("unhandledRejection", onUnhandledRejection);
+    try {
+      const run = onceShutdown(
+        () => Promise.reject(new Error("teardown blew up")),
+        () => {},
+      );
+      expect(() => run("SIGTERM")).not.toThrow();
+      // Node only fires `unhandledRejection` after the rejection survives to
+      // the end of the current macrotask with no handler attached — a real
+      // timer boundary is required to give it that chance.
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      expect(unhandled).toEqual([]);
+    } finally {
+      process.off("unhandledRejection", onUnhandledRejection);
+    }
   });
 
   describe("Finding 3: exitCode passthrough for a non-signal fatal caller", () => {
