@@ -122,7 +122,8 @@ Copy `agent/.env.example` to `agent/.env` and fill it in:
 **Run it:**
 
 ```bash
-pnpm agent   # cd agent && uv run python main.py (port from SERVER_PORT/PORT env, default 8123)
+pnpm agent   # cd agent && uv run python main.py (port from PORT/SERVER_PORT env, default 8123 —
+             # PORT wins if both are set: a globally-exported PORT silently outranks SERVER_PORT)
 ```
 
 Then point the bot at it instead of `runtime.ts` by setting in the root `.env`:
@@ -144,9 +145,11 @@ Intelligence owns the Slack edge (signed ingress + Connector Outbox egress) and 
 frames back. It's wired up on the `@copilotkit/runtime/v2` managed-channels runtime: a
 `createChannel({ name })` (`@copilotkit/channels`) is handed, alongside a `CopilotKitIntelligence`
 built from the API vars below, to `new CopilotRuntime({ intelligence, channels })`, then mounted
-with `createCopilotNodeListener` (`@copilotkit/runtime/v2/node`) — mounting is what activates the
-channel, with no org/project/channel IDs to wire up; the runtime derives that identity from the
-Intelligence API credentials plus the channel's registered name. It's the Intelligence Gateway
+with `createCopilotNodeListener` (`@copilotkit/runtime/v2/node`) — mounting only **constructs**
+the runtime's channel control surface (`listener.channels`); it does not open any connection.
+Activation is lazy and happens on the first `channels.ready()` call, which is why `app/managed.ts`
+awaits it during boot. There are no org/project/channel IDs to wire up; the runtime derives that
+identity from the Intelligence API credentials plus the channel's registered name. It's the Intelligence Gateway
 counterpart to the self-hosted `pnpm dev` mode described above — you still run this process
 yourself and bring your own CopilotKit Intelligence project.
 
@@ -163,7 +166,7 @@ Configure it with:
 | `INTELLIGENCE_GATEWAY_WS_URL` | The Intelligence Realtime Gateway websocket endpoint. |
 | `INTELLIGENCE_API_KEY` | Auth for the gateway connection. |
 | `INTELLIGENCE_CHANNEL_NAME` | The registered channel name (lowercase kebab). Defaults to `kite-opentag`. |
-| `CHANNEL_HTTP_TOKEN` | Optional. The channel host's HTTP routes (`agent/run`, `threads/*`, `memories/*`) are **closed** (404) unless this is set; set it to open them behind `Authorization: Bearer <token>`. The managed channel activates over the gateway WebSocket and does not need them. |
+| `CHANNEL_HTTP_TOKEN` | Optional. The channel host's HTTP routes (`agent/run`, `threads/*`, `memories/*`) are **closed** (404) unless this is set; set it to open them behind `Authorization: Bearer <token>` for server-to-server or `curl` use. The managed channel activates over the gateway WebSocket and does not need them. No `cors` option is configured on this listener, so these routes are not reachable from a browser (preflight `OPTIONS` gets no `Access-Control-Allow-Origin`) — don't point a CopilotKit frontend at this runtime. |
 | `PORT` | Port the channel host's HTTP listener binds. Defaults to `8300`; Railway injects its own. |
 
 **The channel host is fail-fast, by design** — it never idles in a half-working state:
@@ -178,6 +181,10 @@ Configure it with:
 - After a successful boot a watchdog re-checks channel health every **60s** and exits non-zero
   if the managed session dies for good, so a supervisor (Railway's `ON_FAILURE` restart policy,
   systemd, Docker `restart:`) rebuilds the host instead of leaving KiteBot silently offline.
+  On Railway, the restart budget is **finite** — see `restartPolicyMaxRetries` in
+  [`.railway/railway.ts`](./.railway/railway.ts) — so an outage long enough to exhaust the
+  retries leaves the service stopped, with no healthcheck to surface it; watch deploy status or
+  logs rather than assuming an indefinite auto-heal.
 
 The agent backend is still required in this mode — `pnpm runtime` (`runtime.ts`) — the Intelligence
 channel host points its `AGENT_URL` at it exactly like the self-hosted KiteBot does. `AGENT_URL`
@@ -221,7 +228,7 @@ cp .env.example .env
 | `TELEGRAM_BOT_TOKEN` | Run on Telegram. |
 | `WHATSAPP_ACCESS_TOKEN` (+ siblings) | Run on WhatsApp Cloud API. |
 | `INTELLIGENCE_API_URL` / `INTELLIGENCE_GATEWAY_WS_URL` / `INTELLIGENCE_API_KEY` / `INTELLIGENCE_CHANNEL_NAME` | Run in [Intelligence channel mode](#intelligence-channel-mode) instead of holding platform tokens directly. |
-| `CHANNEL_HTTP_TOKEN` | Optional. Opens the channel host's HTTP runtime routes behind a bearer token; closed by default. |
+| `CHANNEL_HTTP_TOKEN` | Optional. Opens the channel host's HTTP runtime routes behind a bearer token for server-to-server or `curl` use; closed by default. Not CORS-enabled — not reachable from a browser. |
 | `AGENT_URL` | Where KiteBot POSTs. **Required** — the process exits at startup if unset; the template value points at the local runtime (`…/agent/triage/run`). |
 
 Every integration is independent — set only what you need. The full annotated list, including the
