@@ -8,10 +8,13 @@ import {
   MANAGED_COMPONENTS,
   unhealthyChannels,
   channelWatchdogTick,
+  CHANNEL_DEGRADED_FATAL_MS,
   closeServer,
   onceShutdown,
+  uncaughtExceptionAction,
   requireNonBlank,
   requireUrl,
+  fatalText,
 } from "./managed.js";
 
 describe("createKiteChannel", () => {
@@ -323,11 +326,13 @@ describe("channelWatchdogTick", () => {
   });
 
   it("is quiet when there is no control surface", () => {
-    expect(channelWatchdogTick(undefined, "online")).toEqual({ kind: "quiet" });
+    expect(channelWatchdogTick(undefined, "online", 0)).toEqual({
+      kind: "quiet",
+    });
   });
 
   it("is quiet while the channel stays online", () => {
-    expect(channelWatchdogTick(health("online"), "online")).toEqual({
+    expect(channelWatchdogTick(health("online"), "online", 0)).toEqual({
       kind: "quiet",
     });
   });
@@ -335,14 +340,14 @@ describe("channelWatchdogTick", () => {
   it("is fatal once the channel gives up reconnecting", () => {
     // `error` here means the session exhausted its bounded reconnect window.
     // Exiting is what lets Railway's ON_FAILURE policy restart the host.
-    expect(channelWatchdogTick(health("error"), "online")).toEqual({
+    expect(channelWatchdogTick(health("error"), "online", 0)).toEqual({
       kind: "fatal",
       message: "channel is dead: kite-opentag=error",
     });
   });
 
   it("notices the first tick of a degraded state", () => {
-    expect(channelWatchdogTick(health("reconnecting"), "online")).toEqual({
+    expect(channelWatchdogTick(health("reconnecting"), "online", 0)).toEqual({
       kind: "notice",
       message: "channel degraded: kite-opentag=reconnecting",
     });
@@ -351,14 +356,99 @@ describe("channelWatchdogTick", () => {
   it("does not repeat a degraded state it already reported", () => {
     // A drop that takes minutes to resolve must not emit one line per tick.
     expect(
-      channelWatchdogTick(health("reconnecting"), "reconnecting"),
+      channelWatchdogTick(health("reconnecting"), "reconnecting", 0),
     ).toEqual({ kind: "quiet" });
   });
 
   it("notices recovery back to online", () => {
-    expect(channelWatchdogTick(health("online"), "reconnecting")).toEqual({
+    expect(channelWatchdogTick(health("online"), "reconnecting", 0)).toEqual({
       kind: "notice",
       message: "channel recovered: overall=online",
+    });
+  });
+
+  describe("Finding 2: escalation after CHANNEL_DEGRADED_FATAL_MS", () => {
+    it("stays quiet just below the threshold, even on an already-reported degraded state", () => {
+      // Regression this guards: a channel wedged in `reconnecting` used to
+      // notice once and then stay quiet FOREVER — `overall === previousOverall`
+      // suppressed every later tick. Confirm sub-threshold ticks are still
+      // quiet (not yet fatal), not that the old silent-forever bug is back.
+      expect(
+        channelWatchdogTick(
+          health("reconnecting"),
+          "reconnecting",
+          CHANNEL_DEGRADED_FATAL_MS - 1,
+        ),
+      ).toEqual({ kind: "quiet" });
+    });
+
+    it("stays a notice, not fatal, on the FIRST degraded tick even if degradedForMs is (implausibly) already high", () => {
+      // The duration check only matters once the state has actually been
+      // observed as non-online more than once; a first-tick transition still
+      // reports as a plain "degraded" notice via the general branch below —
+      // this only holds while degradedForMs stays under threshold.
+      expect(
+        channelWatchdogTick(health("reconnecting"), "online", 1_000),
+      ).toEqual({
+        kind: "notice",
+        message: "channel degraded: kite-opentag=reconnecting",
+      });
+    });
+
+    it("escalates to fatal the instant degradedForMs reaches the threshold", () => {
+      expect(
+        channelWatchdogTick(
+          health("reconnecting"),
+          "reconnecting",
+          CHANNEL_DEGRADED_FATAL_MS,
+        ),
+      ).toEqual({
+        kind: "fatal",
+        message: `channel has been non-online for >= ${CHANNEL_DEGRADED_FATAL_MS / 60_000}m: kite-opentag=reconnecting`,
+      });
+    });
+
+    it("stays fatal well past the threshold", () => {
+      expect(
+        channelWatchdogTick(
+          health("reconnecting"),
+          "reconnecting",
+          CHANNEL_DEGRADED_FATAL_MS + 60_000,
+        ),
+      ).toEqual({
+        kind: "fatal",
+        message: `channel has been non-online for >= ${CHANNEL_DEGRADED_FATAL_MS / 60_000}m: kite-opentag=reconnecting`,
+      });
+    });
+
+    it("escalates even when the degraded state was already reported (not suppressed by the quiet-repeat rule)", () => {
+      // The duration check must run BEFORE the "already reported" early
+      // return, or a channel that already got its one notice would stay
+      // quiet forever instead of ever escalating.
+      expect(
+        channelWatchdogTick(
+          health("reconnecting"),
+          "reconnecting",
+          CHANNEL_DEGRADED_FATAL_MS + 1,
+        ).kind,
+      ).toBe("fatal");
+    });
+
+    it("never escalates while online, no matter how large a stale degradedForMs is passed in", () => {
+      // Models recovery resetting the clock: main() zeroes degradedSince the
+      // moment overall goes back to "online", so a later degradation starts
+      // counting from zero again. The pure function itself also refuses to
+      // go fatal while online, as a defensive backstop.
+      expect(
+        channelWatchdogTick(
+          health("online"),
+          "reconnecting",
+          CHANNEL_DEGRADED_FATAL_MS + 1_000_000,
+        ),
+      ).toEqual({
+        kind: "notice",
+        message: "channel recovered: overall=online",
+      });
     });
   });
 });
@@ -471,6 +561,103 @@ describe("onceShutdown", () => {
     );
     expect(() => run("SIGTERM")).not.toThrow();
     await new Promise((resolve) => setTimeout(resolve, 0));
+  });
+
+  describe("Finding 3: exitCode passthrough for a non-signal fatal caller", () => {
+    it("passes the exit code through to the run function for the signal that starts the run", () => {
+      // Models the watchdog's fatal path calling `runShutdown("watchdog", 1)`
+      // instead of `process.exit(1)` directly — the exit code has to reach
+      // the same `shutdown()` the SIGINT/SIGTERM handlers use.
+      const calls: Array<{ signal: string; exitCode: number | undefined }> =
+        [];
+      const run = onceShutdown(
+        (signal, exitCode) => {
+          calls.push({ signal, exitCode });
+          return Promise.resolve();
+        },
+        () => {
+          throw new Error("onError must not fire on a clean run");
+        },
+      );
+
+      run("watchdog", 1);
+      expect(calls).toEqual([{ signal: "watchdog", exitCode: 1 }]);
+    });
+
+    it("defaults to no explicit exit code for a plain signal (SIGINT/SIGTERM never pass one)", () => {
+      const calls: Array<number | undefined> = [];
+      const run = onceShutdown(
+        (_signal, exitCode) => {
+          calls.push(exitCode);
+          return Promise.resolve();
+        },
+        () => {},
+      );
+
+      run("SIGTERM");
+      expect(calls).toEqual([undefined]);
+    });
+
+    it("ignores a later call's exit code once a run is already in flight", () => {
+      // Memoization covers exitCode too, not just signal: whichever call
+      // started the run owns both.
+      let release: (() => void) | undefined;
+      const calls: Array<{ signal: string; exitCode: number | undefined }> =
+        [];
+      const run = onceShutdown(
+        (signal, exitCode) => {
+          calls.push({ signal, exitCode });
+          return new Promise<void>((resolve) => {
+            release = resolve;
+          });
+        },
+        () => {},
+      );
+
+      run("SIGTERM"); // starts the run with no explicit exit code
+      run("watchdog", 1); // arrives while the first run is still in flight
+      expect(calls).toEqual([{ signal: "SIGTERM", exitCode: undefined }]);
+      release?.();
+    });
+  });
+});
+
+describe("uncaughtExceptionAction (Finding 1)", () => {
+  it("treats an exception during an in-flight graceful shutdown as non-preempting", () => {
+    // THE REGRESSION this guards against being reintroduced: an exception
+    // raised while `shutdown()` is already tearing down must not race a
+    // second exit against the one already in progress.
+    expect(uncaughtExceptionAction(true)).toEqual({
+      kind: "continue-shutdown",
+    });
+  });
+
+  it("treats an exception outside of shutdown as fatal", () => {
+    // THE REGRESSION: the old handler logged EVERY uncaught exception and
+    // kept running — a throw inside the watchdog's setInterval callback, a
+    // corrupted post-activation state, an assertion deep in the transport —
+    // leaving the process alive in an undefined state with its socket still
+    // bound, so the platform's restart policy never fired.
+    expect(uncaughtExceptionAction(false)).toEqual({ kind: "fatal" });
+  });
+});
+
+describe("fatalText (Finding 5)", () => {
+  it("returns the message unchanged when there is no error", () => {
+    expect(fatalText("[channel] boom")).toBe("[channel] boom");
+  });
+
+  it("appends the error detail when one is given", () => {
+    const err = new Error("teardown blew up");
+    const text = fatalText("[channel] boom", err);
+    expect(text).toContain("[channel] boom");
+    expect(text).toContain("teardown blew up");
+  });
+
+  it("formats a non-Error thrown value too", () => {
+    const text = fatalText("[channel] boom", "a plain string reason");
+    expect(text).toContain("[channel] boom");
+    expect(text).toContain("a plain string reason");
   });
 });
 

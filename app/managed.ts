@@ -20,8 +20,10 @@
  * Run: `pnpm channel` with INTELLIGENCE_* + AGENT_URL set (see .env.example).
  */
 import { createHash, timingSafeEqual } from "node:crypto";
+import { writeSync } from "node:fs";
 import { createServer } from "node:http";
 import { pathToFileURL } from "node:url";
+import { format } from "node:util";
 import { createChannel } from "@copilotkit/channels";
 import type { Channel } from "@copilotkit/channels";
 import type { AgentContentPart } from "@copilotkit/channels-ui";
@@ -84,17 +86,58 @@ export function requireUrl(name: string, value: string): string {
 }
 
 /**
+ * Build the diagnostic line `fatal()` writes — pure, so it's testable without
+ * touching `process`. Mirrors `console.error`'s own formatting: `util.format`
+ * is what `console.error` uses internally, so a message-plus-error pair reads
+ * the same here as everywhere else in this file's logs.
+ */
+export function fatalText(message: string, err?: unknown): string {
+  return err === undefined ? format(message) : format(message, err);
+}
+
+/**
+ * Log a fatal diagnostic and exit. The one place every fail-fast path in this
+ * file should route through, instead of its own `console.error(...)`
+ * immediately followed by `process.exit()`.
+ *
+ * `console.error` writes through `process.stderr`, which Node buffers
+ * ASYNCHRONOUSLY when it's a pipe on POSIX — exactly what Railway hands the
+ * container. `process.exit()` does not wait for pending writes, so the
+ * message explaining why the host died can be silently truncated in exactly
+ * the deployment this file targets, undercutting the whole fail-loud design
+ * this file otherwise commits to. `fs.writeSync` to fd 2 issues a raw,
+ * synchronous `write(2)` syscall that blocks until it completes, sidestepping
+ * the stream's buffering entirely — regardless of whether the fd is a pipe,
+ * file, or TTY.
+ *
+ * Setting `process.exitCode` and letting the event loop drain naturally is
+ * NOT an alternative: several call sites below must exit while a bound HTTP
+ * server is still holding the loop open, so the loop would never drain on its
+ * own.
+ *
+ * `main()`-layer machinery, not one of the pure helpers above — it performs
+ * I/O and calls `process.exit`, so `unhealthyChannels`/`channelWatchdogTick`/
+ * `closeServer`/`onceShutdown` stay clear of it. Not itself unit-tested: a
+ * test can't call it without actually exiting the test process. `fatalText`
+ * above carries the part of this that CAN be tested without that
+ * restructuring.
+ */
+function fatal(message: string, err?: unknown, code = 1): never {
+  writeSync(2, `${fatalText(message, err)}\n`);
+  process.exit(code);
+}
+
+/**
  * Read a required env var and exit the process if it is missing or blank.
  * The validation itself lives in the pure, exported `requireNonBlank` above;
  * this wrapper is the one place that reads `process.env` and calls
- * `process.exit`, same as before.
+ * `process.exit` (via `fatal`), same as before.
  */
 const required = (name: string): string => {
   try {
     return requireNonBlank(name, process.env[name]);
   } catch (err) {
-    console.error(err instanceof Error ? err.message : String(err));
-    process.exit(1);
+    fatal(err instanceof Error ? err.message : String(err));
   }
 };
 
@@ -107,8 +150,7 @@ const requiredUrl = (name: string): string => {
   try {
     return requireUrl(name, requireNonBlank(name, process.env[name]));
   } catch (err) {
-    console.error(err instanceof Error ? err.message : String(err));
-    process.exit(1);
+    fatal(err instanceof Error ? err.message : String(err));
   }
 };
 
@@ -268,21 +310,51 @@ export type WatchdogAction =
   | { kind: "fatal"; message: string };
 
 /**
+ * How long a channel may stay continuously non-`online` before the watchdog
+ * escalates a logged notice into `fatal`.
+ *
+ * Without this, a channel wedged in `reconnecting` (not `error` — that path
+ * is already fatal above) emits exactly one `console.warn` on the first
+ * degraded tick and then stays quiet forever: `overall === previousOverall`
+ * short-circuits every later tick to `quiet`. This service has no healthcheck
+ * and no public domain, so nothing else would ever notice — `setup.md`'s
+ * promise that the watchdog "rebuilds the host instead of leaving KiteBot
+ * silently offline" is false for exactly this case. 10 minutes is long enough
+ * that a brief network blip's reconnect never trips it, but short enough that
+ * the platform's restart policy rebuilds the host well within an on-call SLA.
+ */
+export const CHANNEL_DEGRADED_FATAL_MS = 10 * 60 * 1000;
+
+/**
  * Decide what to do about the channel's current health, given what was last
- * reported.
+ * reported and how long (in ms) the channel has been continuously
+ * non-`online`.
  *
  * Boot-time liveness (Task: `unhealthyChannels`) says nothing about the hours
  * that follow. A managed session that drops goes `reconnecting`; one that
  * exhausts its bounded reconnect window goes `error` and never comes back. The
  * manager does NOT re-activate — so `error` is terminal, and the only useful
  * response is to exit and let the platform's restart policy rebuild the host.
+ * A channel stuck `reconnecting` (never reaching `error`) is terminal in
+ * effect, just slower, so it gets the same fatal treatment once
+ * `degradedForMs` clears `CHANNEL_DEGRADED_FATAL_MS`.
  *
- * Transitions are reported once, not once per tick, so a long reconnect doesn't
- * flood the logs.
+ * `degradedForMs` is supplied by the caller (`main()` tracks a first-degraded
+ * timestamp and does the clock read) — this function stays pure, with no
+ * clock of its own, so it's unit-testable without faking time.
+ *
+ * The duration check runs BEFORE the "already reported" early-return below,
+ * so a channel that has been silently quiet for many ticks still escalates
+ * the moment it crosses the threshold, rather than being permanently
+ * suppressed by the first notice having already fired.
+ *
+ * Transitions are otherwise reported once, not once per tick, so a long
+ * reconnect doesn't flood the logs.
  */
 export function channelWatchdogTick(
   health: ChannelHealth | undefined,
   previousOverall: string | undefined,
+  degradedForMs: number,
 ): WatchdogAction {
   if (!health) return { kind: "quiet" };
   const { overall } = health;
@@ -290,6 +362,12 @@ export function channelWatchdogTick(
     return {
       kind: "fatal",
       message: `channel is dead: ${unhealthyChannels(health).join(", ")}`,
+    };
+  }
+  if (overall !== "online" && degradedForMs >= CHANNEL_DEGRADED_FATAL_MS) {
+    return {
+      kind: "fatal",
+      message: `channel has been non-online for >= ${CHANNEL_DEGRADED_FATAL_MS / 60_000}m: ${unhealthyChannels(health).join(", ")}`,
     };
   }
   if (overall === previousOverall) return { kind: "quiet" };
@@ -350,16 +428,58 @@ export function closeServer(server: {
  * run already in flight instead of starting a new one. `onError` is invoked at
  * most once, for the signal that actually started the run.
  *
+ * `exitCode` lets a non-signal caller (Finding 3: the watchdog's fatal path)
+ * request a specific exit code from the SAME run — e.g. `1`, so a fatal
+ * watchdog tick still exits non-zero after routing through graceful teardown
+ * instead of calling `process.exit(1)` directly. Only the signal that starts
+ * the run gets to pick; a later, memoized-away call's `exitCode` is ignored,
+ * same as its `signal` is.
+ *
  * Pure: all policy (logging, exiting) is injected, so this is unit-testable.
  */
 export function onceShutdown(
-  run: (signal: string) => Promise<void>,
+  run: (signal: string, exitCode?: number) => Promise<void>,
   onError: (signal: string, err: unknown) => void,
-): (signal: string) => void {
+): (signal: string, exitCode?: number) => void {
   let inFlight: Promise<void> | undefined;
-  return (signal: string): void => {
-    inFlight ??= run(signal).catch((err: unknown) => onError(signal, err));
+  return (signal: string, exitCode?: number): void => {
+    inFlight ??= run(signal, exitCode).catch((err: unknown) =>
+      onError(signal, err),
+    );
   };
+}
+
+/**
+ * What to do when an uncaught exception fires, given whether a graceful
+ * shutdown is already running.
+ *
+ * `uncaughtException` catches EVERYTHING uncaught, not just a turn-scoped
+ * throw — a throw inside the watchdog's `setInterval` callback, corrupted
+ * state after a partial activation, an assertion deep in the transport. Left
+ * running, the process continues in an undefined state with its socket still
+ * bound, and the platform's restart policy never fires — KiteBot looks up
+ * while being broken. The per-turn tolerance a bad turn deserves already
+ * exists in the right place: the try/catch inside `onMention`.
+ *
+ * But an exception raised WHILE a graceful shutdown is already in flight must
+ * not preempt it — same reasoning as the server `error` handler above: the
+ * process is already on its way out via a bounded, orderly teardown, and
+ * treating this as a fresh fatal event would race a second exit against the
+ * first.
+ *
+ * Extracted as a pure decision (instead of inlining `stopping ? ... : ...`
+ * directly in the `process.on("uncaughtException", ...)` callback) so this
+ * policy is unit-testable without registering a real listener or exiting the
+ * test process.
+ */
+export type UncaughtExceptionAction =
+  | { kind: "continue-shutdown" }
+  | { kind: "fatal" };
+
+export function uncaughtExceptionAction(
+  stopping: boolean,
+): UncaughtExceptionAction {
+  return stopping ? { kind: "continue-shutdown" } : { kind: "fatal" };
 }
 
 /**
@@ -489,10 +609,9 @@ async function main() {
   const rawPort = process.env["PORT"];
   const port = rawPort && rawPort.trim() !== "" ? Number(rawPort) : 8300;
   if (!Number.isInteger(port) || port < 1 || port > 65535) {
-    console.error(
+    fatal(
       `Invalid PORT: "${rawPort}" is not a valid port number (must be an integer between 1 and 65535)`,
     );
-    process.exit(1);
   }
 
   const httpToken = process.env.CHANNEL_HTTP_TOKEN?.trim();
@@ -513,10 +632,9 @@ async function main() {
   // fallback must be "die loudly", never "claim success".
   const channels = listener.channels;
   if (!channels) {
-    console.error(
+    fatal(
       "[channel] runtime exposed no channels control surface — the managed channel cannot activate",
     );
-    process.exit(1);
   }
 
   const server = createServer(listener);
@@ -546,13 +664,37 @@ async function main() {
       );
       return;
     }
-    console.error(
+    fatal(
       listening
         ? `[channel] HTTP server error on :${port}`
         : `[channel] HTTP listener failed to bind on :${port}`,
       err,
     );
-    process.exit(1);
+  });
+
+  // Fail loud, not silent: surface any stray uncaught throw (a bad turn's
+  // exception is already caught inside `onMention`'s own try/catch — this is
+  // for everything ELSE: a throw inside the watchdog's `setInterval`
+  // callback, corrupted state after a partial activation, an assertion deep
+  // in the transport) instead of logging it and leaving the process running
+  // in an undefined state with its socket still bound, where the platform's
+  // restart policy never fires. Registered here (inside `main()`, not at
+  // module scope) so it can consult `stopping` via `uncaughtExceptionAction`
+  // — an exception raised while a graceful shutdown is already in flight must
+  // not preempt it, exactly like the server `error` handler just above.
+  process.on("uncaughtException", (err) => {
+    const action = uncaughtExceptionAction(stopping);
+    if (action.kind === "continue-shutdown") {
+      console.error(
+        "[channel] uncaughtException during shutdown (continuing shutdown)",
+        err,
+      );
+      return;
+    }
+    fatal(
+      "[channel] uncaughtException — exiting so the platform restarts the host",
+      err,
+    );
   });
 
   server.listen(port, async () => {
@@ -570,8 +712,7 @@ async function main() {
       // leaving Chromium alive — and report 1 for a deliberate stop. Do NOT
       // "simplify" this guard away.
       if (stopping) return;
-      console.error("[channel] Intelligence channel activation failed", err);
-      process.exit(1);
+      fatal("[channel] Intelligence channel activation failed", err);
     }
     // Same window, the resolve side. `channels.stop()` marks entries `stopped`
     // but does NOT settle in-flight activations, so a signal arriving inside
@@ -589,27 +730,48 @@ async function main() {
     // status map before claiming success.
     const notLive = unhealthyChannels(channels.status());
     if (notLive.length > 0) {
-      console.error(
+      fatal(
         `[channel] activation settled but the channel is NOT live: ${notLive.join(", ")}. ` +
           `"setup_required" means the channel name exists in your Intelligence project but no ` +
           `platform connector is bound to it — finish the connector setup in the Intelligence ` +
           `dashboard, then redeploy this service.`,
       );
-      process.exit(1);
     }
     console.log(
       `[channel] KiteBot channel "${channel.name}" mounted on :${port} → Intelligence gateway (channel live)`,
     );
     let previousOverall = "online";
+    // First-degraded timestamp: unset while the channel is online, set to
+    // `Date.now()` the moment it first isn't. `channelWatchdogTick` stays pure
+    // (no clock of its own) by taking the elapsed duration as a plain number —
+    // this is the one place that reads the clock and does the subtraction.
+    let degradedSince: number | undefined;
     watchdog = setInterval(() => {
       const health = channels.status();
-      const action = channelWatchdogTick(health, previousOverall);
+      if (health && health.overall !== "online") {
+        degradedSince ??= Date.now();
+      } else {
+        degradedSince = undefined;
+      }
+      const degradedForMs =
+        degradedSince === undefined ? 0 : Date.now() - degradedSince;
+      const action = channelWatchdogTick(health, previousOverall, degradedForMs);
       if (health) previousOverall = health.overall;
       if (action.kind === "fatal") {
         console.error(
           `[channel] ${action.message} — exiting so the platform restarts the host`,
         );
-        process.exit(1);
+        // Route through the SAME teardown the signal handlers use, with a
+        // non-zero exit code, rather than `process.exit(1)` directly. This
+        // watchdog fires after arbitrary uptime — precisely when Chromium is
+        // most likely running (launched by render_chart/render_diagram) — so
+        // exiting straight here would skip `channels.stop()` (Intelligence
+        // then has to time out this runtime's lease instead of getting a
+        // clean disconnect) and skip `closeBrowser()` (orphaning the
+        // browser). `runShutdown`/`onceShutdown` are in scope by the time
+        // this interval fires; its memoization means a concurrent SIGTERM
+        // can't start a second, competing teardown.
+        runShutdown("watchdog", 1);
       }
       if (action.kind === "notice") console.warn(`[channel] ${action.message}`);
     }, CHANNEL_WATCHDOG_INTERVAL_MS);
@@ -625,26 +787,29 @@ async function main() {
     );
   });
 
-  const shutdown = async (signal: string) => {
+  const shutdown = async (signal: string, exitCode = 0) => {
     // FIRST, before any await and before the first log: from here on this
-    // process is stopping, and the boot path's `process.exit(1)` calls must
-    // stand down. Anything that lands between here and `process.exit(exitCode)`
-    // — a late `ready()` settlement, a server 'error' emitted by
-    // `closeAllConnections` — would otherwise preempt this function mid-await.
+    // process is stopping, and the boot path's `process.exit(1)`/`fatal(...)`
+    // calls must stand down. Anything that lands between here and
+    // `process.exit(exitCode)` — a late `ready()` settlement, a server
+    // 'error' emitted by `closeAllConnections`, an uncaught exception — would
+    // otherwise preempt this function mid-await.
     stopping = true;
     console.log(`\n[channel] received ${signal}, stopping…`);
     // Also before the first await: a watchdog tick that fires mid-shutdown
     // would see `overall: "stopped"` and could exit non-zero on its own.
     if (watchdog) clearInterval(watchdog);
-    let exitCode = 0;
     // Tear down managed channel activation first. Bounded: `ChannelManager.stop`
-    // caps each handle's teardown at 5s.
-    try {
-      await channels.stop();
-    } catch (err) {
-      console.error("[channel] error stopping channel runtime", err);
-      exitCode = 1;
-    }
+    // caps each handle's teardown at 5s. No try/catch here: the installed
+    // `ChannelManager.stop()` wraps every per-handle teardown in
+    // `withTimeout(...).catch((err) => this.log?.(...))` and awaits them all
+    // via `Promise.allSettled`, so `stop()` itself cannot reject — a catch
+    // here would be dead code that can never run, silently implying a
+    // failure mode that doesn't exist. A per-handle teardown failure is
+    // swallowed by CONTRACT inside `ChannelManager` (it logs via its own
+    // `log` option, which this host does not wire up) — that is where an
+    // operator should look for a stuck handle, not here.
+    await channels.stop();
     // Bounded by `closeAllConnections` — see the `closeServer` docstring.
     await closeServer(server);
     // Tear down the shared headless browser used for chart/diagram rendering,
@@ -668,8 +833,7 @@ async function main() {
     process.exit(exitCode);
   };
   const runShutdown = onceShutdown(shutdown, (signal, err) => {
-    console.error(`[channel] fatal during ${signal} shutdown`, err);
-    process.exit(1);
+    fatal(`[channel] fatal during ${signal} shutdown`, err);
   });
   process.on("SIGINT", () => runShutdown("SIGINT"));
   process.on("SIGTERM", () => runShutdown("SIGTERM"));
@@ -683,15 +847,19 @@ async function main() {
 // import.meta.url is this module while process.argv[1] is the test runner, so
 // they differ and main() does not run.
 //
-// This same guard is where dotenv's load and the two `process.on` handlers
-// below belong, and for the identical reason `main()` itself is gated here:
-// a plain module-scope `import "dotenv/config"` and module-scope `process.on`
-// calls fire on IMPORT, not on execution as the entry point. Without this,
+// This same guard is where dotenv's load and the `process.on` handler below
+// belong, and for the identical reason `main()` itself is gated here: a plain
+// module-scope `import "dotenv/config"` and module-scope `process.on` calls
+// fire on IMPORT, not on execution as the entry point. Without this,
 // `managed.test.ts` importing this module for its pure helpers would install
-// global `unhandledRejection`/`uncaughtException` handlers into the vitest
-// worker process and load the developer's local `.env` into the test run —
-// exactly the kind of process-global side effect this file goes to trouble to
-// avoid for `main()` itself.
+// a global `unhandledRejection` handler into the vitest worker process and
+// load the developer's local `.env` into the test run — exactly the kind of
+// process-global side effect this file goes to trouble to avoid for `main()`
+// itself.
+//
+// `uncaughtException` is registered separately, INSIDE `main()` (not here),
+// because its handling needs to consult `main()`'s local `stopping` flag —
+// see the registration next to the server `error` handler for why.
 if (
   process.argv[1] &&
   import.meta.url === pathToFileURL(process.argv[1]).href
@@ -705,16 +873,17 @@ if (
 
   // Fail loud, not silent: surface any stray async error (e.g. a throw deep in
   // an interaction/callback path) instead of letting it kill the process with
-  // no log. Log and keep running — one bad turn shouldn't take the host down.
+  // no log. Log and keep running here — unlike `uncaughtException` above,
+  // this handler's "one bad turn shouldn't take the host down" reasoning is
+  // out of scope for this pass: nothing here demonstrated that an unhandled
+  // rejection can leave the process in the same undefined, still-bound-socket
+  // state that motivated changing `uncaughtException`, so its behavior is
+  // deliberately left unchanged.
   process.on("unhandledRejection", (reason) => {
     console.error("[channel] unhandledRejection:", reason);
   });
-  process.on("uncaughtException", (err) => {
-    console.error("[channel] uncaughtException:", err);
-  });
 
   main().catch((err: unknown) => {
-    console.error("[channel] fatal: failed to start channel runtime", err);
-    process.exit(1);
+    fatal("[channel] fatal: failed to start channel runtime", err);
   });
 }
