@@ -212,6 +212,23 @@ export function channelWatchdogTick(
 }
 
 /**
+ * Promisified `server.close()`.
+ *
+ * Resolves regardless of outcome: the only error `close` reports is
+ * `ERR_SERVER_NOT_RUNNING` (the server never bound), which is not a shutdown
+ * failure. Passing a callback also keeps that error off the server's `error`
+ * event, where the bind handler would misreport it as a bind failure and exit
+ * non-zero on an otherwise clean shutdown.
+ */
+export function closeServer(server: {
+  close(cb: (err?: Error) => void): unknown;
+}): Promise<void> {
+  return new Promise((resolve) => {
+    server.close(() => resolve());
+  });
+}
+
+/**
  * Build the KiteBot channel: same tools/context/commands/handlers as the native
  * bot, minus any platform adapter (the managed transport is attached at
  * activation when the runtime's node listener is mounted). Pure — no network,
@@ -351,16 +368,25 @@ async function main() {
 
   const server = createServer(listener);
   let watchdog: NodeJS.Timeout | undefined;
+  let listening = false;
   // Fail loud on a bind failure. Without an 'error' handler an EADDRINUSE/EACCES
   // during listen() surfaces only as a logged-but-swallowed uncaughtException
   // while the process keeps running with no listener — Railway's ON_FAILURE
-  // never fires. Attach BEFORE listen() so the bind error is caught here.
+  // never fires. Attach BEFORE listen() so the bind error is caught here. The
+  // `listening` flag keeps the message honest: after a successful bind, an
+  // 'error' here is no longer a bind failure.
   server.on("error", (err) => {
-    console.error(`[channel] HTTP listener failed to bind on :${port}`, err);
+    console.error(
+      listening
+        ? `[channel] HTTP server error on :${port}`
+        : `[channel] HTTP listener failed to bind on :${port}`,
+      err,
+    );
     process.exit(1);
   });
 
   server.listen(port, async () => {
+    listening = true;
     // The socket is bound, but the managed channel is not necessarily live yet.
     // `ready()` rejects if any declared channel settled to `error` (bad
     // INTELLIGENCE_API_KEY, unreachable INTELLIGENCE_GATEWAY_WS_URL) or — with
@@ -424,7 +450,7 @@ async function main() {
       console.error("[channel] error stopping channel runtime", err);
       exitCode = 1;
     }
-    server.close();
+    await closeServer(server);
     // Tear down the shared headless browser used for chart/diagram rendering.
     await closeBrowser().catch((err: unknown) =>
       console.error(

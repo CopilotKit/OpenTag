@@ -8,6 +8,7 @@ import {
   MANAGED_COMPONENTS,
   unhealthyChannels,
   channelWatchdogTick,
+  closeServer,
 } from "./managed.js";
 
 describe("createKiteChannel", () => {
@@ -270,5 +271,31 @@ describe("channelWatchdogTick", () => {
       kind: "notice",
       message: "channel recovered: overall=online",
     });
+  });
+});
+
+describe("closeServer", () => {
+  it("resolves once the server reports closed", async () => {
+    let closed = false;
+    await closeServer({
+      close(cb) {
+        closed = true;
+        cb();
+      },
+    });
+    expect(closed).toBe(true);
+  });
+
+  it("resolves even when the server was never listening", async () => {
+    // node calls back with ERR_SERVER_NOT_RUNNING when close() is called on a
+    // server that never bound — e.g. SIGTERM arriving during startup. Shutdown
+    // must not stall or throw on that.
+    await expect(
+      closeServer({
+        close(cb) {
+          cb(Object.assign(new Error("not running"), { code: "ERR_SERVER_NOT_RUNNING" }));
+        },
+      }),
+    ).resolves.toBeUndefined();
   });
 });
