@@ -106,8 +106,16 @@ export default defineRailway(() => {
     // the shared libs Chromium needs at runtime. Without this, render_chart /
     // render_diagram fail on the deployed channel. Mirrors the kite reference.
     build: {
+      // `--frozen-lockfile` so a drifted pnpm-lock.yaml fails the build instead
+      // of silently resolving different versions than the repo was tested with
+      // (overriding buildCommand replaces Railpack's own install, which sets it).
+      // Chromium is installed explicitly because pnpm 10 does not run the
+      // playwright package's postinstall by default. NOT `--with-deps`: that
+      // apt-installs into the BUILD layer, which Railpack strips — the runtime
+      // libs come from RAILPACK_DEPLOY_APT_PACKAGES below, which is the layer
+      // that actually launches the browser.
       buildCommand:
-        "pnpm install && npx playwright install --with-deps chromium",
+        "pnpm install --frozen-lockfile && npx playwright install chromium",
     },
     deploy: {
       // Parity with agent/notion-mcp: restart the long-running channel host on
