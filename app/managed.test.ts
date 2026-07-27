@@ -275,15 +275,32 @@ describe("channelWatchdogTick", () => {
 });
 
 describe("closeServer", () => {
-  it("resolves once the server reports closed", async () => {
-    let closed = false;
-    await closeServer({
+  it("does not resolve until the server reports closed", async () => {
+    let finish: (() => void) | undefined;
+    const pending = closeServer({
       close(cb) {
-        closed = true;
-        cb();
+        finish = () => cb();
       },
     });
-    expect(closed).toBe(true);
+    const sentinel = Symbol("pending");
+    expect(await Promise.race([pending, Promise.resolve(sentinel)])).toBe(
+      sentinel,
+    );
+    finish?.();
+    await expect(pending).resolves.toBeUndefined();
+  });
+
+  it("force-closes in-flight connections once close() is initiated", async () => {
+    let closeAllConnectionsCalled = false;
+    await closeServer({
+      close(cb) {
+        cb();
+      },
+      closeAllConnections() {
+        closeAllConnectionsCalled = true;
+      },
+    });
+    expect(closeAllConnectionsCalled).toBe(true);
   });
 
   it("resolves even when the server was never listening", async () => {

@@ -225,12 +225,27 @@ export function channelWatchdogTick(
  * failure. Passing a callback also keeps that error off the server's `error`
  * event, where the bind handler would misreport it as a bind failure and exit
  * non-zero on an otherwise clean shutdown.
+ *
+ * `close()` alone only stops accepting new connections and drops idle
+ * keep-alive sockets — it does NOT end in-flight requests, so the callback
+ * (and this promise) waits for every active response to finish. This runtime
+ * streams agent runs over SSE (`/api/copilotkit/agent/:id/run`), so an open
+ * stream at shutdown time would otherwise pin `shutdown` until the platform's
+ * grace period expires and SIGKILLs the container — skipping `closeBrowser()`
+ * and `process.exit(exitCode)`, and turning a clean exit into a kill that
+ * Railway's `ON_FAILURE` policy may count as a failure. Force in-flight
+ * sockets closed via `closeAllConnections` right after initiating `close()`,
+ * so shutdown can't outlive the platform's grace period. Order matters: call
+ * it AFTER `close()` so no new connection can be accepted in the gap between
+ * the two calls. It's optional because it only exists on Node >= 18.2.
  */
 export function closeServer(server: {
   close(cb: (err?: Error) => void): unknown;
+  closeAllConnections?: () => void;
 }): Promise<void> {
   return new Promise((resolve) => {
     server.close(() => resolve());
+    server.closeAllConnections?.();
   });
 }
 
