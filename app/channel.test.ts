@@ -88,27 +88,24 @@ afterEach(async () => {
 });
 
 function makeChannel(options: {
-  platform: "intelligence" | "slack" | "teams";
+  provider: "slack" | "teams";
   agent?: FakeAgent;
 }) {
-  const adapter = new FakeAdapter({ platform: options.platform });
+  const adapter = new FakeAdapter({ platform: "intelligence" });
   const agent = options.agent ?? new CapturingAgent();
-  const channel = createOpenTagChannel({
-    name: "opentag",
-    adapters: [adapter],
-    agent,
-  });
+  const channel = createOpenTagChannel("opentag", options.provider, agent);
+  channel.ɵruntime.addAdapter(adapter);
   channels.push(channel);
   return { adapter, agent, channel };
 }
 
 describe("createOpenTagChannel", () => {
   it("declares managed Slack and retains app commands", () => {
-    const channel = createOpenTagChannel({
-      name: "custom-channel",
-      adapters: [],
-      agent: new FakeAgent(),
-    });
+    const channel = createOpenTagChannel(
+      "custom-channel",
+      "slack",
+      new FakeAgent(),
+    );
     channels.push(channel);
 
     expect(channel.name).toBe("custom-channel");
@@ -125,7 +122,7 @@ describe("createOpenTagChannel", () => {
 
   it("injects Slack defaults per managed Slack run", async () => {
     const { adapter, agent, channel } = makeChannel({
-      platform: "intelligence",
+      provider: "slack",
     });
 
     await channel.ɵruntime.start();
@@ -151,19 +148,13 @@ describe("createOpenTagChannel", () => {
     ]);
   });
 
-  it("does not leak Slack defaults into Teams when both direct adapters share the Channel", async () => {
-    const slackAdapter = new FakeAdapter({ platform: "slack" });
-    const teamsAdapter = new FakeAdapter({ platform: "teams" });
-    const agent = new CapturingAgent();
-    const channel = createOpenTagChannel({
-      name: "opentag",
-      adapters: [slackAdapter, teamsAdapter],
-      agent,
+  it("does not inject Slack defaults into managed Teams", async () => {
+    const { adapter, agent, channel } = makeChannel({
+      provider: "teams",
     });
-    channels.push(channel);
 
     await channel.ɵruntime.start();
-    await teamsAdapter.getSink().onTurn({
+    await adapter.getSink().onTurn({
       conversationKey: "c1",
       replyTarget: {},
       userText: "hello",
@@ -171,7 +162,7 @@ describe("createOpenTagChannel", () => {
       user: { id: "T1", name: "Ada" },
     });
 
-    const call = agent.calls[0];
+    const call = (agent as CapturingAgent).calls[0];
     expect(call?.tools?.map(({ name }) => name).sort()).toEqual(
       appTools.map(({ name }) => name).sort(),
     );
@@ -186,7 +177,7 @@ describe("createOpenTagChannel", () => {
 
   it("injects managed content parts as the current agent prompt", async () => {
     const { adapter, agent, channel } = makeChannel({
-      platform: "intelligence",
+      provider: "slack",
     });
     const parts = [{ type: "text" as const, text: "from content parts" }];
 
@@ -205,23 +196,8 @@ describe("createOpenTagChannel", () => {
     );
   });
 
-  it("does not inject a duplicate prompt for direct adapter ingress", async () => {
-    const { adapter, agent, channel } = makeChannel({ platform: "slack" });
-
-    await channel.ɵruntime.start();
-    await adapter.getSink().onTurn({
-      conversationKey: "c1",
-      replyTarget: {},
-      userText: "already in direct history",
-      platform: "slack",
-      user: { id: "U1" },
-    });
-
-    expect(agent.messages).toEqual([]);
-  });
-
   it("personalizes suggested prompts when a thread starts", async () => {
-    const { adapter, channel } = makeChannel({ platform: "slack" });
+    const { adapter, channel } = makeChannel({ provider: "slack" });
 
     await channel.ɵruntime.start();
     await adapter.emitThreadStarted({
@@ -239,7 +215,7 @@ describe("createOpenTagChannel", () => {
     const consoleError = vi
       .spyOn(console, "error")
       .mockImplementation(() => undefined);
-    const { adapter, channel } = makeChannel({ platform: "slack" });
+    const { adapter, channel } = makeChannel({ provider: "slack" });
     adapter.setSuggestedPrompts = vi.fn(async () => {
       throw new Error("suggested prompts unavailable");
     });
@@ -270,7 +246,7 @@ describe("createOpenTagChannel", () => {
       .spyOn(console, "error")
       .mockImplementation(() => undefined);
     const { adapter, channel } = makeChannel({
-      platform: "slack",
+      provider: "slack",
       agent: new FakeAgent([
         () => {
           throw error;
@@ -314,7 +290,7 @@ describe("createOpenTagChannel", () => {
       },
     ]);
     const { adapter, channel } = makeChannel({
-      platform: "intelligence",
+      provider: "slack",
       agent,
     });
 
@@ -363,7 +339,7 @@ describe("createOpenTagChannel", () => {
       },
     ]);
     const { adapter, channel } = makeChannel({
-      platform: "intelligence",
+      provider: "slack",
       agent,
     });
 
@@ -396,11 +372,12 @@ describe("createOpenTagChannel", () => {
         } as never);
       },
     ]);
-    const firstChannel = createOpenTagChannel({
-      name: "opentag",
-      adapters: [firstAdapter],
-      agent: firstAgent,
-    });
+    const firstChannel = createOpenTagChannel(
+      "opentag",
+      "slack",
+      firstAgent,
+    );
+    firstChannel.ɵruntime.addAdapter(firstAdapter);
     channels.push(firstChannel);
     await firstChannel.ɵruntime.start();
     await firstAdapter.getSink().onTurn({
@@ -422,11 +399,12 @@ describe("createOpenTagChannel", () => {
     const secondAdapter = new FakeAdapter({ platform: "intelligence" });
     secondAdapter.stateStore = sharedState;
     const secondAgent = new FakeAgent();
-    const secondChannel = createOpenTagChannel({
-      name: "opentag",
-      adapters: [secondAdapter],
-      agent: secondAgent,
-    });
+    const secondChannel = createOpenTagChannel(
+      "opentag",
+      "slack",
+      secondAgent,
+    );
+    secondChannel.ɵruntime.addAdapter(secondAdapter);
     channels.push(secondChannel);
     await secondChannel.ɵruntime.start();
     await secondAdapter.getSink().onInteraction({

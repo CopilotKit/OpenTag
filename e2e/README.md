@@ -24,8 +24,9 @@ E2E_CHANNEL=C...
 - `BOT_USER_ID` identifies the OpenTag bot in replies.
 - `E2E_CHANNEL` is the test channel ID.
 
-The harness never provisions or reinstalls an app. Do not run it against the
-production `@kite` app while another Socket Mode consumer owns the same token.
+These are test-harness credentials, not Channel-runtime configuration;
+Intelligence still owns the deployed Slack attachment. The harness never
+provisions or reinstalls an app.
 
 ## Run
 

@@ -14,7 +14,7 @@ features:
     messages_tab_enabled: true
     messages_tab_read_only_enabled: false
   # Enables the assistant pane ("Agents & AI Apps"). The greeting + chips here
-  # mirror the `assistant` option in app/platforms.ts.
+  # mirror the suggestions registered when an OpenTag thread starts.
   assistant_view:
     assistant_description: OpenTag research and triage assistant.
     suggested_prompts:

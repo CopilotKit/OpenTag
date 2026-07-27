@@ -12,12 +12,6 @@ export interface AppEnvironment {
   intelligenceGatewayWsUrl: string;
   channelName: string;
   port: number;
-  slackBotToken?: string;
-  slackAppToken?: string;
-  teamsClientId?: string;
-  teamsClientSecret?: string;
-  teamsTenantId?: string;
-  teamsPort: number;
 }
 
 function required(env: NodeJS.ProcessEnv, name: string): string {
@@ -26,16 +20,6 @@ function required(env: NodeJS.ProcessEnv, name: string): string {
     throw new Error(`Missing required env var: ${name}`);
   }
   return value;
-}
-
-function requireTogether(
-  env: NodeJS.ProcessEnv,
-  first: string,
-  second: string,
-): void {
-  if (Boolean(env[first]) !== Boolean(env[second])) {
-    throw new Error(`${first} and ${second} must be set together`);
-  }
 }
 
 export function parsePort(
@@ -55,9 +39,6 @@ export function parsePort(
 export function readEnvironment(
   env: NodeJS.ProcessEnv = process.env,
 ): AppEnvironment {
-  requireTogether(env, "SLACK_BOT_TOKEN", "SLACK_APP_TOKEN");
-  requireTogether(env, "TEAMS_CLIENT_ID", "TEAMS_CLIENT_SECRET");
-
   return {
     agentUrl: required(env, "AGENT_URL"),
     agentAuthHeader: env.AGENT_AUTH_HEADER,
@@ -70,11 +51,5 @@ export function readEnvironment(
     channelName:
       env.INTELLIGENCE_CHANNEL_NAME ?? DEFAULT_INTELLIGENCE_CHANNEL_NAME,
     port: parsePort(env.PORT),
-    slackBotToken: env.SLACK_BOT_TOKEN,
-    slackAppToken: env.SLACK_APP_TOKEN,
-    teamsClientId: env.TEAMS_CLIENT_ID,
-    teamsClientSecret: env.TEAMS_CLIENT_SECRET,
-    teamsTenantId: env.TEAMS_TENANT_ID,
-    teamsPort: parsePort(env.TEAMS_PORT, 3978, "TEAMS_PORT"),
   };
 }

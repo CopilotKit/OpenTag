@@ -33,7 +33,6 @@ describe("readEnvironment", () => {
       intelligenceGatewayWsUrl: DEFAULT_INTELLIGENCE_GATEWAY_WS_URL,
       channelName: DEFAULT_INTELLIGENCE_CHANNEL_NAME,
       port: 3000,
-      teamsPort: 3978,
     });
   });
 
@@ -52,46 +51,17 @@ describe("readEnvironment", () => {
     });
   });
 
-  it("reads direct Teams credentials and validates its listener port", () => {
-    expect(
-      readEnvironment({
-        ...requiredEnvironment,
-        TEAMS_CLIENT_ID: "teams-client",
-        TEAMS_CLIENT_SECRET: "teams-secret",
-        TEAMS_TENANT_ID: "teams-tenant",
-        TEAMS_PORT: "4978",
-      }),
-    ).toMatchObject({
-      teamsClientId: "teams-client",
-      teamsClientSecret: "teams-secret",
-      teamsTenantId: "teams-tenant",
-      teamsPort: 4978,
+  it("does not expose platform credentials owned by Intelligence", () => {
+    const environment = readEnvironment({
+      ...requiredEnvironment,
+      SLACK_BOT_TOKEN: "xoxb-unused",
+      TEAMS_CLIENT_ID: "teams-unused",
     });
 
-    expect(() =>
-      readEnvironment({
-        ...requiredEnvironment,
-        TEAMS_PORT: "bad",
-      }),
-    ).toThrow('Invalid TEAMS_PORT: "bad"');
+    expect(environment).not.toHaveProperty("slackBotToken");
+    expect(environment).not.toHaveProperty("teamsClientId");
+    expect(environment).not.toHaveProperty("teamsPort");
   });
-
-  it.each([
-    ["SLACK_BOT_TOKEN", { SLACK_BOT_TOKEN: "xoxb-test" }],
-    ["SLACK_APP_TOKEN", { SLACK_APP_TOKEN: "xapp-test" }],
-    ["TEAMS_CLIENT_ID", { TEAMS_CLIENT_ID: "teams-client" }],
-    ["TEAMS_CLIENT_SECRET", { TEAMS_CLIENT_SECRET: "teams-secret" }],
-  ])(
-    "rejects an incomplete direct-adapter credential pair containing only %s",
-    (_name, partialCredentials) => {
-      expect(() =>
-        readEnvironment({
-          ...requiredEnvironment,
-          ...partialCredentials,
-        }),
-      ).toThrow(/must be set together/i);
-    },
-  );
 });
 
 describe("parsePort", () => {

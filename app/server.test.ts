@@ -3,12 +3,12 @@ import type { RequestListener } from "node:http";
 import { describe, expect, it, vi } from "vitest";
 import type { ChannelsControl } from "@copilotkit/runtime/v2";
 import {
-  createOpenTagApplication,
   startOpenTagServer,
   type HttpServerLike,
   type RuntimeListener,
 } from "../server.js";
 import type { AppEnvironment } from "./env.js";
+import { createOpenTagApplication } from "./index.js";
 
 class FakeServer extends EventEmitter implements HttpServerLike {
   listening = false;
@@ -134,7 +134,7 @@ describe("startOpenTagServer", () => {
 });
 
 describe("createOpenTagApplication", () => {
-  it("keeps the managed Channel adapter-free and isolates optional direct adapters", () => {
+  it("declares adapter-free managed Slack and Teams Channels", () => {
     const environment: AppEnvironment = {
       agentUrl: "http://agent.internal/",
       intelligenceApiKey: "cpk-1_test",
@@ -142,29 +142,20 @@ describe("createOpenTagApplication", () => {
       intelligenceGatewayWsUrl: "wss://realtime.intelligence.test",
       channelName: "kite",
       port: 3000,
-      slackBotToken: "xoxb-test",
-      slackAppToken: "xapp-test",
-      teamsClientId: "teams-client",
-      teamsClientSecret: "teams-secret",
-      teamsPort: 3978,
     };
 
     const application = createOpenTagApplication(environment);
 
-    expect(application.channel.name).toBe("kite");
-    expect(application.channel.adapters).toEqual([]);
     expect(
-      application.directChannels.map((channel) => ({
+      application.channels.map((channel) => ({
         name: channel.name,
-        platforms: channel.adapters.map(({ platform }) => platform),
+        provider: channel.provider,
+        adapters: channel.adapters,
       })),
     ).toEqual([
-      { name: "opentag-direct-slack", platforms: ["slack"] },
-      { name: "opentag-direct-teams", platforms: ["teams"] },
+      { name: "kite", provider: "slack", adapters: [] },
+      { name: "kite-teams", provider: "teams", adapters: [] },
     ]);
-    expect(application.runtime.channels).toEqual([
-      application.channel,
-      ...application.directChannels,
-    ]);
+    expect(application.runtime.channels).toEqual(application.channels);
   });
 });

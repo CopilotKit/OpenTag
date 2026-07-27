@@ -1,3 +1,9 @@
+/**
+ * Reconciles OpenTag's production Railway topology: one Python agent and one
+ * Intelligence-connected Channel host, both deployed from `main`. Platform
+ * credentials and attachments stay in Intelligence, so Railway owns only the
+ * application services and their private AG-UI connection.
+ */
 import { defineRailway, github, preserve, project, service } from "railway/iac";
 
 const REPO = "CopilotKit/OpenTag";

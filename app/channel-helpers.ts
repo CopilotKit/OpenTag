@@ -8,48 +8,26 @@ import type {
 import {
   defaultSlackContext,
   defaultSlackTools,
-  SanitizingHttpAgent,
 } from "@copilotkit/channels/slack";
 import { senderContext } from "./sender-context.js";
 
+/**
+ * Managed history does not include the in-flight turn, so pass it explicitly.
+ * Multimodal content parts take precedence over the text fallback.
+ */
 export function promptFromMessage(
   message: Pick<IncomingMessage, "contentParts" | "text">,
 ): string | AgentContentPart[] {
   return message.contentParts?.length ? message.contentParts : message.text;
 }
 
-export function buildAgentHeaders(
-  authHeader?: string,
-): { Authorization: string } | undefined {
-  return authHeader ? { Authorization: authHeader } : undefined;
-}
-
-export function createAgentFactory(options: {
-  url: string;
-  authHeader?: string;
-}): (threadId: string) => SanitizingHttpAgent {
-  return (threadId) => {
-    const agent = new SanitizingHttpAgent({
-      url: options.url,
-      headers: buildAgentHeaders(options.authHeader),
-    });
-    agent.threadId = threadId;
-    return agent;
-  };
-}
-
-export function mentionRunInput(
-  message: IncomingMessage,
-  transportPlatform: string,
-): {
-  prompt?: string | AgentContentPart[];
-  tools?: ChannelTool[];
-  context: ContextEntry[];
-} {
+/**
+ * Add only the source platform's defaults. Intelligence is the transport;
+ * `message.platform` is the originating provider (`slack` or `teams`).
+ */
+export function managedRunInput(message: IncomingMessage) {
   return {
-    ...(transportPlatform === "intelligence"
-      ? { prompt: promptFromMessage(message) }
-      : {}),
+    prompt: promptFromMessage(message),
     ...platformRunInput(message.platform, message.user),
   };
 }
@@ -62,6 +40,7 @@ export function platformRunInput(
   context: ContextEntry[];
 } {
   const slack = platform === "slack";
+
   return {
     ...(slack ? { tools: [...defaultSlackTools] } : {}),
     context: [
@@ -69,4 +48,15 @@ export function platformRunInput(
       ...senderContext(user, platform),
     ],
   };
+}
+
+export function reportRecoverableError(
+  error: unknown,
+  context: { operation: string; recovery: string },
+): void {
+  console.error("[channel] recoverable error", {
+    error: error instanceof Error ? error : new Error(String(error)),
+    context,
+    timestamp: new Date().toISOString(),
+  });
 }

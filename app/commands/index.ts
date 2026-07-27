@@ -15,7 +15,7 @@ import {
   type ChannelCommand,
   type Thread as ChannelThread,
 } from "@copilotkit/channels";
-import { platformRunInput } from "../agent.js";
+import { platformRunInput } from "../channel-helpers.js";
 import { IssueCard } from "../components/index.js";
 import { FileIssueModal } from "../modals/file-issue.js";
 

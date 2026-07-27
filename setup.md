@@ -11,17 +11,16 @@ and WhatsApp are coming soon.
 | Component | Location | Responsibility |
 | --- | --- | --- |
 | Channel entrypoint | [`server.ts`](./server.ts) | Environment, readiness, HTTP lifecycle, and shutdown |
+| Application composition | [`app/index.ts`](./app/index.ts) | SDK agent factory, managed Slack/Teams Channels, and runtime |
 | Channel definition | [`app/channel.tsx`](./app/channel.tsx) | Mentions, commands, components, modals, and interrupts |
 | Intelligence runtime | [`app/runtime-host.ts`](./app/runtime-host.ts) | One `CopilotKitIntelligence` and one `CopilotRuntime` |
-| Platform adapters | [`app/platforms.ts`](./app/platforms.ts) | Optional direct Slack and Teams adapters for local development |
 | Python agent | [`agent/`](./agent) | LangGraph deep agent served over AG-UI |
 | Railway topology | [`.railway/railway.ts`](./.railway/railway.ts) | Two services sourced from OpenTag `main` |
 
-The Channel always uses the Intelligence-owned runtime. Managed Slack and
-Microsoft Teams attachments are configured in Intelligence. Direct adapters
-are optional, separately named Channels in the same runtime, not an alternate
-non-Intelligence mode. Keeping the managed Channel adapter-free ensures local
-credentials cannot disable managed activation.
+The host always uses the Intelligence-owned runtime. It declares an
+adapter-free Slack Channel using the configured base name and an adapter-free
+Teams Channel named `<base>-teams`. Their credentials and attachments are
+configured only in Intelligence.
 
 ## Install
 
@@ -31,7 +30,7 @@ Prerequisites:
 - pnpm
 - Python 3.12
 - [`uv`](https://docs.astral.sh/uv/)
-- A CopilotKit Intelligence project, Channel, and runtime API key
+- A CopilotKit Intelligence project, Channels, and runtime API key
 - An OpenAI API key for the Python agent
 
 Install both dependency sets:
@@ -50,10 +49,10 @@ The Channels and Runtime packages are intentionally pinned to canaries:
 @copilotkit/runtime   1.63.3-canary.rc-1
 ```
 
-## Configure the Python agent
+## Configure the environment
 
 ```bash
-cp agent/.env.example agent/.env
+cp .env.example .env
 ```
 
 | Variable | Required | Purpose |
@@ -70,7 +69,9 @@ cp agent/.env.example agent/.env
 
 Only `OPENAI_API_KEY` is required. Without Tavily or internal-source
 credentials, the agent still chats, plans, writes virtual files, and renders
-supported UI components.
+supported UI components. The Python agent explicitly loads this root `.env`
+for local development; Railway service variables work normally without a
+checked-in environment file.
 
 Run it:
 
@@ -86,16 +87,11 @@ The AG-UI endpoint is `http://localhost:8123/`; `/health` reports the
 In [CopilotKit Intelligence](https://intelligence.copilotkit.ai):
 
 1. Create or select the OpenTag project.
-2. Create one Channel. Use `opentag` for a normal installation or `kite` for
-   the production migration.
+2. Create two Channels. For a normal installation use `opentag` with provider
+   Slack and `opentag-teams` with provider Microsoft Teams. For production use
+   `kite` and `kite-teams`.
 3. Issue a runtime API key.
-4. Attach managed Slack, Microsoft Teams, or both to that Channel.
-
-Then configure the root environment:
-
-```bash
-cp .env.example .env
-```
+4. Configure each platform attachment on its matching Channel.
 
 | Variable | Required | Purpose |
 | --- | --- | --- |
@@ -108,7 +104,8 @@ cp .env.example .env
 | `PORT` | No | Channel HTTP port; defaults to `3000` |
 
 Legacy organization, project, Channel ID, and runtime-instance ID variables are
-not used.
+not used. Slack and Teams credentials also do not belong in this environment;
+Intelligence owns them.
 
 Start the Channel:
 
@@ -152,32 +149,9 @@ Those manifests are not a production migration step for `@kite`.
 ## Microsoft Teams
 
 Managed Microsoft Teams is supported. Configure the Teams attachment on the
-same Channel in Intelligence; no second runtime or provider-routing
-configuration is required.
-
-For direct local-adapter testing only, set:
-
-```dotenv
-TEAMS_CLIENT_ID=...
-TEAMS_CLIENT_SECRET=...
-# TEAMS_TENANT_ID=...
-# TEAMS_PORT=3978
-```
-
-`TEAMS_CLIENT_ID` and `TEAMS_CLIENT_SECRET` must be set together.
-
-## Optional direct Slack adapter
-
-For direct local Socket Mode testing, add both variables to the root `.env`:
-
-```dotenv
-SLACK_BOT_TOKEN=xoxb-...
-SLACK_APP_TOKEN=xapp-...
-```
-
-Both are required as a pair. The direct adapter runs as its own Channel inside
-the same Intelligence-owned process. Never run it concurrently with another
-consumer of the same production app token.
+`<base>-teams` Channel in Intelligence. The same Node process and runtime host
+both platform Channels; there is no direct adapter or Railway platform
+credential.
 
 ## Tools, commands, and UI
 
@@ -201,22 +175,21 @@ Reads and UI rendering are never gated.
 
 ### Tavily
 
-Set `TAVILY_API_KEY` in `agent/.env` to enable live web research. The `research`
-tool is not registered when the key is absent.
+Set `TAVILY_API_KEY` in the root `.env` to enable live web research. The
+`research` tool is not registered when the key is absent.
 
 ### Linear
 
-Set `LINEAR_API_KEY` in `agent/.env`. OpenTag connects to the hosted Linear MCP
-by default. Railway preserves this optional secret on the `agent` service.
+Set `LINEAR_API_KEY` in the root `.env`. OpenTag connects to the hosted Linear
+MCP by default. Railway preserves this optional secret on the `agent` service.
 
 ### Notion for local development
 
 The Railway launch has no Notion sidecar. For local development:
 
 1. Put `NOTION_TOKEN` and a strong `NOTION_MCP_AUTH_TOKEN` in the root `.env`.
-2. Put the same `NOTION_MCP_AUTH_TOKEN` in `agent/.env`.
-3. Run `pnpm notion-mcp`.
-4. Restart `pnpm agent` so it discovers the Notion tools.
+2. Run `pnpm notion-mcp`.
+3. Restart `pnpm agent` so it discovers the Notion tools.
 
 Notion is optional and is not a deployment blocker.
 
@@ -231,8 +204,9 @@ The IaC file declares exactly:
 
 `channel.AGENT_URL` references the agent's Railway private domain and port.
 Production Intelligence URLs are literal configuration, the API key is
-preserved, and the Channel name is `kite`. `OPENAI_API_KEY` is required on
-`agent`; Tavily and Linear are optional preserved secrets.
+preserved, and the base Channel name is `kite` (with `kite-teams` derived by
+the application). `OPENAI_API_KEY` is required on `agent`; Tavily and Linear
+are optional preserved secrets.
 
 Evaluate the configuration locally without applying it:
 

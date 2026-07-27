@@ -1,10 +1,13 @@
-import type { AbstractAgent } from "@ag-ui/client";
 import {
   createChannel,
   type Channel,
-  type PlatformAdapter,
+  type CreateChannelOptions,
+  type ManagedChannelProvider,
 } from "@copilotkit/channels";
-import { mentionRunInput } from "./agent.js";
+import {
+  managedRunInput,
+  reportRecoverableError,
+} from "./channel-helpers.js";
 import { appCommands } from "./commands/index.js";
 import { IssueCard, IssueList, PageList } from "./components/index.js";
 import { appContext } from "./context/app-context.js";
@@ -13,35 +16,18 @@ import { parseConfirmWriteInterrupt } from "./interrupt.js";
 import { FILE_ISSUE_CALLBACK, fileIssueSubmit } from "./modals/file-issue.js";
 import { appTools } from "./tools/index.js";
 
-function reportRecoverableError(
-  error: unknown,
-  context: { operation: string; recovery: string },
-): void {
-  console.error("[channel] recoverable error", {
-    error: error instanceof Error ? error : new Error(String(error)),
-    context,
-    timestamp: new Date().toISOString(),
-  });
-}
+type ChannelAgent = NonNullable<CreateChannelOptions["agent"]>;
 
-export interface CreateOpenTagChannelOptions {
-  name: string;
-  adapters: PlatformAdapter[];
-  agent: AbstractAgent | ((threadId: string) => AbstractAgent);
-}
-
-/**
- * Build an OpenTag Channel with the same handlers and UI for either managed
- * Intelligence delivery or one developer-owned direct adapter.
- */
+/** Build one managed OpenTag Channel for an Intelligence-owned provider. */
 export function createOpenTagChannel(
-  options: CreateOpenTagChannelOptions,
+  name: string,
+  provider: ManagedChannelProvider,
+  agent: ChannelAgent,
 ): Channel {
   const channel = createChannel({
-    name: options.name,
-    provider: "slack",
-    adapters: options.adapters,
-    agent: options.agent,
+    name,
+    provider,
+    agent,
     tools: appTools,
     context: [...appContext],
     commands: appCommands,
@@ -50,7 +36,7 @@ export function createOpenTagChannel(
 
   channel.onMention(async ({ thread, message }) => {
     try {
-      await thread.runAgent(mentionRunInput(message, thread.platform));
+      await thread.runAgent(managedRunInput(message));
     } catch (error) {
       try {
         await thread.post(

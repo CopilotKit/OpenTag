@@ -6,7 +6,7 @@ from fastapi.testclient import TestClient
 # reload/re-import is ever needed - re-importing later would just be a no-op
 # (Python caches modules in sys.modules), but doing it here makes that
 # explicit and guarantees these tests are order- and .env-independent: a
-# developer's local agent/.env cannot repopulate a key a test just deleted.
+# developer's root .env cannot repopulate a key a test just deleted.
 #
 # NOTE: `main` is intentionally NOT imported here. Unlike agent.py (whose
 # module-level code only calls load_dotenv()), main.py's module-level code
@@ -46,6 +46,21 @@ def test_server_exposes_opentag_metadata(monkeypatch):
     assert main.app.title == "OpenTag Deep Research Agent"
     assert main.AGENT_NAME == "opentag_research"
     assert main.AGENT_DESCRIPTION.startswith("OpenTag deep research assistant")
+
+
+def test_local_agent_port_ignores_the_shared_channel_port():
+    import main
+
+    assert main.local_server_port({"PORT": "3000", "SERVER_PORT": "8124"}) == 8124
+    assert main.local_server_port({"PORT": "3000"}) == 8123
+
+
+def test_local_agent_port_rejects_invalid_server_port():
+    import main
+    import pytest
+
+    with pytest.raises(ValueError, match="SERVER_PORT"):
+        main.local_server_port({"SERVER_PORT": "70000"})
 
 
 def test_build_agent_without_tavily(monkeypatch, capsys):

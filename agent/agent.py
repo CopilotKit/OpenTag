@@ -7,15 +7,17 @@ web research.
 """
 
 import os
+from pathlib import Path
 from dotenv import load_dotenv
 from langchain_openai import ChatOpenAI
 from deepagents import create_deep_agent
 from langgraph.checkpoint.memory import MemorySaver
 from copilotkit import CopilotKitMiddleware
 
-from tools import research, internal_source_tools
+from internal_sources import internal_source_tools
+from tools import research
 
-load_dotenv()
+load_dotenv(Path(__file__).resolve().parent.parent / ".env")
 
 
 # Base system prompt - always applies, regardless of whether web research is

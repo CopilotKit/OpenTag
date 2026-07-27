@@ -6,12 +6,8 @@ import {
 } from "node:http";
 import { pathToFileURL } from "node:url";
 import type { ChannelsControl } from "@copilotkit/runtime/v2";
-import { createAgentFactory } from "./app/agent.js";
-import { createOpenTagChannel } from "./app/channel.js";
-import { readEnvironment, type AppEnvironment } from "./app/env.js";
-import { resolvePlatforms } from "./app/platforms.js";
+import { createOpenTagApplication } from "./app/index.js";
 import { closeBrowser } from "./app/render/browser.js";
-import { createOpenTagRuntime } from "./app/runtime-host.js";
 
 export type RuntimeListener = RequestListener & {
   channels?: ChannelsControl;
@@ -160,39 +156,6 @@ export async function startOpenTagServer(
   return { server: startedServer, shutdown };
 }
 
-export function createOpenTagApplication(
-  environment: AppEnvironment = readEnvironment(),
-) {
-  const platform = resolvePlatforms(environment);
-  const agent = createAgentFactory({
-    url: environment.agentUrl,
-    authHeader: environment.agentAuthHeader,
-  });
-  const channel = createOpenTagChannel({
-    name: environment.channelName,
-    adapters: [],
-    agent,
-  });
-  const directChannels = platform.adapters.map((adapter) =>
-    createOpenTagChannel({
-      name: `opentag-direct-${adapter.platform}`,
-      adapters: [adapter],
-      agent,
-    }),
-  );
-  const runtimeHost = createOpenTagRuntime({
-    environment,
-    channels: [channel, ...directChannels],
-  });
-
-  return {
-    channel,
-    directChannels,
-    environment,
-    ...runtimeHost,
-  };
-}
-
 export async function main(): Promise<RunningOpenTagServer> {
   const application = createOpenTagApplication();
   const running = await startOpenTagServer({
@@ -202,7 +165,9 @@ export async function main(): Promise<RunningOpenTagServer> {
   });
 
   console.log(
-    `[opentag] channel "${application.environment.channelName}" listening on [::]:${application.environment.port}`,
+    `[opentag] channels ${application.channels
+      .map(({ name }) => `"${name}"`)
+      .join(", ")} listening on [::]:${application.environment.port}`,
   );
   return running;
 }

@@ -7,15 +7,13 @@ The agent uses Deep Agents for planning and filesystem operations, with optional
 
 import os
 import sys
+from collections.abc import Mapping
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from dotenv import load_dotenv
 from ag_ui_langgraph import add_langgraph_fastapi_endpoint
 from copilotkit import LangGraphAGUIAgent
 
 from agent import build_agent
-
-load_dotenv()
 
 app = FastAPI(
     title="OpenTag Deep Research Agent",
@@ -55,6 +53,21 @@ app.add_middleware(
 def health():
     """Health check endpoint for monitoring and Railway deployments"""
     return {"status": "ok", "service": "opentag-research-agent", "version": "0.1.0"}
+
+
+def local_server_port(env: Mapping[str, str] = os.environ) -> int:
+    """Resolve the local agent port without consuming the Channel's `PORT`."""
+    raw_port = env.get("SERVER_PORT", "8123")
+    try:
+        port = int(raw_port)
+        if not (1 <= port <= 65535):
+            raise ValueError("out of range")
+    except ValueError as error:
+        raise ValueError(
+            f'Invalid SERVER_PORT: "{raw_port}" — '
+            "must be an integer between 1 and 65535"
+        ) from error
+    return port
 
 
 # Build and register the Deep Research Agent
@@ -99,20 +112,13 @@ def main():
     # defaulting to :: here: on macOS/BSD a `::` socket may not accept IPv4, so
     # a local client dialing 127.0.0.1 could be refused.) Override with SERVER_HOST.
     host = os.getenv("SERVER_HOST") or "0.0.0.0"
-    # Local-dev entrypoint only: on Railway the startCommand runs `uvicorn
-    # main:app` directly, so this block is bypassed and the port comes from the
-    # startCommand's `--port ${PORT:-8123}`. Prefer PORT then SERVER_PORT here so
-    # `pnpm agent` matches that Railway behavior.
-    raw_port = os.getenv("PORT") or os.getenv("SERVER_PORT") or "8123"
+    # Local-dev entrypoint only: Railway runs `uvicorn main:app` with its
+    # service-specific PORT directly. Ignore root PORT here because that value
+    # belongs to the Node Channel when both services share one local `.env`.
     try:
-        port = int(raw_port)
-        if not (1 <= port <= 65535):
-            raise ValueError("out of range")
-    except ValueError:
-        print(
-            f'[ERROR] Invalid PORT/SERVER_PORT: "{raw_port}" — must be an integer between 1 and 65535',
-            file=sys.stderr,
-        )
+        port = local_server_port()
+    except ValueError as error:
+        print(f"[ERROR] {error}", file=sys.stderr)
         sys.exit(1)
     reload = os.getenv("AGENT_RELOAD", "").lower() in ("1", "true", "yes")
 

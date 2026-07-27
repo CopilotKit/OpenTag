@@ -2,9 +2,8 @@
  * Modal demo — a structured "file a Linear issue" form. Beats parsing free text:
  * the fields come back typed and validated by the platform.
  *
- * Slack receives the rich form. Platforms without modal support (including the
- * current direct Teams adapter) are detected by the `/file-issue` command and
- * fall back to the same conversational filing flow.
+ * Slack receives the rich form. Platforms without modal support are detected
+ * by the `/file-issue` command and fall back to the same conversational flow.
  */
 import {
   Modal,
@@ -14,7 +13,7 @@ import {
   RadioButtons,
 } from "@copilotkit/channels";
 import type { ModalSubmitHandler, ModalView } from "@copilotkit/channels";
-import { platformRunInput } from "../agent.js";
+import { platformRunInput } from "../channel-helpers.js";
 
 export const FILE_ISSUE_CALLBACK = "file_issue";
 

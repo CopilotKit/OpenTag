@@ -1,6 +1,6 @@
 /**
- * App-specific frontend tools. Platform defaults are selected separately in
- * `app/platforms.ts`.
+ * App-specific frontend tools. Provider defaults are added per turn by
+ * `app/channel-helpers.ts`.
  *
  * Add new tools here and re-export them through `appTools`. Wire the
  * array into `createChannel({ tools })`.
