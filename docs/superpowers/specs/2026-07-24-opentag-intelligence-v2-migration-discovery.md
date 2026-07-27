@@ -1,5 +1,18 @@
 # OpenTag `@copilotkit/channels` 0.1.x → 0.2.x Migration Discovery Spike
 
+> **Point-in-time record.** This is what the Task 1 spike found *before* any code
+> was written. It is kept for the verified SDK signatures below, not as a
+> description of what shipped — the implementation deliberately diverged twice:
+>
+> - **`@copilotkit/runtime` was raised to `^1.63.2`**, not left at `^1.62.3` as
+>   the version table below records. 1.62.3 has no v2 `channels` support and no
+>   `createCopilotNodeListener`, so the floor had to move.
+> - **`@copilotkit/channels-intelligence` was dropped as a direct dependency.**
+>   It stays available transitively via `channels` + `runtime`; the v2
+>   managed-channels path never imports it.
+>
+> The design doc and plan alongside this file describe what was actually built.
+
 Task 1 discovery only — no application code (`app/**`, `runtime.ts`) was modified.
 Every signature quoted below was read directly from installed `.d.ts` files
 under `node_modules/@copilotkit/*` (or, for one clearly-marked case in section
