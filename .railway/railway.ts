@@ -139,6 +139,12 @@ export default defineRailway(() => {
       INTELLIGENCE_API_URL: preserve(),
       INTELLIGENCE_GATEWAY_WS_URL: preserve(),
       INTELLIGENCE_API_KEY: preserve(),
+      // CHANNEL_HTTP_TOKEN is intentionally NOT set: the channel host's HTTP
+      // routes are closed unless it is, and nothing here needs them (this
+      // service has no public domain and no healthcheck, and the managed
+      // channel activates over the gateway WebSocket). preserve() so a deployer
+      // who does open the surface isn't clobbered by a later `config apply`.
+      CHANNEL_HTTP_TOKEN: preserve(),
     },
   });
 

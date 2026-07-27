@@ -20,6 +20,7 @@
  * Run: `pnpm channel` with INTELLIGENCE_* + AGENT_URL set (see .env.example).
  */
 import "dotenv/config";
+import { createHash, timingSafeEqual } from "node:crypto";
 import { createServer } from "node:http";
 import { pathToFileURL } from "node:url";
 import { createChannel } from "@copilotkit/channels";
@@ -33,8 +34,10 @@ import {
 import { CopilotRuntime, CopilotKitIntelligence } from "@copilotkit/runtime/v2";
 import { createCopilotNodeListener } from "@copilotkit/runtime/v2/node";
 import { appTools } from "./tools/index.js";
+import { IncidentCard } from "./tools/showcase-tools.js";
 import { appContext } from "./context/app-context.js";
 import { appCommands } from "./commands/index.js";
+import { ConfirmWrite } from "./human-in-the-loop/index.js";
 import { senderContext } from "./sender-context.js";
 import { fileIssueSubmit, FILE_ISSUE_CALLBACK } from "./modals/file-issue.js";
 import { closeBrowser } from "./render/browser.js";
@@ -48,6 +51,22 @@ const required = (name: string): string => {
   return v;
 };
 
+/**
+ * Every app component whose buttons carry an `onClick`, registered so the
+ * channel can re-render it by name to resolve a click.
+ *
+ * On the managed path a click arrives as a FRESH delivery, so the in-process
+ * handler cache backing an unregistered component is already gone — the runtime
+ * re-renders from this registry instead. Leave a component out and its clicks
+ * dead-letter (or degrade to "action expired" after a restart). `ConfirmWrite`
+ * is the load-bearing one: it carries the HITL approve/cancel that gates every
+ * write, so an unresolvable click silently strands the tool call.
+ *
+ * Adding a new interactive card? Add it here — `managed.test.ts` scans the app
+ * source for `onClick` and fails if anything is missing.
+ */
+export const MANAGED_COMPONENTS = [ConfirmWrite, IncidentCard];
+
 export interface CreateKiteChannelOptions {
   /** AG-UI agent endpoint the channel's HttpAgent posts to. */
   agentUrl: string;
@@ -58,15 +77,26 @@ export interface CreateKiteChannelOptions {
 }
 
 /**
- * Pick the prompt to send to the agent for the current turn. Managed history
- * does NOT include the in-flight turn, so the current message is always
- * passed explicitly — preferring multimodal parts when present.
+ * Build the prompt for the current turn. Managed history does NOT include the
+ * in-flight turn, so the current message is always passed explicitly.
+ *
+ * A turn can carry BOTH an instruction and attachments, and the transport keeps
+ * them in SEPARATE fields — channels-core's `msgFromTurn` maps `turn.userText`
+ * to `text` and `turn.contentParts` to `contentParts`, so the parts are built
+ * from attachments only and never fold in the instruction. Returning the parts
+ * alone (`contentParts ?? text`) therefore drops "chart this" and hands the
+ * model a bare CSV, which it answers with "what would you like me to do?".
+ * Lead with the instruction, then the attachments.
  */
 export function promptFromMessage(message: {
   contentParts?: AgentContentPart[];
   text: string;
 }): string | AgentContentPart[] {
-  return message.contentParts?.length ? message.contentParts : message.text;
+  const parts = message.contentParts;
+  if (!parts?.length) return message.text;
+  return message.text
+    ? [{ type: "text" as const, text: message.text }, ...parts]
+    : parts;
 }
 
 /** Build the Authorization header object forwarded to the agent, if any. */
@@ -74,6 +104,42 @@ export function buildAgentHeaders(
   authHeader?: string,
 ): { Authorization: string } | undefined {
   return authHeader ? { Authorization: authHeader } : undefined;
+}
+
+/** Constant-time compare of two strings, via fixed-length digests. */
+function secretEquals(a: string, b: string): boolean {
+  const digest = (s: string) => createHash("sha256").update(s).digest();
+  return timingSafeEqual(digest(a), digest(b));
+}
+
+/**
+ * Build the `onRequest` hook that guards the runtime's HTTP surface.
+ *
+ * `createCopilotNodeListener` publishes the whole v2 route set — `agent/:id/run`,
+ * `threads/list`, `threads/messages`, `memories/*`, `transcribe`, … — with no
+ * auth of its own, and this host registers `agents.kite` pointed straight at
+ * AGENT_URL. Left open, anyone who can reach the port has an unauthenticated
+ * proxy to the brain and to this bot's thread history.
+ *
+ * Nothing is meant to call those routes here: the managed channel activates over
+ * the Intelligence gateway WS (`listener.channels.ready()`), not over HTTP, and
+ * the Railway topology gives this service no public domain and no healthcheck.
+ * So the surface is CLOSED by default; set CHANNEL_HTTP_TOKEN to open it behind
+ * a bearer token (e.g. to point a local CopilotKit frontend at this runtime).
+ */
+export function httpAuthGate(
+  token: string | undefined,
+): (ctx: { request: Request }) => void {
+  const expected = token?.trim();
+  return ({ request }) => {
+    // 404 rather than 403 when unconfigured: a surface nobody should be calling
+    // shouldn't confirm that it exists.
+    if (!expected) throw new Response("Not Found", { status: 404 });
+    const provided = request.headers.get("authorization") ?? "";
+    if (!secretEquals(provided, `Bearer ${expected}`)) {
+      throw new Response("Unauthorized", { status: 401 });
+    }
+  };
 }
 
 /**
@@ -103,6 +169,7 @@ export function createKiteChannel(opts: CreateKiteChannelOptions): Channel {
     tools: [...appTools, ...defaultSlackTools],
     context: [...appContext, ...defaultSlackContext],
     commands: appCommands,
+    components: MANAGED_COMPONENTS,
   });
 
   // Managed history does NOT include the in-flight turn, so pass the current
@@ -195,9 +262,11 @@ async function main() {
     process.exit(1);
   }
 
+  const httpToken = process.env.CHANNEL_HTTP_TOKEN?.trim();
   const listener = createCopilotNodeListener({
     runtime,
     basePath: "/api/copilotkit",
+    hooks: { onRequest: httpAuthGate(httpToken) },
   });
 
   const server = createServer(listener);
@@ -226,6 +295,13 @@ async function main() {
     }
     console.log(
       `[channel] KiteBot channel "${channel.name}" mounted on :${port} → Intelligence gateway (channel live)`,
+    );
+    // State the HTTP posture explicitly — a closed surface is the default, and a
+    // deployer who opened it should see that in the logs rather than infer it.
+    console.log(
+      httpToken
+        ? `[channel] HTTP runtime routes on :${port} require a CHANNEL_HTTP_TOKEN bearer`
+        : `[channel] HTTP runtime routes on :${port} are closed (set CHANNEL_HTTP_TOKEN to open them)`,
     );
   });
 
