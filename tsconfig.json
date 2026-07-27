@@ -19,7 +19,6 @@
   "include": [
     "app/**/*.ts",
     "app/**/*.tsx",
-    "runtime.ts",
     "server.ts",
     "scripts/**/*.ts"
   ],

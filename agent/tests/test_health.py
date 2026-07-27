@@ -29,7 +29,23 @@ def test_health_ok(monkeypatch):
     client = TestClient(main.app)
     r = client.get("/health")
     assert r.status_code == 200
-    assert r.json()["status"] == "ok"
+    assert r.json() == {
+        "status": "ok",
+        "service": "opentag-research-agent",
+        "version": "0.1.0",
+    }
+
+
+def test_server_exposes_opentag_metadata(monkeypatch):
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
+    monkeypatch.delenv("TAVILY_API_KEY", raising=False)
+    monkeypatch.delenv("LINEAR_API_KEY", raising=False)
+    monkeypatch.delenv("NOTION_MCP_AUTH_TOKEN", raising=False)
+    import main
+
+    assert main.app.title == "OpenTag Deep Research Agent"
+    assert main.AGENT_NAME == "opentag_research"
+    assert main.AGENT_DESCRIPTION.startswith("OpenTag deep research assistant")
 
 
 def test_build_agent_without_tavily(monkeypatch, capsys):
@@ -102,3 +118,7 @@ def test_system_prompt_requires_confirmation_only_for_writes():
     assert "Linear or Notion create or update" in prompt
     assert "only when" in prompt and "confirmed" in prompt
     assert "Reads and rendering never require confirmation" in prompt
+
+
+def test_system_prompt_uses_opentag_persona():
+    assert "OpenTag's Deep Research Assistant" in agent_mod.BASE_SYSTEM_PROMPT

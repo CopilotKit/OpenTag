@@ -1,242 +1,197 @@
-# OpenTag: an open-source alternative to Claude in Slack
+# OpenTag
 
-Run your own AI agent inside Slack: it reads a thread, answers, calls your tools, and
-renders rich results right in the conversation. Think of it as having Claude in your
-workspace, except **open-source and self-hosted**: you own the runtime, bring your own
-model, and wire it to your own tools. No per-seat pricing, no lock-in.
+OpenTag is an open-source research and triage agent for Slack and Microsoft
+Teams. It runs on CopilotKit Channels, connects to CopilotKit Intelligence, and
+uses a Python LangGraph deep agent over AG-UI.
 
-It's built on **[`@copilotkit/channels`](https://github.com/CopilotKit/CopilotKit/tree/main/packages/channels)** —
-CopilotKit's open SDK for chat-platform agents (Slack first; the same code also runs on
-Discord, Telegram, and WhatsApp). Clone it, point it at your model and tools, and you own
-the whole stack.
+The launch supports:
 
-## See it in action
+- Slack through Intelligence, including the existing production `@kite` app.
+- Microsoft Teams through Intelligence.
+- Optional direct Slack and Teams adapters for local development.
 
-https://github.com/user-attachments/assets/a74fa1cb-add0-463e-a23c-aa09b95d5135
+Discord, Telegram, and WhatsApp are coming soon.
 
-▶️ **[Watch the demo](https://github.com/user-attachments/assets/a74fa1cb-add0-463e-a23c-aa09b95d5135)** (~50s) — a KiteBot agent working a Slack thread: it renders a breakdown, a table, and a bar chart inline (**generative UI**) and files a ticket only after an **Approve** gate (**human-in-the-loop**).
+## Architecture
 
-> **Two ways to run it:** **host it on your own** with the open-source SDK below — or skip the ops and **[sign up for the managed service →](https://go.copilotkit.ai/opentag-managed-gh)** coming soon from CopilotKit. The managed service will be part of our Enterprise Intelligence platform. You'll be able to use our cloud-hosting or enterprises can host it on their own infra.
->
-> Note: the **Intelligence Gateway** mode below is part of "host it on your own" — you run that
-> process yourself and bring your own CopilotKit Intelligence project. It's distinct from the
-> fully-hosted **managed service** above, which is still on the waitlist.
+```text
+Slack / Microsoft Teams
+          │
+          ▼
+CopilotKit Intelligence
+          │ realtime
+          ▼
+channel (Node + CopilotRuntime + Channels)
+          │ AG-UI
+          ▼
+agent (Python + LangGraph deepagents)
+          ├── OpenAI
+          ├── Tavily (optional)
+          ├── Linear MCP (optional)
+          └── Notion MCP (optional local sidecar)
+```
+
+There is one canonical Channel host: [`server.ts`](./server.ts). It creates one
+`CopilotKitIntelligence`, one `CopilotRuntime`, and one OpenTag Channel. Platform
+attachments are normally configured in Intelligence. Supplying local Slack or
+Teams credentials adds a direct adapter to that same runtime; it does not create
+a separate lifecycle.
+
+The launch pins the requested canaries:
+
+- `@copilotkit/channels@0.2.2-canary.rc-1`
+- `@copilotkit/runtime@1.63.3-canary.rc-1`
 
 ## Quick start
 
-OpenTag's packages are published on npm — a standalone `pnpm install` in this repo pulls in
-everything you need, no monorepo required.
+Prerequisites: Node.js 22+, pnpm, Python 3.12, and
+[`uv`](https://docs.astral.sh/uv/).
 
-You'll run two processes: the **agent backend** (`pnpm runtime`) and **the bot**. For the bot,
-pick one of two modes:
+1. Install dependencies.
 
-- **Intelligence Gateway — recommended.** `pnpm channel` runs the bot over the CopilotKit
-  Intelligence Realtime Gateway. This process never holds a Slack token — Intelligence owns
-  the Slack edge — so there's less for you to run and secure. You still run this process
-  yourself and bring your own CopilotKit Intelligence project — it's not the fully-hosted
-  managed service described below.
-- **Self-hosted.** `pnpm dev` (or `pnpm start`) runs the bot locally and talks to Slack (and
-  Discord/Telegram/WhatsApp) directly with your own platform tokens.
+   ```bash
+   pnpm install --frozen-lockfile
+   cd agent && uv sync && cd ..
+   ```
 
-Both modes talk to the same agent backend over AG-UI.
+2. Configure the Python agent.
 
-### The packages
+   ```bash
+   cp agent/.env.example agent/.env
+   ```
 
-OpenTag is a thin layer on top of a handful of CopilotKit packages. The `pnpm install` in step 3 installs all of them for you — this is what each one does, so you know what you're running and which ones are optional.
+   Set `OPENAI_API_KEY`. Tavily, Linear, and Notion are optional.
 
-**Required** — every OpenTag install needs these four:
+3. Configure the Channel host.
 
-| Package | Role |
-| --- | --- |
-| [`@copilotkit/channels`](https://github.com/CopilotKit/CopilotKit/tree/main/packages/channels) | The platform-agnostic bot engine — threading, tool calls, the human-in-the-loop gate. |
-| [`@copilotkit/runtime`](https://github.com/CopilotKit/CopilotKit/tree/main/packages/runtime) | The AG-UI agent backend that runs your LLM and tools. |
-| [`@copilotkit/channels-ui`](https://github.com/CopilotKit/CopilotKit/tree/main/packages/channels-ui) | Cross-platform JSX for rich messages (Block Kit on Slack, Components V2 on Discord, HTML on Telegram). |
-| [`@copilotkit/channels-slack`](https://github.com/CopilotKit/CopilotKit/tree/main/packages/channels-slack) | The Slack adapter — or swap it for the platform you're targeting (below). |
+   ```bash
+   cp .env.example .env
+   ```
 
-**Optional** — add only what you use:
+   Set:
 
-| Package | When you need it |
-| --- | --- |
-| [`@copilotkit/channels-discord`](https://github.com/CopilotKit/CopilotKit/tree/main/packages/channels-discord) · [`-telegram`](https://github.com/CopilotKit/CopilotKit/tree/main/packages/channels-telegram) · [`-whatsapp`](https://github.com/CopilotKit/CopilotKit/tree/main/packages/channels-whatsapp) | Running on a platform other than Slack — one adapter per platform. |
-| [`@copilotkit/channels-intelligence`](https://github.com/CopilotKit/CopilotKit/tree/main/packages/channels-intelligence) | Runs the bot over the CopilotKit Intelligence Realtime Gateway instead of holding platform tokens — see `app/managed.ts`. **Required for the recommended `pnpm channel` (Intelligence Gateway) mode**; omit it only if you run self-hosted mode exclusively. |
+   ```dotenv
+   AGENT_URL=http://localhost:8123/
+   INTELLIGENCE_API_KEY=cpk-...
+   ```
 
-**1. Create a Slack app.** At [api.slack.com/apps](https://api.slack.com/apps?new_app=1) →
-*From a manifest* → paste [`slack-app-manifest.yaml`](./slack-app-manifest.yaml). Install it,
-then grab the **Bot User OAuth Token** (`xoxb-…`) and an **App-Level Token** (`xapp-…`, with the
-`connections:write` scope) — needed for self-hosted mode, or to register the app with your
-CopilotKit Intelligence project for Intelligence mode. Step-by-step in
-[setup.md](./setup.md#1-create-a-slack-app).
+   `INTELLIGENCE_API_URL` and `INTELLIGENCE_GATEWAY_WS_URL` default to the
+   production Intelligence endpoints. `INTELLIGENCE_CHANNEL_NAME` defaults to
+   `opentag`.
 
-**2. Set your secrets** in `.env` (`cp .env.example .env`):
+4. In Intelligence, create the Channel that matches
+   `INTELLIGENCE_CHANNEL_NAME` and attach managed Slack and/or Microsoft Teams.
 
-```bash
-OPENAI_API_KEY=sk-...      # the TS runtime (runtime.ts) uses OpenAI's Responses API for web search;
-                           # the Python agent/ uses Tavily instead (see "Deep research" below)
+5. Run both services.
 
-# Optional integrations (see setup.md):
-LINEAR_API_KEY=lin_api_... # optional — lets the agent file Linear tickets
+   ```bash
+   pnpm agent
+   pnpm channel
+   ```
 
-# Self-hosted mode:
+The Channel waits for its Intelligence connection to become ready before its
+HTTP listener accepts traffic.
+
+## What OpenTag includes
+
+- Mentions and app-owned commands.
+- Sender-aware context and Slack tools scoped to Slack turns.
+- Rich issue, page, status, incident, link, table, chart, and diagram output.
+- File-aware prompts.
+- A LangGraph interrupt and resumable confirmation card before Linear or Notion
+  writes.
+- Graceful, idempotent shutdown for Channels, HTTP, and the rendering browser.
+- Nullable parent-message ID normalization through `SanitizingHttpAgent`.
+
+The Python agent is the only supported backend. Its identity and behavior live
+in [`agent/agent.py`](./agent/agent.py); the Channel UI and behavior live under
+[`app/`](./app/).
+
+## Platform setup
+
+### Intelligence (recommended)
+
+Use the normal Intelligence flow for both launch platforms:
+
+1. Create one OpenTag project and Channel in Intelligence.
+2. Issue a runtime API key.
+3. Configure the Slack and/or Microsoft Teams attachment in Intelligence.
+4. Run one `pnpm channel` process with that Channel name and key.
+
+No organization, project, Channel ID, or runtime-instance ID environment
+variables are required.
+
+### Optional direct adapters
+
+For local development, set either complete pair in the root `.env`:
+
+```dotenv
 SLACK_BOT_TOKEN=xoxb-...
 SLACK_APP_TOKEN=xapp-...
 
-# Intelligence Gateway mode — full list in .env.example:
-INTELLIGENCE_GATEWAY_WS_URL=wss://...
-INTELLIGENCE_API_KEY=cpk-...
-INTELLIGENCE_ORG_ID=org_...
-INTELLIGENCE_PROJECT_ID=...
-INTELLIGENCE_CHANNEL_ID=channel_...
+TEAMS_CLIENT_ID=...
+TEAMS_CLIENT_SECRET=...
 ```
 
-**3. Run it:**
+`TEAMS_TENANT_ID` and `TEAMS_PORT` are optional. Incomplete credential pairs
+fail at startup instead of silently disabling an adapter. The Intelligence
+connection remains the owner of the runtime.
+
+### Slack manifests
+
+[`slack-app-manifest.yaml`](./slack-app-manifest.yaml) and
+[`slack-app-manifest.json`](./slack-app-manifest.json) describe OpenTag for new
+installations.
+
+For the production migration, **do not recreate or reinstall the existing
+Slack app**. Reusing it preserves the bot user, workspace installation, and
+`@kite` handle. Stop the old Socket Mode consumer before attaching its existing
+`xapp` and `xoxb` tokens in Intelligence so only one consumer is active.
+
+## Optional research sources
+
+- `TAVILY_API_KEY` enables live web research. Without it, OpenTag still chats,
+  plans, uses its virtual filesystem, and renders UI from model knowledge.
+- `LINEAR_API_KEY` enables the hosted Linear MCP.
+- Notion can be used locally with `pnpm notion-mcp`; copy the same
+  `NOTION_MCP_AUTH_TOKEN` into the root `.env` and `agent/.env`. The Railway
+  launch intentionally has no Notion sidecar.
+
+All Linear and Notion creates or updates go through `confirm_write`; reads and
+rendering do not.
+
+## Railway
+
+[`.railway/railway.ts`](./.railway/railway.ts) defines exactly two services,
+both sourced from `CopilotKit/OpenTag` on `main`:
+
+| Service | Root | Start | Health |
+| --- | --- | --- | --- |
+| `agent` | `agent` | `uvicorn main:app --host :: --port ${PORT:-8123}` | `/health` |
+| `channel` | repository root | `pnpm channel` | Channels readiness before listen |
+
+The Channel reaches the agent over Railway private networking. Railway sets
+`INTELLIGENCE_CHANNEL_NAME=kite` for the production cutover and preserves the
+runtime API key. OpenAI is required on `agent`; Tavily and Linear secrets are
+optional. Connecting both services to `main` enables GitHub-triggered
+deployments after merges.
+
+The repository configuration does not mutate the existing production Railway
+project. Inventory and cutover should happen after Railway authentication.
+
+## Verification
 
 ```bash
-pnpm install
-pnpm runtime    # the agent backend, on :8200
-
-pnpm channel    # recommended — the bot over the Intelligence Gateway
-# or
-pnpm dev        # alternative — the bot, self-hosted
+pnpm install --frozen-lockfile
+pnpm check-types
+pnpm test
+(cd agent && uv run pytest)
+node node_modules/railway/dist/iac/bin.js
 ```
 
-**4. Talk to it.** @mention the bot in any channel thread:
-
-> @KiteBot summarize this thread and file it as a bug
-
-That's the whole loop. To wire up Linear, Notion, inline charts, or to run
-on Discord / Telegram / WhatsApp, see **[setup.md](./setup.md)**.  
-
-We won't lie to you, though. Setting up hosting for chat agents is not easy. To skip all of that heartache, go [join the waitlist](https://go.copilotkit.ai/opentag-managed-gh) for the CopilotKit managed service as part of our Intelligence platform, both cloud-hosted or self-hosted.
-
-## Make it your own
-
-OpenTag is deliberately small and hackable:
-
-- **Change what it does.** The agent's behavior is steered by a single system prompt in
-  [`runtime.ts`](./runtime.ts) — rewrite it and you have a different agent.
-- **Copy `app/` to start your own bot.** It's the platform-agnostic bot (tools, components, the
-  human-in-the-loop gate). `runtime.ts` is the agent backend: one CopilotKit `BuiltInAgent` (an
-  LLM + optional MCP tools — no Python, no LangGraph), served over AG-UI.
-- **One platform, or all of them.** `createBot` takes an array of adapters; set the secrets for
-  whichever platform(s) you want and the bot starts an adapter for each.
-
-The full architecture, the file-by-file map, and every integration live in
-**[setup.md](./setup.md)**.
-
-## Deep research (LangGraph deep agent)
-
-`agent/` is an alternative agent backend to `runtime.ts` — a Python
-[`deepagents`](https://github.com/langchain-ai/deepagents) (LangGraph) planner with a virtual
-filesystem and OPTIONAL Tavily web research, served over AG-UI on `:8123`. Instead of a single
-system-prompted LLM call, it plans with `write_todos`, reads/writes its own virtual files, and
-(when configured) researches the web before synthesizing an answer — while still calling
-KiteBot's forwarded generative-UI tools like the TS runtime does.
-
-Only `OPENAI_API_KEY` is required. `TAVILY_API_KEY` is **optional** — without it, chat and UI
-generation still work (the agent answers from its own knowledge); with it, live web research
-turns on.
-
-To run it:
-
-```bash
-cd agent && uv sync   # requires uv: https://docs.astral.sh/uv/
-pnpm agent            # cd agent && uv run python main.py — serves over AG-UI on :8123
-                       # (port from PORT/SERVER_PORT env, default 8123)
-```
-
-Then point the bot at it instead of `runtime.ts` by setting in `.env`:
-
-```bash
-AGENT_URL=http://localhost:8123/
-```
-
-With `agent/` in the mix, the local setup is now three pieces: the deep-research agent
-(`pnpm agent`, `:8123`), the bot (`pnpm channel` or `pnpm dev`), and whichever brain
-`AGENT_URL` points at — the Python deep agent above, or the TS `runtime.ts` (`pnpm runtime`,
-`:8200`) as before. `agent` and `runtime` are alternative brains for the same bot; run one or
-the other depending on what `AGENT_URL` targets.
-
-## Deploy to Railway (one-click)
-
-The whole KiteBot stack deploys to [Railway](https://railway.com) as **three services**, all
-built from this one repo and wired together automatically over Railway's private networking:
-
-| Service | What it is | Build |
-| --- | --- | --- |
-| `agent` | the Python deep-research backend (`agent/`) | nixpacks, `uvicorn`, `/health` (root dir `agent/`) |
-| `notion-mcp` | the Notion MCP sidecar (`pnpm notion-mcp`) | Node |
-| `channel` | the KiteBot channel host (`pnpm channel`) | Node |
-
-`channel` reaches `agent` via `AGENT_URL`, and `agent` reaches `notion-mcp` via `NOTION_MCP_URL`
-— both wired with Railway reference variables in [`.railway/railway.ts`](./.railway/railway.ts),
-so you don't set them by hand.
-
-**Deploy via Infrastructure-as-Code (recommended):**
-
-```bash
-pnpm install                 # installs the `railway` SDK the CLI uses to evaluate .railway/railway.ts
-npm i -g @railway/cli        # or: brew install railway
-railway login
-railway init                 # create a new Railway project (or `railway link` to select an existing one)
-railway config apply         # from the repo root: provisions agent + notion-mcp + channel from .railway/railway.ts
-```
-
-**Set the secrets** (Railway → each service → *Variables*). The IaC declares them with
-`preserve()` and never stores values — you fill them in:
-
-- **`agent`** — `OPENAI_API_KEY` (required); `TAVILY_API_KEY` (optional — enables web research);
-  `LINEAR_API_KEY` (optional). (`NOTION_MCP_AUTH_TOKEN` is **not** set here — the agent references
-  it from `notion-mcp`, so you set it once, below.)
-- **`notion-mcp`** — `NOTION_TOKEN` and `NOTION_MCP_AUTH_TOKEN` (any strong string; the agent
-  reads the same value via a reference variable). **Both are required** for this service to
-  start — its launcher exits if either is missing. Don't want Notion? Remove the `notion-mcp`
-  service from `resources` in [`.railway/railway.ts`](./.railway/railway.ts) and delete the
-  agent's `NOTION_MCP_URL` / `NOTION_MCP_AUTH_TOKEN` lines; the agent still runs (chat, UI, and —
-  with `TAVILY_API_KEY` — web research).
-- **`channel`** — `INTELLIGENCE_GATEWAY_WS_URL`, `INTELLIGENCE_API_KEY`, `INTELLIGENCE_ORG_ID`,
-  `INTELLIGENCE_PROJECT_ID`, `INTELLIGENCE_CHANNEL_ID` (from your CopilotKit Intelligence
-  project + channel).
-
-The inter-service URLs/ports are wired for you in [`.railway/railway.ts`](./.railway/railway.ts).
-Two values are left unmanaged by the IaC so a UI override survives `railway config apply`: the
-agent's `OPENAI_MODEL` (defaults to `gpt-5.5`) and the channel's `INTELLIGENCE_CHANNEL_NAME`
-(defaults to `kitebot`). Set either in that service's *Variables* to change it — e.g. set
-`INTELLIGENCE_CHANNEL_NAME` if your Intelligence channel isn't named `kitebot`.
-
-Applying the config creates the services and their wiring; **KiteBot goes live only once the
-secrets are set and the `channel` service connects** — that's when your Intelligence dashboard
-flips *Waiting for runtime → live*.
-
-> **Cold-start note (Notion):** the `agent` loads its Notion tools once, at startup. On a first
-> cold deploy the `agent` can finish booting before `notion-mcp` is accepting connections, in
-> which case Notion research is unavailable for that deployment — the agent logs a `WARNING` on
-> its stderr (chat, UI, and Tavily web research still work). If KiteBot can't reach Notion after
-> the first deploy, **redeploy the `agent` service** once `notion-mcp` is up. (A lazy/retrying
-> MCP load would remove this race — tracked as a follow-up.)
-
-**"Deploy on Railway" button (optional):** to get a literal one-click button, publish this repo
-as a [Railway template](https://docs.railway.com/templates/create) from your Railway account,
-then drop the generated button in:
-
-```md
-[![Deploy on Railway](https://railway.com/button.svg)](https://railway.com/new/template/<your-template-id>)
-```
-
-## Don't want to host it yourself?
-
-Self-hosting means you run and scale the runtime, persistence, and inspection tooling yourself.
-A **managed CopilotKit service** is on its way. It's the same agent, without the ops: durable
-threads, persistence, hosted inspection, and agents that improve from feedback (**Continuous
-Learning from Human Feedback**). 
-
-- **[Join the waitlist →](https://go.copilotkit.ai/opentag-managed-gh)** — be first in when the managed service opens.
-- **[Talk to an engineer →](https://copilotkit.ai/talk-to-an-engineer)** — building something real on this? We'd love to help you ship it.
-
-## Learn more
-
-The **[CopilotKit Slack quickstart](https://docs.copilotkit.ai/slack)** is the canonical guide
-to building a Slack agent — read it alongside this starter. Detailed setup and configuration
-lives in **[setup.md](./setup.md)**.
+The Slack live harness is documented in [`e2e/README.md`](./e2e/README.md).
+Production acceptance is one end-to-end `@kite` mention that returns the
+OpenTag persona through the Python agent.
 
 ## License
 

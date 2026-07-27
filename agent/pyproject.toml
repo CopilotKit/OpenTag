@@ -1,7 +1,7 @@
 [project]
-name = "kitebot-research-agent"
+name = "opentag-research-agent"
 version = "0.1.0"
-description = "KiteBot Deep Research Agent — CopilotKit Deep Agents (LangGraph) over AG-UI"
+description = "OpenTag Deep Research Agent — CopilotKit Deep Agents (LangGraph) over AG-UI"
 requires-python = ">=3.12"
 dependencies = [
   "ag-ui-langgraph>=0.0.23",

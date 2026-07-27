@@ -1,5 +1,5 @@
 """
-Deep Research Assistant - FastAPI Server
+OpenTag Deep Research Agent - FastAPI Server
 
 Serves the Deep Research Agent via AG-UI protocol for CopilotKit integration.
 The agent uses Deep Agents for planning and filesystem operations, with optional Tavily web research.
@@ -18,9 +18,14 @@ from agent import build_agent
 load_dotenv()
 
 app = FastAPI(
-    title="KiteBot Deep Research Agent",
+    title="OpenTag Deep Research Agent",
     description="A research assistant powered by Deep Agents and CopilotKit",
     version="0.1.0",
+)
+
+AGENT_NAME = "opentag_research"
+AGENT_DESCRIPTION = (
+    "OpenTag deep research assistant — plans, searches, and synthesizes cited briefs"
 )
 
 # Enable CORS for frontend communication. Defaults to "*" (any origin) for
@@ -49,7 +54,7 @@ app.add_middleware(
 @app.get("/health")
 def health():
     """Health check endpoint for monitoring and Railway deployments"""
-    return {"status": "ok", "service": "kitebot-research-agent", "version": "0.1.0"}
+    return {"status": "ok", "service": "opentag-research-agent", "version": "0.1.0"}
 
 
 # Build and register the Deep Research Agent
@@ -57,7 +62,7 @@ try:
     agent_graph = build_agent()
 
     # Note: we intentionally do NOT pass an emit_tool_calls allowlist here.
-    # KiteBot's channel bridge forwards generative-UI tools (issue_card,
+    # OpenTag's channel bridge forwards generative-UI tools (issue_card,
     # render_chart, render_table, show_links, ...) that must be emitted to the
     # frontend for cards to render. The backend-owned confirm_write tool emits
     # an interrupt through the same stream. An allowlist could filter these
@@ -70,8 +75,8 @@ try:
     add_langgraph_fastapi_endpoint(
         app=app,
         agent=LangGraphAGUIAgent(
-            name="kitebot_research",
-            description="KiteBot deep research assistant — plans, searches, and synthesizes cited briefs",
+            name=AGENT_NAME,
+            description=AGENT_DESCRIPTION,
             graph=agent_graph,
         ),
         path="/",

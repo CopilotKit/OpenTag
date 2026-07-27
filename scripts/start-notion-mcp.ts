@@ -1,8 +1,7 @@
 /**
  * Starts the official Notion MCP server as a Streamable-HTTP sidecar for the
- * agent backends — the TS runtime (`runtime.ts`) and the Python deep-research
- * agent (`agent/`); on Railway the Python agent is the sole consumer (see
- * `.railway/railway.ts`). Run with `pnpm notion-mcp`.
+ * OpenTag Python deep-research agent (`agent/`). Run with `pnpm notion-mcp`
+ * for optional local Notion access.
  *
  * Why a launcher instead of a raw npm script: the two `.env` values need to be
  * mapped to the two DIFFERENT things the Notion server expects — the Notion
@@ -34,9 +33,9 @@ if (!notionToken) {
   process.exit(1);
 }
 
-// Port the sidecar listens on. Must agree with NOTION_MCP_URL as dialed by
-// runtime.ts (TS backend) AND by the Python agent/ backend on Railway — both
-// default to http://127.0.0.1:3001/mcp. Validated up front because it's passed
+// Port the sidecar listens on. Must agree with NOTION_MCP_URL as dialed by the
+// Python agent; both default to http://127.0.0.1:3001/mcp. Validated up front
+// because it's passed
 // as a `--port` arg to the spawn below, which uses a shell on Windows
 // (`shell: isWindows`) — an unvalidated value with spaces/shell metacharacters
 // could mangle or inject the command there. An empty string (a bare
@@ -58,10 +57,7 @@ if (!Number.isInteger(portNumber) || portNumber < 1 || portNumber > 65535) {
 const port = String(portNumber);
 
 // Host the sidecar binds to. Defaults to loopback for local dev (matches the
-// upstream server's own default). On Railway the `notion-mcp` service sets
-// NOTION_MCP_HOST=:: so the sidecar listens on all interfaces and is reachable
-// over Railway's (IPv6) private network — without it the server binds 127.0.0.1
-// and the agent's cross-container connection is refused. Validated because it's
+// upstream server's own default). Validated because it's
 // passed as a `--host` arg to the spawn below (which uses a shell on Windows,
 // `shell: isWindows`), and to prevent a leading `-` being read as a flag.
 const rawHost = process.env["NOTION_MCP_HOST"] || undefined;

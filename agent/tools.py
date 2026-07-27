@@ -190,12 +190,11 @@ def internal_source_tools() -> list:
     """Notion + Linear MCP tools, included only when their env is present.
 
     Reuses OpenTag's Phase-1 MCP servers so the agent can research the team's
-    own docs/issues alongside the web. Mirrors the transports `runtime.ts`'s
-    `mcpTransports()` describes: Linear's hosted MCP server (bearer
-    `LINEAR_API_KEY`, URL from `LINEAR_MCP_URL` or the `mcp.linear.app`
-    default) and the Notion MCP sidecar (bearer `NOTION_MCP_AUTH_TOKEN`, URL
-    from `NOTION_MCP_URL` or the localhost default). Each server is entirely
-    optional and gated independently - set neither, one, or both.
+    own docs/issues alongside the web. Linear uses its hosted MCP server
+    (`LINEAR_API_KEY`, with `LINEAR_MCP_URL` defaulting to `mcp.linear.app`);
+    Notion uses the optional local MCP sidecar (`NOTION_MCP_AUTH_TOKEN`, with
+    `NOTION_MCP_URL` defaulting to localhost). Each server is independently
+    optional.
 
     `langchain_mcp_adapters`'s `MultiServerMCPClient.get_tools()` is
     async-only; this function runs it to completion on a short-lived event
@@ -239,7 +238,7 @@ def internal_source_tools() -> list:
                 # Bound connect time so a hung MCP server (accepts the
                 # socket but never responds) can't stall build_agent() -
                 # and thus the whole app, including /health - at import
-                # time. Mirrors runtime.ts's MCP_CONNECT_TIMEOUT_MS=8000.
+                # time.
                 server_tools = await asyncio.wait_for(
                     server_client.get_tools(), timeout=8.0
                 )

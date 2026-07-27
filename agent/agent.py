@@ -1,5 +1,5 @@
 """
-KiteBot Deep Research Agent
+OpenTag Deep Research Agent
 
 A Deep Agents-powered research assistant that demonstrates CopilotKit's
 planning, filesystem, and subagent capabilities, with optional Tavily-backed
@@ -20,9 +20,9 @@ load_dotenv()
 
 # Base system prompt - always applies, regardless of whether web research is
 # available. The agent chats, plans with write_todos, uses its virtual
-# filesystem, and renders results as UI components (via KiteBot's forwarded
+# filesystem, and renders results as UI components (via OpenTag's forwarded
 # generative-UI tools) even with no research tool loaded.
-BASE_SYSTEM_PROMPT = """You are KiteBot's Deep Research Assistant, an expert at planning and
+BASE_SYSTEM_PROMPT = """You are OpenTag's Deep Research Assistant, an expert at planning and
 executing comprehensive research on any topic.
 
 Hard rules (ALWAYS follow):
@@ -131,7 +131,7 @@ def build_agent():
         checkpointer=MemorySaver(),
     )
 
-    print(f"[AGENT] KiteBot Deep Research Agent created with model={model_name}")
+    print(f"[AGENT] OpenTag Deep Research Agent created with model={model_name}")
     print(f"[AGENT] research: {'enabled' if has_research else 'disabled'}")
     print(f"[AGENT] internal-source tools: {len(internal_tools)}")
     print(f"[AGENT] Main tools: {[t.name for t in main_tools]}")

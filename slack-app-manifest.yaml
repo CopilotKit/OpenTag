@@ -1,10 +1,10 @@
 display_information:
-  name: KiteBot
-  description: On-call triage assistant — query/file Linear issues and find/write Notion pages from Slack.
+  name: OpenTag
+  description: OpenTag research and triage assistant for Slack.
   background_color: "#1a1a1a"
 features:
   bot_user:
-    display_name: KiteBot
+    display_name: OpenTag
     always_online: true
   # App Home: enable the Messages tab so users can DM the bot (and so the tab
   # isn't read-only — otherwise Slack shows "Sending messages to this app has
@@ -14,9 +14,9 @@ features:
     messages_tab_enabled: true
     messages_tab_read_only_enabled: false
   # Enables the assistant pane ("Agents & AI Apps"). The greeting + chips here
-  # mirror the `assistant` option in app/index.ts.
+  # mirror the `assistant` option in app/platforms.ts.
   assistant_view:
-    assistant_description: On-call triage assistant — query/file Linear issues and find/write Notion pages.
+    assistant_description: OpenTag research and triage assistant.
     suggested_prompts:
       - title: Triage my open issues
         message: Triage my open issues
