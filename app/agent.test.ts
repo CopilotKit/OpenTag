@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 import type { AgentContentPart, IncomingMessage } from "@copilotkit/channels";
-import { SanitizingHttpAgent } from "@copilotkit/channels/slack";
+import {
+  defaultSlackContext,
+  defaultSlackTools,
+  SanitizingHttpAgent,
+} from "@copilotkit/channels/slack";
 import {
   buildAgentHeaders,
   createAgentFactory,
@@ -38,7 +42,9 @@ describe("mentionRunInput", () => {
       mentionRunInput(message({ contentParts: parts }), "intelligence"),
     ).toEqual({
       prompt: parts,
+      tools: defaultSlackTools,
       context: [
+        ...defaultSlackContext,
         {
           description: "Requesting slack user",
           value: "Ada (slack id U1)",
@@ -49,7 +55,9 @@ describe("mentionRunInput", () => {
 
   it("does not duplicate the current prompt for direct adapter ingress", () => {
     expect(mentionRunInput(message(), "slack")).toEqual({
+      tools: defaultSlackTools,
       context: [
+        ...defaultSlackContext,
         {
           description: "Requesting slack user",
           value: "Ada (slack id U1)",

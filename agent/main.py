@@ -57,13 +57,14 @@ try:
     agent_graph = build_agent()
 
     # Note: we intentionally do NOT pass an emit_tool_calls allowlist here.
-    # KiteBot's channel bridge forwards generative-UI + HITL tools (issue_card,
-    # render_chart, render_table, show_links, confirm_write, ...) that must be
-    # emitted to the frontend for cards to render and the write-gate to surface.
-    # An allowlist would filter those out. The recursion limit for complex
-    # research tasks (6+ research calls + file operations) is already applied
-    # to the graph itself via `.with_config({"recursion_limit": 100})` in
-    # agent.py, so no additional AG-UI config is needed here.
+    # KiteBot's channel bridge forwards generative-UI tools (issue_card,
+    # render_chart, render_table, show_links, ...) that must be emitted to the
+    # frontend for cards to render. The backend-owned confirm_write tool emits
+    # an interrupt through the same stream. An allowlist could filter these
+    # events out. The recursion limit for complex research tasks (6+ research
+    # calls + file operations) is already applied to the graph itself via
+    # `.with_config({"recursion_limit": 100})` in agent.py, so no additional
+    # AG-UI config is needed here.
 
     # Add AG-UI endpoint at root path for CopilotKit frontend
     add_langgraph_fastapi_endpoint(

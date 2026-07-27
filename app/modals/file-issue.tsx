@@ -14,7 +14,7 @@ import {
   RadioButtons,
 } from "@copilotkit/channels";
 import type { ModalSubmitHandler, ModalView } from "@copilotkit/channels";
-import { senderContext } from "../sender-context.js";
+import { platformRunInput } from "../agent.js";
 
 export const FILE_ISSUE_CALLBACK = "file_issue";
 
@@ -50,6 +50,7 @@ export const fileIssueSubmit: ModalSubmitHandler = async ({
   values,
   thread,
   user,
+  privateMetadata,
 }) => {
   const issue = issueFromValues(values);
   if (!issue.title.trim()) {
@@ -61,11 +62,12 @@ export const fileIssueSubmit: ModalSubmitHandler = async ({
   void thread
     .runAgent({
       prompt:
-        `File a Linear issue now (this was already confirmed via the form):\n` +
+        `Draft this Linear issue from the submitted form:\n` +
         `- Title: ${issue.title}\n- Type: ${issue.type}\n- Priority: ${issue.priority}\n` +
         `- Description: ${issue.description || "(none)"}\n` +
-        `After filing, show the issue card.`,
-      context: senderContext(user, thread.platform),
+        `Call confirm_write with these exact details. File it only when the ` +
+        `resumed result confirms approval, then show the issue card.`,
+      ...platformRunInput(privateMetadata ?? thread.platform, user),
     })
     .catch((err) => {
       console.error("[bot] file-issue modal run failed", err);
@@ -81,12 +83,19 @@ export const fileIssueSubmit: ModalSubmitHandler = async ({
  * The form. `rich` controls whether the structured controls (selects/radio) are
  * present; pass `false` when a future text-only modal surface needs it.
  */
-export function FileIssueModal({ rich }: { rich: boolean }): ModalView {
+export function FileIssueModal({
+  rich,
+  sourcePlatform,
+}: {
+  rich: boolean;
+  sourcePlatform: string;
+}): ModalView {
   return (
     <Modal
       callbackId={FILE_ISSUE_CALLBACK}
       title="File an issue"
       submitLabel="File"
+      privateMetadata={sourcePlatform}
     >
       <TextInput
         id="title"

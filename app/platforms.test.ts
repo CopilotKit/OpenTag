@@ -1,8 +1,4 @@
 import { describe, expect, it } from "vitest";
-import {
-  defaultSlackContext,
-  defaultSlackTools,
-} from "@copilotkit/channels/slack";
 import { readEnvironment } from "./env.js";
 import { resolvePlatforms } from "./platforms.js";
 
@@ -16,12 +12,10 @@ const environment = (
   });
 
 describe("resolvePlatforms", () => {
-  it("uses managed Slack with Slack defaults when no direct credentials exist", () => {
+  it("leaves managed delivery adapter-free", () => {
     const setup = resolvePlatforms(environment());
 
-    expect(setup.adapters).toEqual([]);
-    expect(setup.tools).toEqual(defaultSlackTools);
-    expect(setup.context).toEqual(defaultSlackContext);
+    expect(setup).toEqual({ adapters: [] });
   });
 
   it("constructs direct Slack only when both Slack credentials exist", () => {
@@ -33,11 +27,11 @@ describe("resolvePlatforms", () => {
     );
 
     expect(setup.adapters.map(({ platform }) => platform)).toEqual(["slack"]);
-    expect(setup.tools).toEqual(defaultSlackTools);
-    expect(setup.context).toEqual(defaultSlackContext);
+    expect(setup).not.toHaveProperty("tools");
+    expect(setup).not.toHaveProperty("context");
   });
 
-  it("constructs direct Teams from its complete credential pair without inventing defaults", () => {
+  it("constructs direct Teams from its complete credential pair", () => {
     const setup = resolvePlatforms(
       environment({
         TEAMS_CLIENT_ID: "teams-client",
@@ -48,8 +42,8 @@ describe("resolvePlatforms", () => {
     );
 
     expect(setup.adapters.map(({ platform }) => platform)).toEqual(["teams"]);
-    expect(setup.tools).toEqual([]);
-    expect(setup.context).toEqual([]);
+    expect(setup).not.toHaveProperty("tools");
+    expect(setup).not.toHaveProperty("context");
   });
 
   it("combines direct Slack and Teams adapters in one platform setup", () => {
@@ -66,20 +60,7 @@ describe("resolvePlatforms", () => {
       "slack",
       "teams",
     ]);
-    expect(setup.tools).toEqual(defaultSlackTools);
-    expect(setup.context).toEqual(defaultSlackContext);
-  });
-
-  it("ignores incomplete direct credential pairs", () => {
-    const setup = resolvePlatforms(
-      environment({
-        SLACK_BOT_TOKEN: "xoxb-test",
-        TEAMS_CLIENT_ID: "teams-client",
-      }),
-    );
-
-    expect(setup.adapters).toEqual([]);
-    expect(setup.tools).toEqual(defaultSlackTools);
-    expect(setup.context).toEqual(defaultSlackContext);
+    expect(setup).not.toHaveProperty("tools");
+    expect(setup).not.toHaveProperty("context");
   });
 });

@@ -15,7 +15,6 @@ import {
   showStatusTool,
   showLinksTool,
 } from "./showcase-tools.js";
-import { confirmWriteTool } from "../human-in-the-loop/index.js";
 import type { ChannelTool } from "@copilotkit/channels";
 
 /**
@@ -37,7 +36,6 @@ export const appTools: ChannelTool[] = [
   showIncidentTool,
   showStatusTool,
   showLinksTool,
-  confirmWriteTool,
 ];
 
 export {
@@ -51,5 +49,4 @@ export {
   showIncidentTool,
   showStatusTool,
   showLinksTool,
-  confirmWriteTool,
 };

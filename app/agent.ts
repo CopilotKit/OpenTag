@@ -1,9 +1,15 @@
 import type {
   AgentContentPart,
+  ChannelTool,
   ContextEntry,
   IncomingMessage,
+  PlatformUser,
 } from "@copilotkit/channels";
-import { SanitizingHttpAgent } from "@copilotkit/channels/slack";
+import {
+  defaultSlackContext,
+  defaultSlackTools,
+  SanitizingHttpAgent,
+} from "@copilotkit/channels/slack";
 import { senderContext } from "./sender-context.js";
 
 export function promptFromMessage(
@@ -37,12 +43,30 @@ export function mentionRunInput(
   transportPlatform: string,
 ): {
   prompt?: string | AgentContentPart[];
+  tools?: ChannelTool[];
   context: ContextEntry[];
 } {
   return {
     ...(transportPlatform === "intelligence"
       ? { prompt: promptFromMessage(message) }
       : {}),
-    context: senderContext(message.user, message.platform),
+    ...platformRunInput(message.platform, message.user),
+  };
+}
+
+export function platformRunInput(
+  platform: string,
+  user: PlatformUser | undefined,
+): {
+  tools?: ChannelTool[];
+  context: ContextEntry[];
+} {
+  const slack = platform === "slack";
+  return {
+    ...(slack ? { tools: [...defaultSlackTools] } : {}),
+    context: [
+      ...(slack ? defaultSlackContext : []),
+      ...senderContext(user, platform),
+    ],
   };
 }

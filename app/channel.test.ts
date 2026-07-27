@@ -3,15 +3,20 @@ import type {
   RunAgentParameters,
   RunAgentResult,
 } from "@ag-ui/client";
-import { afterEach, describe, expect, it } from "vitest";
+import { EventType } from "@ag-ui/client";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
-  defineChannelTool,
   FakeAdapter,
   FakeAgent,
+  MemoryStore,
   type Channel,
-  type ContextEntry,
+  type ChannelNode,
 } from "@copilotkit/channels";
-import { z } from "zod";
+import {
+  defaultSlackContext,
+  defaultSlackTools,
+  renderSlackMessage,
+} from "@copilotkit/channels/slack";
 import { appContext } from "./context/app-context.js";
 import { appTools } from "./tools/index.js";
 import { createOpenTagChannel } from "./channel.js";
@@ -30,35 +35,44 @@ class CapturingAgent extends FakeAgent {
 
 const channels: Channel[] = [];
 
+function findButton(
+  nodes: ChannelNode[],
+  confirmed: boolean,
+): ChannelNode | undefined {
+  for (const node of nodes) {
+    if (
+      node.type === "button" &&
+      (node.props.value as { confirmed?: boolean } | undefined)?.confirmed ===
+        confirmed
+    ) {
+      return node;
+    }
+    const children = node.props.children;
+    if (Array.isArray(children)) {
+      const found = findButton(children as ChannelNode[], confirmed);
+      if (found) return found;
+    }
+  }
+  return undefined;
+}
+
 afterEach(async () => {
   await Promise.all(channels.splice(0).map((channel) => channel.ɵruntime.stop()));
 });
 
 function makeChannel(options: {
-  platform: "intelligence" | "slack";
+  platform: "intelligence" | "slack" | "teams";
   agent?: FakeAgent;
 }) {
   const adapter = new FakeAdapter({ platform: options.platform });
-  const platformTool = defineChannelTool({
-    name: "platform_lookup",
-    description: "Test platform lookup.",
-    parameters: z.object({}),
-    handler: () => "ok",
-  });
-  const platformContext: ContextEntry = {
-    description: "Platform guidance",
-    value: "Use native formatting.",
-  };
   const agent = options.agent ?? new CapturingAgent();
   const channel = createOpenTagChannel({
     name: "opentag",
     adapters: [adapter],
     agent,
-    platformTools: [platformTool],
-    platformContext: [platformContext],
   });
   channels.push(channel);
-  return { adapter, agent, channel, platformContext, platformTool };
+  return { adapter, agent, channel };
 }
 
 describe("createOpenTagChannel", () => {
@@ -67,8 +81,6 @@ describe("createOpenTagChannel", () => {
       name: "custom-channel",
       adapters: [],
       agent: new FakeAgent(),
-      platformTools: [],
-      platformContext: [],
     });
     channels.push(channel);
 
@@ -81,11 +93,13 @@ describe("createOpenTagChannel", () => {
       "preview",
       "triage",
     ]);
+    expect(appTools.map(({ name }) => name)).not.toContain("confirm_write");
   });
 
-  it("registers app and platform tools/context on agent runs", async () => {
-    const { adapter, agent, channel, platformContext, platformTool } =
-      makeChannel({ platform: "slack" });
+  it("injects Slack defaults per managed Slack run", async () => {
+    const { adapter, agent, channel } = makeChannel({
+      platform: "intelligence",
+    });
 
     await channel.ɵruntime.start();
     await adapter.getSink().onTurn({
@@ -98,14 +112,47 @@ describe("createOpenTagChannel", () => {
 
     const call = (agent as CapturingAgent).calls[0];
     expect(call?.tools?.map(({ name }) => name).sort()).toEqual(
-      [...appTools.map(({ name }) => name), platformTool.name].sort(),
+      [...appTools, ...defaultSlackTools].map(({ name }) => name).sort(),
     );
     expect(call?.context).toEqual([
       ...appContext,
-      platformContext,
+      ...defaultSlackContext,
       {
         description: "Requesting slack user",
         value: "Ada (slack id U1)",
+      },
+    ]);
+  });
+
+  it("does not leak Slack defaults into Teams when both direct adapters share the Channel", async () => {
+    const slackAdapter = new FakeAdapter({ platform: "slack" });
+    const teamsAdapter = new FakeAdapter({ platform: "teams" });
+    const agent = new CapturingAgent();
+    const channel = createOpenTagChannel({
+      name: "opentag",
+      adapters: [slackAdapter, teamsAdapter],
+      agent,
+    });
+    channels.push(channel);
+
+    await channel.ɵruntime.start();
+    await teamsAdapter.getSink().onTurn({
+      conversationKey: "c1",
+      replyTarget: {},
+      userText: "hello",
+      platform: "teams",
+      user: { id: "T1", name: "Ada" },
+    });
+
+    const call = agent.calls[0];
+    expect(call?.tools?.map(({ name }) => name).sort()).toEqual(
+      appTools.map(({ name }) => name).sort(),
+    );
+    expect(call?.context).toEqual([
+      ...appContext,
+      {
+        description: "Requesting teams user",
+        value: "Ada (teams id T1)",
       },
     ]);
   });
@@ -182,5 +229,152 @@ describe("createOpenTagChannel", () => {
     });
 
     expect(JSON.stringify(adapter.posted)).toMatch(/sorry.*error/i);
+  });
+
+  it("posts a valid confirm_write interrupt card and returns immediately", async () => {
+    const agent = new FakeAgent([
+      (subscriber) => {
+        subscriber.onCustomEvent?.({
+          event: {
+            type: EventType.CUSTOM,
+            name: "on_interrupt",
+            value: {
+              action: "confirm_write",
+              args: {
+                action: "Create Linear issue",
+                detail: "CPK-9: Checkout 500s",
+              },
+            },
+          },
+        } as never);
+      },
+    ]);
+    const { adapter, channel } = makeChannel({
+      platform: "intelligence",
+      agent,
+    });
+
+    await channel.ɵruntime.start();
+    const turn = adapter.getSink().onTurn({
+      conversationKey: "c1",
+      replyTarget: {},
+      userText: "file this",
+      platform: "slack",
+      user: { id: "U1" },
+    });
+    const result = await Promise.race([
+      Promise.resolve(turn).then(() => "returned"),
+      new Promise<string>((resolve) =>
+        setTimeout(() => resolve("blocked"), 100),
+      ),
+    ]);
+
+    expect(result).toBe("returned");
+    expect(adapter.posted).toHaveLength(1);
+    const { blocks, accent } = renderSlackMessage(adapter.posted[0]!);
+    expect(accent).toBe("#E2B340");
+    expect(JSON.stringify(blocks)).toContain("Create Linear issue");
+    expect(JSON.stringify(blocks)).toContain("CPK-9: Checkout 500s");
+  });
+
+  it("rejects malformed confirm_write interrupt payloads", async () => {
+    const consoleError = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => undefined);
+    const agent = new FakeAgent([
+      (subscriber) => {
+        subscriber.onCustomEvent?.({
+          event: {
+            type: EventType.CUSTOM,
+            name: "on_interrupt",
+            value: {
+              action: "unexpected_action",
+              args: { action: "Injected write" },
+            },
+          },
+        } as never);
+      },
+    ]);
+    const { adapter, channel } = makeChannel({
+      platform: "intelligence",
+      agent,
+    });
+
+    await channel.ɵruntime.start();
+    await adapter.getSink().onTurn({
+      conversationKey: "c1",
+      replyTarget: {},
+      userText: "file this",
+      platform: "slack",
+      user: { id: "U1" },
+    });
+
+    expect(JSON.stringify(adapter.posted)).toMatch(/sorry.*error/i);
+    expect(JSON.stringify(adapter.posted)).not.toContain("Injected write");
+    consoleError.mockRestore();
+  });
+
+  it("preserves confirm_write button actions across a Channel restart", async () => {
+    const sharedState = new MemoryStore();
+    const firstAdapter = new FakeAdapter({ platform: "intelligence" });
+    firstAdapter.stateStore = sharedState;
+    const firstAgent = new FakeAgent([
+      (subscriber) => {
+        subscriber.onCustomEvent?.({
+          event: {
+            type: EventType.CUSTOM,
+            name: "on_interrupt",
+            value: {
+              action: "confirm_write",
+              args: { action: "Create Linear issue", detail: "CPK-9" },
+            },
+          },
+        } as never);
+      },
+    ]);
+    const firstChannel = createOpenTagChannel({
+      name: "opentag",
+      adapters: [firstAdapter],
+      agent: firstAgent,
+    });
+    channels.push(firstChannel);
+    await firstChannel.ɵruntime.start();
+    await firstAdapter.getSink().onTurn({
+      conversationKey: "c1",
+      replyTarget: {},
+      userText: "file this",
+      platform: "slack",
+      user: { id: "U1" },
+    });
+
+    const createButton = findButton(firstAdapter.posted[0]!, true);
+    expect(createButton).toBeDefined();
+    const actionId = (
+      createButton?.props.onClick as { id?: string } | undefined
+    )?.id;
+    expect(actionId).toMatch(/^ck:/);
+    await firstChannel.ɵruntime.stop();
+
+    const secondAdapter = new FakeAdapter({ platform: "intelligence" });
+    secondAdapter.stateStore = sharedState;
+    const secondAgent = new FakeAgent();
+    const secondChannel = createOpenTagChannel({
+      name: "opentag",
+      adapters: [secondAdapter],
+      agent: secondAgent,
+    });
+    channels.push(secondChannel);
+    await secondChannel.ɵruntime.start();
+    await secondAdapter.getSink().onInteraction({
+      id: actionId!,
+      conversationKey: "c1",
+      replyTarget: {},
+      messageRef: { id: "msg-1" },
+      value: { confirmed: true },
+    });
+
+    expect(secondAdapter.updated).toHaveLength(1);
+    expect(JSON.stringify(secondAdapter.updated)).toContain("Approved");
+    expect(secondAgent.runAgentCalls).toBe(1);
   });
 });

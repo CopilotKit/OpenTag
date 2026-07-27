@@ -55,3 +55,35 @@ def test_internal_source_tools_loads_when_env_set(monkeypatch):
 
     assert len(result) > 0
     assert set(result) == {"tool-for-linear", "tool-for-notion"}
+
+
+def test_confirm_write_interrupts_with_structured_action(monkeypatch):
+    calls = []
+    expected_answer = '{"confirmed": true}'
+    expected_response = {"confirmed": True}
+
+    def fake_interrupt(*, action, args):
+        calls.append({"action": action, "args": args})
+        return expected_answer, expected_response
+
+    monkeypatch.setattr(tools, "copilotkit_interrupt", fake_interrupt, raising=False)
+    confirm_write = getattr(tools, "confirm_write", None)
+
+    assert confirm_write is not None
+    result = confirm_write.invoke(
+        {
+            "action": "Create Linear issue",
+            "detail": "CPK-9: Checkout 500s",
+        }
+    )
+
+    assert calls == [
+        {
+            "action": "confirm_write",
+            "args": {
+                "action": "Create Linear issue",
+                "detail": "CPK-9: Checkout 500s",
+            },
+        }
+    ]
+    assert result == expected_answer

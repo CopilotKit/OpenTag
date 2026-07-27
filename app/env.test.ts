@@ -75,6 +75,23 @@ describe("readEnvironment", () => {
       }),
     ).toThrow('Invalid TEAMS_PORT: "bad"');
   });
+
+  it.each([
+    ["SLACK_BOT_TOKEN", { SLACK_BOT_TOKEN: "xoxb-test" }],
+    ["SLACK_APP_TOKEN", { SLACK_APP_TOKEN: "xapp-test" }],
+    ["TEAMS_CLIENT_ID", { TEAMS_CLIENT_ID: "teams-client" }],
+    ["TEAMS_CLIENT_SECRET", { TEAMS_CLIENT_SECRET: "teams-secret" }],
+  ])(
+    "rejects an incomplete direct-adapter credential pair containing only %s",
+    (_name, partialCredentials) => {
+      expect(() =>
+        readEnvironment({
+          ...requiredEnvironment,
+          ...partialCredentials,
+        }),
+      ).toThrow(/must be set together/i);
+    },
+  );
 });
 
 describe("parsePort", () => {

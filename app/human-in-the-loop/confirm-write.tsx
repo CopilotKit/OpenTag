@@ -1,11 +1,10 @@
 /**
  * `confirm_write` — the human-in-the-loop gate in front of every Linear /
  * Notion write. The agent is instructed (see the system prompt in
- * `runtime.ts`) to confirm BEFORE creating an issue or a page: a tool handler
- * calls `await thread.awaitChoice(<ConfirmWrite .../>)`, which posts this
- * interactive card and **blocks until the user clicks Create or Cancel**,
- * resolving to the clicked button's `value` (`{ confirmed: true | false }`).
- * The agent only performs the write once it resolves with `{ confirmed: true }`.
+ * `agent/agent.py`) to confirm BEFORE creating an issue or a page: a tool handler
+ * pauses through a LangGraph interrupt. The Channel interrupt handler posts
+ * this card and returns immediately. A click updates the card, then resumes
+ * the paused graph with `{ confirmed: true | false }`.
  *
  * Each button also carries an `onClick` that updates the picker in place to a
  * resolved / declined state — so the card reflects the decision the moment it's
@@ -32,6 +31,35 @@ export interface ConfirmWriteProps {
   detail?: string;
 }
 
+async function resumeOrShowFailure(
+  thread: InteractionContext["thread"],
+  messageRef: InteractionContext["message"]["ref"],
+  action: string,
+  confirmed: boolean,
+): Promise<void> {
+  try {
+    await thread.resume({ confirmed });
+  } catch (error) {
+    try {
+      await thread.update(
+        messageRef,
+        <Message accent="#EB5757">
+          <Header>{`⚠️ ${action} paused`}</Header>
+          <Context>
+            {"I couldn't resume the agent. Please retry the action."}
+          </Context>
+        </Message>,
+      );
+    } catch (updateError) {
+      console.error(
+        "[confirm-write] failed to show resume error",
+        updateError,
+      );
+    }
+    throw error;
+  }
+}
+
 export function ConfirmWrite({ action, detail }: ConfirmWriteProps) {
   return (
     <Message accent="#E2B340">
@@ -52,8 +80,14 @@ export function ConfirmWrite({ action, detail }: ConfirmWriteProps) {
                 </Message>,
               );
             } catch (err) {
-              console.error("[confirm-write] onClick failed", err);
+              console.error("[confirm-write] approval update failed", err);
             }
+            await resumeOrShowFailure(
+              thread,
+              message.ref,
+              action,
+              true,
+            );
           }}
         >
           Create
@@ -71,8 +105,14 @@ export function ConfirmWrite({ action, detail }: ConfirmWriteProps) {
                 </Message>,
               );
             } catch (err) {
-              console.error("[confirm-write] onClick failed", err);
+              console.error("[confirm-write] decline update failed", err);
             }
+            await resumeOrShowFailure(
+              thread,
+              message.ref,
+              action,
+              false,
+            );
           }}
         >
           Cancel

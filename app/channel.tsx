@@ -1,9 +1,8 @@
 import type { AbstractAgent } from "@ag-ui/client";
+import { z } from "zod";
 import {
   createChannel,
   type Channel,
-  type ChannelTool,
-  type ContextEntry,
   type PlatformAdapter,
 } from "@copilotkit/channels";
 import { mentionRunInput } from "./agent.js";
@@ -14,12 +13,18 @@ import { ConfirmWrite } from "./human-in-the-loop/index.js";
 import { FILE_ISSUE_CALLBACK, fileIssueSubmit } from "./modals/file-issue.js";
 import { appTools } from "./tools/index.js";
 
+const confirmWriteInterruptSchema = z.object({
+  action: z.literal("confirm_write"),
+  args: z.object({
+    action: z.string().min(1),
+    detail: z.string().nullish(),
+  }),
+});
+
 export interface CreateOpenTagChannelOptions {
   name: string;
   adapters: PlatformAdapter[];
   agent: AbstractAgent | ((threadId: string) => AbstractAgent);
-  platformTools: ReadonlyArray<ChannelTool>;
-  platformContext: ReadonlyArray<ContextEntry>;
 }
 
 /**
@@ -34,8 +39,8 @@ export function createOpenTagChannel(
     provider: "slack",
     adapters: options.adapters,
     agent: options.agent,
-    tools: [...appTools, ...options.platformTools],
-    context: [...appContext, ...options.platformContext],
+    tools: appTools,
+    context: [...appContext],
     commands: appCommands,
     components: [IssueCard, IssueList, PageList, ConfirmWrite],
   });
@@ -54,6 +59,16 @@ export function createOpenTagChannel(
   });
 
   channel.onModalSubmit(FILE_ISSUE_CALLBACK, fileIssueSubmit);
+
+  channel.onInterrupt("on_interrupt", async ({ payload, thread }) => {
+    const { args } = confirmWriteInterruptSchema.parse(payload);
+    await thread.post(
+      <ConfirmWrite
+        action={args.action}
+        detail={args.detail ?? undefined}
+      />,
+    );
+  });
 
   channel.onThreadStarted(async ({ thread, user }) => {
     if (!user?.name) return;

@@ -28,6 +28,16 @@ function required(env: NodeJS.ProcessEnv, name: string): string {
   return value;
 }
 
+function requireTogether(
+  env: NodeJS.ProcessEnv,
+  first: string,
+  second: string,
+): void {
+  if (Boolean(env[first]) !== Boolean(env[second])) {
+    throw new Error(`${first} and ${second} must be set together`);
+  }
+}
+
 export function parsePort(
   raw: string | undefined,
   defaultPort = 3000,
@@ -45,6 +55,9 @@ export function parsePort(
 export function readEnvironment(
   env: NodeJS.ProcessEnv = process.env,
 ): AppEnvironment {
+  requireTogether(env, "SLACK_BOT_TOKEN", "SLACK_APP_TOKEN");
+  requireTogether(env, "TEAMS_CLIENT_ID", "TEAMS_CLIENT_SECRET");
+
   return {
     agentUrl: required(env, "AGENT_URL"),
     agentAuthHeader: env.AGENT_AUTH_HEADER,

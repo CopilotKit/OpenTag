@@ -169,8 +169,6 @@ export function createOpenTagApplication(
       url: environment.agentUrl,
       authHeader: environment.agentAuthHeader,
     }),
-    platformTools: platform.tools,
-    platformContext: platform.context,
   });
   const runtimeHost = createOpenTagRuntime({ environment, channel });
 

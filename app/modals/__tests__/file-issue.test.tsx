@@ -1,12 +1,15 @@
 import { describe, it, expect, vi } from "vitest";
 import { renderToIR, type ChannelNode } from "@copilotkit/channels";
 import {
+  defaultSlackContext,
+  defaultSlackTools,
+} from "@copilotkit/channels/slack";
+import {
   FileIssueModal,
   fileIssueSubmit,
   issueFromValues,
   FILE_ISSUE_CALLBACK,
 } from "../file-issue.js";
-import { senderContext } from "../../sender-context.js";
 
 function tags(node: ChannelNode | unknown, acc: string[] = []): string[] {
   if (!node || typeof node !== "object") return acc;
@@ -20,18 +23,23 @@ function tags(node: ChannelNode | unknown, acc: string[] = []): string[] {
 
 describe("FileIssueModal", () => {
   it("rich variant (Slack) includes selects and radios", () => {
-    const ir = renderToIR(FileIssueModal({ rich: true }));
+    const ir = renderToIR(
+      FileIssueModal({ rich: true, sourcePlatform: "slack" }),
+    );
     const root = ir[0]!;
     const t = tags(root);
     expect(root.type).toBe("modal");
     expect(root.props.callbackId).toBe(FILE_ISSUE_CALLBACK);
+    expect(root.props.privateMetadata).toBe("slack");
     expect(t).toContain("modal_text_input");
     expect(t).toContain("modal_select");
     expect(t).toContain("modal_radio");
   });
 
   it("text-only variant drops selects and radios", () => {
-    const ir = renderToIR(FileIssueModal({ rich: false }));
+    const ir = renderToIR(
+      FileIssueModal({ rich: false, sourcePlatform: "teams" }),
+    );
     const root = ir[0]!;
     const t = tags(root);
     expect(t).not.toContain("modal_select");
@@ -114,12 +122,12 @@ describe("fileIssueSubmit", () => {
     ).resolves.toBeUndefined();
   });
 
-  it("runs the agent with the interpolated prompt and sender context on a valid submit", async () => {
+  it("uses the command's managed Slack origin for defaults and sender context on submit", async () => {
     const runAgent = vi.fn(
-      (_input?: { prompt: string; context: unknown }) =>
+      (_input?: { prompt: string; tools?: unknown; context: unknown }) =>
         new Promise<void>(() => {}),
     );
-    const thread = { runAgent, platform: "slack" };
+    const thread = { runAgent, platform: "intelligence" };
     const user = { id: "U1", name: "Ada Lovelace", email: "ada@example.com" };
     await fileIssueSubmit({
       values: {
@@ -130,6 +138,7 @@ describe("fileIssueSubmit", () => {
       },
       thread,
       user,
+      privateMetadata: "slack",
     } as never);
 
     expect(runAgent).toHaveBeenCalledTimes(1);
@@ -138,7 +147,16 @@ describe("fileIssueSubmit", () => {
     expect(call.prompt).toContain("- Type: bug");
     expect(call.prompt).toContain("- Priority: High");
     expect(call.prompt).toContain("- Description: 500 on submit");
-    expect(call.context).toEqual(senderContext(user, thread.platform));
+    expect(call.prompt).toContain("confirm_write");
+    expect(call.prompt).not.toContain("already confirmed");
+    expect(call.tools).toEqual(defaultSlackTools);
+    expect(call.context).toEqual([
+      ...defaultSlackContext,
+      {
+        description: "Requesting slack user",
+        value: "Ada Lovelace <ada@example.com> (slack id U1)",
+      },
+    ]);
   });
 
   it("posts a failure message to the thread when runAgent rejects", async () => {

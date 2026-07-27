@@ -28,8 +28,6 @@ describe("createOpenTagRuntime", () => {
       name: environment.channelName,
       adapters: [slackAdapter, teamsAdapter],
       agent: new FakeAgent(),
-      platformTools: [],
-      platformContext: [],
     });
 
     const { intelligence, listener, runtime } = createOpenTagRuntime({

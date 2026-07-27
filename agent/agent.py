@@ -13,7 +13,7 @@ from deepagents import create_deep_agent
 from langgraph.checkpoint.memory import MemorySaver
 from copilotkit import CopilotKitMiddleware
 
-from tools import research, internal_source_tools
+from tools import confirm_write, research, internal_source_tools
 
 load_dotenv()
 
@@ -33,6 +33,11 @@ Hard rules (ALWAYS follow):
   frontend offers them, rather than large blocks of raw markdown
 - For internal or company-specific questions, prefer the team's Notion/Linear
   (internal sources) first; use the web for external questions
+- CRITICAL: Immediately before every Linear or Notion create or update tool
+  call, call confirm_write with the exact action and draft details
+- Proceed with that write only when the resumed result says confirmed is true;
+  otherwise acknowledge the decision and stop
+- Reads and rendering never require confirmation
 
 Your workflow:
 1. PLAN: Create a research plan using write_todos with clear, actionable steps
@@ -106,7 +111,11 @@ def build_agent():
     # research tool wraps an internal Deep Agent that runs via .invoke() so
     # its text doesn't stream to the frontend.
     internal_tools = internal_source_tools()
-    main_tools = [research, *internal_tools] if has_research else [*internal_tools]
+    main_tools = (
+        [confirm_write, research, *internal_tools]
+        if has_research
+        else [confirm_write, *internal_tools]
+    )
 
     system_prompt = BASE_SYSTEM_PROMPT + (
         RESEARCH_TOOL_ADDENDUM if has_research else NO_RESEARCH_TOOL_ADDENDUM

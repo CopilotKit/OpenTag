@@ -68,3 +68,37 @@ def test_build_agent_requires_openai(monkeypatch):
     import pytest
     with pytest.raises(RuntimeError, match="OPENAI_API_KEY"):
         agent_mod.build_agent()
+
+
+def test_build_agent_registers_confirm_write(monkeypatch):
+    captured = {}
+
+    class FakeGraph:
+        def with_config(self, config):
+            captured["config"] = config
+            return self
+
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
+    monkeypatch.delenv("TAVILY_API_KEY", raising=False)
+    monkeypatch.setattr(agent_mod, "ChatOpenAI", lambda **_kwargs: object())
+    monkeypatch.setattr(agent_mod, "internal_source_tools", lambda: [])
+
+    def fake_create_deep_agent(**kwargs):
+        captured["tools"] = kwargs["tools"]
+        return FakeGraph()
+
+    monkeypatch.setattr(agent_mod, "create_deep_agent", fake_create_deep_agent)
+
+    agent_mod.build_agent()
+
+    assert [tool.name for tool in captured["tools"]] == ["confirm_write"]
+
+
+def test_system_prompt_requires_confirmation_only_for_writes():
+    prompt = agent_mod.BASE_SYSTEM_PROMPT
+
+    assert "CRITICAL:" in prompt
+    assert "confirm_write" in prompt
+    assert "Linear or Notion create or update" in prompt
+    assert "only when" in prompt and "confirmed" in prompt
+    assert "Reads and rendering never require confirmation" in prompt

@@ -1,26 +1,14 @@
-import type {
-  ChannelTool,
-  ContextEntry,
-  PlatformAdapter,
-} from "@copilotkit/channels";
-import {
-  defaultSlackContext,
-  defaultSlackTools,
-  slack,
-} from "@copilotkit/channels/slack";
+import type { PlatformAdapter } from "@copilotkit/channels";
+import { slack } from "@copilotkit/channels/slack";
 import { teams } from "@copilotkit/channels/teams";
 import type { AppEnvironment } from "./env.js";
 
 export interface PlatformSetup {
   adapters: PlatformAdapter[];
-  tools: ChannelTool[];
-  context: ContextEntry[];
 }
 
 export function resolvePlatforms(env: AppEnvironment): PlatformSetup {
   const adapters: PlatformAdapter[] = [];
-  const tools: ChannelTool[] = [];
-  const context: ContextEntry[] = [];
 
   if (env.slackBotToken && env.slackAppToken) {
     adapters.push(
@@ -48,8 +36,6 @@ export function resolvePlatforms(env: AppEnvironment): PlatformSetup {
         },
       }),
     );
-    tools.push(...defaultSlackTools);
-    context.push(...defaultSlackContext);
   }
 
   if (env.teamsClientId && env.teamsClientSecret) {
@@ -63,10 +49,5 @@ export function resolvePlatforms(env: AppEnvironment): PlatformSetup {
     );
   }
 
-  if (adapters.length === 0) {
-    tools.push(...defaultSlackTools);
-    context.push(...defaultSlackContext);
-  }
-
-  return { adapters, tools, context };
+  return { adapters };
 }

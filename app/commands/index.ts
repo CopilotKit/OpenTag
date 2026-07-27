@@ -15,7 +15,7 @@ import {
   type ChannelCommand,
   type Thread as ChannelThread,
 } from "@copilotkit/channels";
-import { senderContext } from "../sender-context.js";
+import { platformRunInput } from "../agent.js";
 import { IssueCard } from "../components/index.js";
 import { FileIssueModal } from "../modals/file-issue.js";
 
@@ -51,14 +51,14 @@ export const appCommands: ChannelCommand[] = [
   defineChannelCommand({
     name: "agent",
     description: "Ask the triage agent anything (no @mention needed).",
-    async handler({ thread, text, user }) {
+    async handler({ thread, text, user, platform }) {
       if (!text) {
         await thread.post("Usage: `/agent <your question>`");
         return;
       }
       await runAgentSafely("agent", thread, {
         prompt: text,
-        context: senderContext(user, thread.platform),
+        ...platformRunInput(platform, user),
       });
     },
   }),
@@ -69,13 +69,13 @@ export const appCommands: ChannelCommand[] = [
     name: "triage",
     description:
       "Summarize the conversation and propose Linear issues to file.",
-    async handler({ thread, text, user }) {
+    async handler({ thread, text, user, platform }) {
       const prompt = text
         ? `Triage this and propose Linear issues to file: ${text}`
         : "Triage the current conversation: summarize it and propose Linear issues to file.";
       await runAgentSafely("triage", thread, {
         prompt,
-        context: senderContext(user, thread.platform),
+        ...platformRunInput(platform, user),
       });
     },
   }),
@@ -139,12 +139,15 @@ export const appCommands: ChannelCommand[] = [
           prompt:
             "The user wants to file a Linear issue but this platform has no modal form. " +
             "Ask them for a title and description, then (after the usual confirm) file it.",
-          context: senderContext(user, platform),
+          ...platformRunInput(platform, user),
         });
         return;
       }
       const res = await openModal(
-        FileIssueModal({ rich: platform === "slack" }),
+        FileIssueModal({
+          rich: platform === "slack",
+          sourcePlatform: platform,
+        }),
       );
       if (!res.ok) {
         await thread.post(

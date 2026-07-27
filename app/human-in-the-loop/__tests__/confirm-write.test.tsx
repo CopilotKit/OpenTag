@@ -105,24 +105,29 @@ describe("ConfirmWrite", () => {
     expect(blocks.some((b) => b.type === "section")).toBe(false);
   });
 
-  it("approve onClick updates the picker in place to the resolved (green) state", async () => {
+  it("approve onClick updates the picker and resumes the interrupted agent", async () => {
     const ir = renderToIR(
       <ConfirmWrite action="Create Linear issue" detail="CPK-9: ..." />,
     );
     const create = buttonByText(ir, "Create");
 
-    // `value` survives on the button props — that's what awaitChoice resolves to.
+    // `value` survives on the button props and native interaction payload.
     expect(create.props.value).toEqual({ confirmed: true });
 
     const update = vi.fn(async () => ({ id: "m1" }));
+    const resume = vi.fn(async () => ({ id: "m2" }));
     const ctx = {
-      thread: { update },
+      thread: { update, resume },
       message: { ref: { id: "m1" } },
     } as unknown as InteractionContext;
 
     await (create.props.onClick as ClickHandler)(ctx);
 
     expect(update).toHaveBeenCalledTimes(1);
+    expect(resume).toHaveBeenCalledWith({ confirmed: true });
+    expect(update.mock.invocationCallOrder[0]).toBeLessThan(
+      resume.mock.invocationCallOrder[0]!,
+    );
     const [ref, renderable] = update.mock.calls[0] as unknown as [
       { id: string },
       Parameters<typeof renderToIR>[0],
@@ -141,7 +146,7 @@ describe("ConfirmWrite", () => {
     expect(context?.elements[0]?.text).toContain("Approved");
   });
 
-  it("cancel onClick updates the picker in place to the declined (red) state", async () => {
+  it("cancel onClick updates the picker and resumes the interrupted agent", async () => {
     const ir = renderToIR(
       <ConfirmWrite action="Create Linear issue" detail="CPK-9: ..." />,
     );
@@ -150,14 +155,19 @@ describe("ConfirmWrite", () => {
     expect(cancel.props.value).toEqual({ confirmed: false });
 
     const update = vi.fn(async () => ({ id: "m1" }));
+    const resume = vi.fn(async () => ({ id: "m2" }));
     const ctx = {
-      thread: { update },
+      thread: { update, resume },
       message: { ref: { id: "m1" } },
     } as unknown as InteractionContext;
 
     await (cancel.props.onClick as ClickHandler)(ctx);
 
     expect(update).toHaveBeenCalledTimes(1);
+    expect(resume).toHaveBeenCalledWith({ confirmed: false });
+    expect(update.mock.invocationCallOrder[0]).toBeLessThan(
+      resume.mock.invocationCallOrder[0]!,
+    );
     const [ref, renderable] = update.mock.calls[0] as unknown as [
       { id: string },
       Parameters<typeof renderToIR>[0],
@@ -174,5 +184,36 @@ describe("ConfirmWrite", () => {
       | { elements: { text: string }[] }
       | undefined;
     expect(context?.elements[0]?.text).toContain("Declined");
+  });
+
+  it("replaces the optimistic card with a retry state when resume fails", async () => {
+    const ir = renderToIR(
+      <ConfirmWrite action="Create Linear issue" detail="CPK-9: ..." />,
+    );
+    const create = buttonByText(ir, "Create");
+    const failure = new Error("resume unavailable");
+    const update = vi.fn(async () => ({ id: "m1" }));
+    const resume = vi.fn(async () => {
+      throw failure;
+    });
+    const ctx = {
+      thread: { update, resume },
+      message: { ref: { id: "m1" } },
+    } as unknown as InteractionContext;
+
+    await expect((create.props.onClick as ClickHandler)(ctx)).rejects.toBe(
+      failure,
+    );
+
+    expect(update).toHaveBeenCalledTimes(2);
+    const [, failedRenderable] = update.mock.calls[1] as unknown as [
+      { id: string },
+      Parameters<typeof renderToIR>[0],
+    ];
+    const { blocks, accent } = renderSlackMessage(
+      renderToIR(failedRenderable),
+    );
+    expect(accent).toBe("#EB5757");
+    expect(JSON.stringify(blocks)).toMatch(/couldn.t resume|retry/i);
   });
 });

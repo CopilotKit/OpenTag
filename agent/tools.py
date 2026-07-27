@@ -17,6 +17,25 @@ from langchain_core.tools import tool
 from langchain_core.messages import HumanMessage
 from tavily import TavilyClient
 from langchain_mcp_adapters.client import MultiServerMCPClient
+from copilotkit.langgraph import copilotkit_interrupt
+
+
+@tool
+def confirm_write(action: str, detail: str | None = None):
+    """Pause before a Linear or Notion write and ask the user to approve it.
+
+    Args:
+        action: One-line summary of exactly what will be written.
+        detail: Optional drafted title, description, or outline.
+
+    Returns:
+        The user's resume response after the confirmation interrupt.
+    """
+    answer, _response = copilotkit_interrupt(
+        action="confirm_write",
+        args={"action": action, "detail": detail},
+    )
+    return answer
 
 
 def _do_internet_search(query: str, max_results: int = 5) -> list[dict[str, Any]]:
