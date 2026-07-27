@@ -178,10 +178,14 @@ Configure it with:
   Intelligence project but **no platform connector is bound to it** — is logged and the process
   **exits non-zero**. Finish the connector setup in the Intelligence dashboard, then restart the
   channel host (on Railway: redeploy the `channel` service).
-- After a successful boot a watchdog re-checks channel health every **60s** and exits non-zero
-  if the managed session dies for good, so a supervisor (Railway's `ON_FAILURE` restart policy,
-  systemd, Docker `restart:`) rebuilds the host instead of leaving KiteBot silently offline.
-  On Railway, the restart budget is **finite** — see `restartPolicyMaxRetries` in
+- After a successful boot a watchdog re-checks channel health every **60s** and exits non-zero on
+  either of two fatal triggers: the managed session reaching the terminal `error` state (dead for
+  good and never re-activated), **or** the channel staying continuously non-`online` (e.g. wedged
+  in `reconnecting`, never actually reaching `error`) for `CHANNEL_DEGRADED_FATAL_MS` — currently
+  10 minutes — in [`app/managed.ts`](./app/managed.ts). Without that second trigger a channel
+  stuck reconnecting would log one warning and then stay quiet forever, so either way a supervisor
+  (Railway's `ON_FAILURE` restart policy, systemd, Docker `restart:`) rebuilds the host instead of
+  leaving KiteBot silently offline. On Railway, the restart budget is **finite** — see `restartPolicyMaxRetries` in
   [`.railway/railway.ts`](./.railway/railway.ts) — so an outage long enough to exhaust the
   retries leaves the service stopped, with no healthcheck to surface it; watch deploy status or
   logs rather than assuming an indefinite auto-heal.
@@ -319,7 +323,9 @@ are decoded and handed over as text. Then ask it to visualize:
 ## Tests
 
 ```bash
-npm test               # unit: read_thread, render tools, components, confirm_write, modals, commands
+npm test               # unit: read_thread, render tools, components (+ a component scan),
+                        # confirm_write, modals, commands, the channel host (app/managed.ts),
+                        # the shared headless browser, and sender-context resolution
 npm run check-types    # tsc --noEmit
 ```
 
