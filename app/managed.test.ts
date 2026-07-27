@@ -87,6 +87,21 @@ describe("promptFromMessage", () => {
   it("falls back to text when contentParts is absent", () => {
     expect(promptFromMessage({ text: "hello" })).toBe("hello");
   });
+
+  it("Finding 7: treats whitespace-only text as absent, not as an instruction to prepend", () => {
+    // THE REGRESSION: `message.text ? [...] : parts` checked raw truthiness,
+    // and "   " is truthy — so a whitespace-only `text` used to get prepended
+    // as a blank leading text part alongside the real attachments. This file
+    // trims everywhere else a truthy-blank check would let "   " through
+    // (requireNonBlank, buildAgentHeaders, httpAuthGate, channelName); this
+    // was the one un-trimmed path.
+    const parts: AgentContentPart[] = [
+      { type: "image", source: { type: "data", value: "iVB=", mimeType: "image/png" } },
+    ];
+    expect(promptFromMessage({ contentParts: parts, text: "   " })).toBe(
+      parts,
+    );
+  });
 });
 
 describe("MANAGED_COMPONENTS", () => {
@@ -216,6 +231,43 @@ describe("requireUrl", () => {
       "http://localhost:8123/",
     );
   });
+
+  describe("Finding 4: scheme-less and non-HTTP values", () => {
+    // Bare `new URL()` accepts anything with a colon, folding whatever
+    // precedes it into `protocol` — so a missing scheme (the single most
+    // likely paste error) or a non-HTTP scheme both used to "pass" this
+    // validator and only fail on the first live turn.
+    it("rejects a scheme-less host:port (the literal shape of a Railway private hostname)", () => {
+      // new URL("localhost:8123").protocol === "localhost:" — parses
+      // "successfully" with the host folded into the protocol.
+      expect(() => requireUrl("AGENT_URL", "localhost:8123")).toThrow(
+        /http:\/\/ or https:\/\//,
+      );
+    });
+
+    it("rejects agent:8123 — the literal shape of a Railway private hostname missing its scheme", () => {
+      expect(() => requireUrl("AGENT_URL", "agent:8123")).toThrow(
+        /http:\/\/ or https:\/\//,
+      );
+    });
+
+    it("rejects a non-HTTP scheme like ftp://", () => {
+      expect(() => requireUrl("AGENT_URL", "ftp://x")).toThrow(
+        /http:\/\/ or https:\/\//,
+      );
+    });
+
+    it("still rejects a value with no colon at all", () => {
+      expect(() => requireUrl("AGENT_URL", "not-a-url")).toThrow(
+        'AGENT_URL is not a valid URL: "not-a-url"',
+      );
+    });
+
+    it("accepts http:// and https://", () => {
+      expect(requireUrl("AGENT_URL", "http://x")).toBe("http://x");
+      expect(requireUrl("AGENT_URL", "https://x")).toBe("https://x");
+    });
+  });
 });
 
 describe("buildAgentHeaders", () => {
@@ -250,15 +302,18 @@ describe("unhealthyChannels", () => {
     // a host with no channel can never reach the "(channel live)" log. This
     // helper stays total for an undefined input (it is also fed the watchdog's
     // polled status) rather than making a liveness claim of its own.
-    expect(unhealthyChannels(undefined)).toEqual([]);
+    expect(unhealthyChannels(undefined, "kite-opentag")).toEqual([]);
   });
 
   it("reports nothing when every channel is online", () => {
     expect(
-      unhealthyChannels({
-        overall: "online",
-        channels: { "kite-opentag": "online" },
-      }),
+      unhealthyChannels(
+        {
+          overall: "online",
+          channels: { "kite-opentag": "online" },
+        },
+        "kite-opentag",
+      ),
     ).toEqual([]);
   });
 
@@ -267,10 +322,13 @@ describe("unhealthyChannels", () => {
     // that used to print "(channel live)" for a channel with no Slack
     // connector bound — the most likely first-run state for a deployer.
     expect(
-      unhealthyChannels({
-        overall: "setup_required",
-        channels: { "kite-opentag": "setup_required" },
-      }),
+      unhealthyChannels(
+        {
+          overall: "setup_required",
+          channels: { "kite-opentag": "setup_required" },
+        },
+        "kite-opentag",
+      ),
     ).toEqual(["kite-opentag=setup_required"]);
   });
 
@@ -278,19 +336,25 @@ describe("unhealthyChannels", () => {
     // `unmanaged` means a direct adapter is attached; ready() resolves for it
     // immediately and implies NO health.
     expect(
-      unhealthyChannels({
-        overall: "unmanaged",
-        channels: { "kite-opentag": "unmanaged" },
-      }),
+      unhealthyChannels(
+        {
+          overall: "unmanaged",
+          channels: { "kite-opentag": "unmanaged" },
+        },
+        "kite-opentag",
+      ),
     ).toEqual(["kite-opentag=unmanaged"]);
   });
 
   it("reports only the channels that are not online", () => {
     expect(
-      unhealthyChannels({
-        overall: "setup_required",
-        channels: { a: "online", b: "setup_required", c: "reconnecting" },
-      }),
+      unhealthyChannels(
+        {
+          overall: "setup_required",
+          channels: { a: "online", b: "setup_required", c: "reconnecting" },
+        },
+        "a",
+      ),
     ).toEqual(["b=setup_required", "c=reconnecting"]);
   });
 
@@ -301,21 +365,42 @@ describe("unhealthyChannels", () => {
     // and used to return [], so the boot gate logged "(channel live)" for a
     // channel that never activated.
     expect(
-      unhealthyChannels({ overall: "connecting", channels: {} }),
+      unhealthyChannels({ overall: "connecting", channels: {} }, "kite-opentag"),
     ).toEqual(["overall=connecting"]);
   });
 
   it("reports overall=stopped once every managed channel has been torn down", () => {
-    expect(unhealthyChannels({ overall: "stopped", channels: {} })).toEqual([
-      "overall=stopped",
-    ]);
+    expect(
+      unhealthyChannels({ overall: "stopped", channels: {} }, "kite-opentag"),
+    ).toEqual(["overall=stopped"]);
   });
 
-  it("reports nothing when overall is online and there are no declared channels", () => {
-    // Per ChannelManager.status(): with no declared channels at all, overall
-    // is "online" (nothing is degraded) — this must not be mistaken for the
-    // connecting/stopped false-success case above.
-    expect(unhealthyChannels({ overall: "online", channels: {} })).toEqual([]);
+  it("Finding 3: does NOT report healthy when overall is online but the declared channel is absent from the map", () => {
+    // THE BUG THIS GUARDS: `ChannelManager.computeOverall` returns "online"
+    // for a ZERO-length input (confirmed in the installed channel-manager.mjs:
+    // `if (values.length === 0) return "online"`), so `{ overall: "online",
+    // channels: {} }` is a shape the manager can genuinely produce — not just
+    // for a host with no declared channels, but for the pathological case of
+    // THIS host's own declared channel silently missing from the manager's
+    // entries after activation. The old implementation inferred health from
+    // the absence of bad entries and returned `[]` here — the exact
+    // false-alive state the boot gate exists to kill. Assert positively that
+    // the channel this host declared is present and online, by name, instead.
+    expect(
+      unhealthyChannels({ overall: "online", channels: {} }, "kite-opentag"),
+    ).toEqual(["overall=online"]);
+  });
+
+  it("does not report healthy when a different channel is online but the declared one is missing", () => {
+    // Same hazard as above, but with an unrelated channel present: seeing
+    // *some* online entry in the map must not be mistaken for the specific
+    // declared channel being healthy.
+    expect(
+      unhealthyChannels(
+        { overall: "online", channels: { "some-other-channel": "online" } },
+        "kite-opentag",
+      ),
+    ).toEqual(["overall=online"]);
   });
 });
 
@@ -326,13 +411,15 @@ describe("channelWatchdogTick", () => {
   });
 
   it("is quiet when there is no control surface", () => {
-    expect(channelWatchdogTick(undefined, "online", 0)).toEqual({
+    expect(channelWatchdogTick(undefined, "online", 0, "kite-opentag")).toEqual({
       kind: "quiet",
     });
   });
 
   it("is quiet while the channel stays online", () => {
-    expect(channelWatchdogTick(health("online"), "online", 0)).toEqual({
+    expect(
+      channelWatchdogTick(health("online"), "online", 0, "kite-opentag"),
+    ).toEqual({
       kind: "quiet",
     });
   });
@@ -340,14 +427,18 @@ describe("channelWatchdogTick", () => {
   it("is fatal once the channel gives up reconnecting", () => {
     // `error` here means the session exhausted its bounded reconnect window.
     // Exiting is what lets Railway's ON_FAILURE policy restart the host.
-    expect(channelWatchdogTick(health("error"), "online", 0)).toEqual({
+    expect(
+      channelWatchdogTick(health("error"), "online", 0, "kite-opentag"),
+    ).toEqual({
       kind: "fatal",
       message: "channel is dead: kite-opentag=error",
     });
   });
 
   it("notices the first tick of a degraded state", () => {
-    expect(channelWatchdogTick(health("reconnecting"), "online", 0)).toEqual({
+    expect(
+      channelWatchdogTick(health("reconnecting"), "online", 0, "kite-opentag"),
+    ).toEqual({
       kind: "notice",
       message: "channel degraded: kite-opentag=reconnecting",
     });
@@ -356,12 +447,19 @@ describe("channelWatchdogTick", () => {
   it("does not repeat a degraded state it already reported", () => {
     // A drop that takes minutes to resolve must not emit one line per tick.
     expect(
-      channelWatchdogTick(health("reconnecting"), "reconnecting", 0),
+      channelWatchdogTick(
+        health("reconnecting"),
+        "reconnecting",
+        0,
+        "kite-opentag",
+      ),
     ).toEqual({ kind: "quiet" });
   });
 
   it("notices recovery back to online", () => {
-    expect(channelWatchdogTick(health("online"), "reconnecting", 0)).toEqual({
+    expect(
+      channelWatchdogTick(health("online"), "reconnecting", 0, "kite-opentag"),
+    ).toEqual({
       kind: "notice",
       message: "channel recovered: overall=online",
     });
@@ -378,6 +476,7 @@ describe("channelWatchdogTick", () => {
           health("reconnecting"),
           "reconnecting",
           CHANNEL_DEGRADED_FATAL_MS - 1,
+          "kite-opentag",
         ),
       ).toEqual({ kind: "quiet" });
     });
@@ -388,7 +487,12 @@ describe("channelWatchdogTick", () => {
       // reports as a plain "degraded" notice via the general branch below —
       // this only holds while degradedForMs stays under threshold.
       expect(
-        channelWatchdogTick(health("reconnecting"), "online", 1_000),
+        channelWatchdogTick(
+          health("reconnecting"),
+          "online",
+          1_000,
+          "kite-opentag",
+        ),
       ).toEqual({
         kind: "notice",
         message: "channel degraded: kite-opentag=reconnecting",
@@ -401,6 +505,7 @@ describe("channelWatchdogTick", () => {
           health("reconnecting"),
           "reconnecting",
           CHANNEL_DEGRADED_FATAL_MS,
+          "kite-opentag",
         ),
       ).toEqual({
         kind: "fatal",
@@ -414,6 +519,7 @@ describe("channelWatchdogTick", () => {
           health("reconnecting"),
           "reconnecting",
           CHANNEL_DEGRADED_FATAL_MS + 60_000,
+          "kite-opentag",
         ),
       ).toEqual({
         kind: "fatal",
@@ -430,6 +536,7 @@ describe("channelWatchdogTick", () => {
           health("reconnecting"),
           "reconnecting",
           CHANNEL_DEGRADED_FATAL_MS + 1,
+          "kite-opentag",
         ).kind,
       ).toBe("fatal");
     });
@@ -444,6 +551,7 @@ describe("channelWatchdogTick", () => {
           health("online"),
           "reconnecting",
           CHANNEL_DEGRADED_FATAL_MS + 1_000_000,
+          "kite-opentag",
         ),
       ).toEqual({
         kind: "notice",
@@ -546,6 +654,33 @@ describe("onceShutdown", () => {
     run("SIGTERM");
     expect(signals).toEqual(["SIGTERM"]);
     expect(errors).toEqual([]);
+  });
+
+  it("Finding 6: guards against a run that synchronously re-enters the returned function", () => {
+    // THE BUG: the memo (`inFlight`) used to be assigned only AFTER `run(...)`
+    // was invoked, so a `run` whose synchronous body calls the returned
+    // function again — before `run` itself has returned — saw no guard yet and
+    // started a second, competing teardown. That contradicts the docstring's
+    // unqualified "N signals run it exactly ONCE" / "the FIRST signal wins".
+    const calls: string[] = [];
+    let shutdown!: (signal: string, exitCode?: number) => void;
+    let reentered = false;
+    shutdown = onceShutdown(
+      (signal) => {
+        calls.push(signal);
+        if (!reentered) {
+          reentered = true;
+          // Simulate a `run` whose synchronous body re-enters the returned
+          // shutdown function before returning its promise.
+          shutdown("SIGINT");
+        }
+        return Promise.resolve();
+      },
+      () => {},
+    );
+
+    shutdown("SIGTERM");
+    expect(calls).toEqual(["SIGTERM"]);
   });
 
   it("reports a rejecting shutdown once, for the signal that started it", async () => {
