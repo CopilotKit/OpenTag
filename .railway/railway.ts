@@ -106,6 +106,14 @@ export default defineRailway(() => {
     // the shared libs Chromium needs at runtime. Without this, render_chart /
     // render_diagram fail on the deployed channel. Mirrors the kite reference.
     build: {
+      // Pin the builder: RAILPACK_DEPLOY_APT_PACKAGES below is honored ONLY by
+      // Railpack, and (since --with-deps was dropped) it is now the SOLE source
+      // of the ~28 shared libs Chromium needs at runtime. Leaving `builder`
+      // unset defaults to Railway's own choice, which could silently be a
+      // non-Railpack builder — RAILPACK_DEPLOY_APT_PACKAGES would then do
+      // nothing, and render_chart/render_diagram would die at runtime on a
+      // missing .so with no build-time signal.
+      builder: "RAILPACK",
       // `--frozen-lockfile` so a drifted pnpm-lock.yaml fails the build instead
       // of silently resolving different versions than the repo was tested with
       // (overriding buildCommand replaces Railpack's own install, which sets it).
@@ -121,7 +129,24 @@ export default defineRailway(() => {
       // Parity with agent/notion-mcp: restart the long-running channel host on
       // crash instead of leaving KiteBot silently offline.
       restartPolicyType: "ON_FAILURE",
-      restartPolicyMaxRetries: 5,
+      // Higher than agent/notion-mcp's 5: app/managed.ts runs a 60s watchdog
+      // that deliberately calls process.exit(1) when the managed session hits
+      // the terminal `error` state, exiting so the platform restarts the host.
+      // That design assumes the platform keeps restarting through a transient
+      // outage (e.g. the Intelligence gateway), so this cap is an
+      // outage-tolerance budget, not a crash-loop guard — it's raised to
+      // survive a realistic outage lasting more than a few restart cycles.
+      // Deliberately NOT ALWAYS: a genuine boot-time misconfiguration should
+      // still crash-loop visibly rather than being masked.
+      restartPolicyMaxRetries: 10,
+      // Railway's SIGTERM->SIGKILL grace period (RAILWAY_DEPLOYMENT_DRAINING_SECONDS)
+      // defaults to 0, which would give app/managed.ts's shutdown routine zero
+      // time to run: it budgets ~10s of graceful teardown (channels.stop(),
+      // bounded 5s; then closeServer()/closeBrowser() raced against a 5s
+      // timer) before calling process.exit(exitCode), and four docstrings in
+      // that file justify their bounds by reference to "the platform's grace
+      // period." 15s covers that ~10s worst case with headroom.
+      drainingSeconds: 15,
     },
     env: {
       // brain: points at the agent service over private networking. The agent
