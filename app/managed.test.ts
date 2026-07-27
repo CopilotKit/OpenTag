@@ -91,7 +91,13 @@ describe("MANAGED_COMPONENTS", () => {
     // rather than dead-letter in production.
     const { readdir, readFile } = await import("node:fs/promises");
     const { join } = await import("node:path");
-    const appDir = new URL(".", import.meta.url).pathname;
+    const { fileURLToPath } = await import("node:url");
+    const { interactiveComponentNames } = await import(
+      "./__tests__/component-scan.js"
+    );
+    // fileURLToPath, not .pathname — the latter stays percent-encoded on any
+    // path containing a space.
+    const appDir = fileURLToPath(new URL(".", import.meta.url));
 
     const walk = async (dir: string): Promise<string[]> => {
       const entries = await readdir(dir, { withFileTypes: true });
@@ -108,16 +114,10 @@ describe("MANAGED_COMPONENTS", () => {
 
     const interactive = new Set<string>();
     for (const file of await walk(appDir)) {
-      const src = await readFile(file, "utf8");
-      if (!/\bonClick=/.test(src)) continue;
-      for (const [, name] of src.matchAll(/^export function (\w+)\(/gm)) {
-        if (!name) continue;
-        // A component is interactive if an onClick appears in its body — i.e.
-        // before the next top-level `export function`.
-        const body = src.slice(src.indexOf(`export function ${name}(`));
-        const end = body.indexOf("\nexport function ", 1);
-        if (/\bonClick=/.test(end === -1 ? body : body.slice(0, end)))
-          interactive.add(name);
+      for (const name of interactiveComponentNames(
+        await readFile(file, "utf8"),
+      )) {
+        interactive.add(name);
       }
     }
 
