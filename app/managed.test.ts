@@ -9,6 +9,7 @@ import {
   unhealthyChannels,
   channelWatchdogTick,
   closeServer,
+  onceShutdown,
 } from "./managed.js";
 
 describe("createKiteChannel", () => {
@@ -180,8 +181,11 @@ describe("buildAgentHeaders", () => {
 
 describe("unhealthyChannels", () => {
   it("reports nothing when there is no control surface", () => {
-    // `listener.channels` is absent when no managed channels are declared —
-    // a bound socket alone is success there, exactly as before.
+    // Defensive purity only — NOT a success signal. `main()` resolves
+    // `listener.channels` up front and exits 1 when it is absent, precisely so
+    // a host with no channel can never reach the "(channel live)" log. This
+    // helper stays total for an undefined input (it is also fed the watchdog's
+    // polled status) rather than making a liveness claim of its own.
     expect(unhealthyChannels(undefined)).toEqual([]);
   });
 
@@ -314,5 +318,63 @@ describe("closeServer", () => {
         },
       }),
     ).resolves.toBeUndefined();
+  });
+});
+
+describe("onceShutdown", () => {
+  it("runs the shutdown routine once across repeated signals", async () => {
+    const signals: string[] = [];
+    let release: (() => void) | undefined;
+    const run = onceShutdown(
+      (signal) => {
+        signals.push(signal);
+        return new Promise<void>((resolve) => {
+          release = resolve;
+        });
+      },
+      () => {
+        throw new Error("onError must not fire on a clean run");
+      },
+    );
+
+    // SIGTERM from the platform, then an impatient Ctrl-C while the first run
+    // is still awaiting its teardown steps.
+    run("SIGTERM");
+    run("SIGINT");
+    run("SIGINT");
+    expect(signals).toEqual(["SIGTERM"]);
+
+    release?.();
+    await Promise.resolve();
+    // Signals arriving AFTER the run settled must still not start a second one:
+    // the first run owns the process exit.
+    run("SIGTERM");
+    expect(signals).toEqual(["SIGTERM"]);
+  });
+
+  it("reports a rejecting shutdown once, for the signal that started it", async () => {
+    const boom = new Error("teardown blew up");
+    const errors: Array<{ signal: string; err: unknown }> = [];
+    const run = onceShutdown(
+      () => Promise.reject(boom),
+      (signal, err) => errors.push({ signal, err }),
+    );
+
+    run("SIGTERM");
+    run("SIGINT");
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(errors).toEqual([{ signal: "SIGTERM", err: boom }]);
+  });
+
+  it("does not surface the shutdown rejection as an unhandled rejection", async () => {
+    // The memoized promise is handed to every later caller, so the catch has to
+    // live INSIDE the memo — otherwise a rejecting shutdown escapes.
+    const run = onceShutdown(
+      () => Promise.reject(new Error("teardown blew up")),
+      () => {},
+    );
+    expect(() => run("SIGTERM")).not.toThrow();
+    await new Promise((resolve) => setTimeout(resolve, 0));
   });
 });

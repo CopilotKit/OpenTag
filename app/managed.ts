@@ -250,6 +250,34 @@ export function closeServer(server: {
 }
 
 /**
+ * Wrap a shutdown routine so that N signals run it exactly ONCE.
+ *
+ * Signals are not exclusive: SIGTERM then a impatient Ctrl-C, or two SIGINTs,
+ * each fire the handler again. Without memoization the body runs concurrently —
+ * duplicate "stopping…" logs, a second `channels.stop()`, a second
+ * `closeServer`, a second `closeBrowser`, and two `process.exit` calls racing
+ * with independently-computed exit codes (the loser's code is simply lost).
+ * That is benign today only because every downstream call happens to be
+ * idempotent; nothing enforces that, and the first `process.exit` to land
+ * truncates whatever the other run was still awaiting.
+ *
+ * The FIRST signal wins and its promise is reused: later signals attach to the
+ * run already in flight instead of starting a new one. `onError` is invoked at
+ * most once, for the signal that actually started the run.
+ *
+ * Pure: all policy (logging, exiting) is injected, so this is unit-testable.
+ */
+export function onceShutdown(
+  run: (signal: string) => Promise<void>,
+  onError: (signal: string, err: unknown) => void,
+): (signal: string) => void {
+  let inFlight: Promise<void> | undefined;
+  return (signal: string): void => {
+    inFlight ??= run(signal).catch((err: unknown) => onError(signal, err));
+  };
+}
+
+/**
  * Build the KiteBot channel: same tools/context/commands/handlers as the native
  * bot, minus any platform adapter (the managed transport is attached at
  * activation when the runtime's node listener is mounted). Pure — no network,
@@ -389,9 +417,30 @@ async function main() {
     hooks: { onRequest: httpAuthGate(httpToken) },
   });
 
+  // Resolve the channels control surface ONCE, up front, and treat its absence
+  // as fatal. It is optional on the listener (a runtime with no declared
+  // channels has none), but this host exists to run exactly one managed
+  // channel: with no surface there is nothing to call `ready()` on, so the boot
+  // gate would skip activation entirely, `unhealthyChannels(undefined)` would
+  // return `[]`, and the process would log "(channel live)" for a host that has
+  // no channel at all — then arm a watchdog that stays permanently quiet. That
+  // false success is the exact failure this boot gate exists to kill, so the
+  // fallback must be "die loudly", never "claim success".
+  const channels = listener.channels;
+  if (!channels) {
+    console.error(
+      "[channel] runtime exposed no channels control surface — the managed channel cannot activate",
+    );
+    process.exit(1);
+  }
+
   const server = createServer(listener);
   let watchdog: NodeJS.Timeout | undefined;
   let listening = false;
+  // Set by `shutdown` before its first await, so the async boot path can tell a
+  // deliberate stop from a real failure. Without it a signal that lands inside
+  // the activation window turns a graceful shutdown into `process.exit(1)`.
+  let stopping = false;
   // Fail loud on a bind failure. Without an 'error' handler an EADDRINUSE/EACCES
   // during listen() surfaces only as a logged-but-swallowed uncaughtException
   // while the process keeps running with no listener — Railway's ON_FAILURE
@@ -399,6 +448,19 @@ async function main() {
   // `listening` flag keeps the message honest: after a successful bind, an
   // 'error' here is no longer a bind failure.
   server.on("error", (err) => {
+    // Do NOT exit on an error emitted while shutdown is running: `closeServer`
+    // is mid-flight (it force-closes in-flight sockets via
+    // `closeAllConnections`), and exiting here would preempt the rest of
+    // shutdown — skipping `closeBrowser()` and replacing the computed exit code
+    // with 1, so Railway's ON_FAILURE policy restarts a host that was asked to
+    // stop. Log it and let `shutdown` finish and own the exit.
+    if (stopping) {
+      console.error(
+        `[channel] HTTP server error on :${port} during shutdown (continuing shutdown)`,
+        err,
+      );
+      return;
+    }
     console.error(
       listening
         ? `[channel] HTTP server error on :${port}`
@@ -415,15 +477,32 @@ async function main() {
     // INTELLIGENCE_API_KEY, unreachable INTELLIGENCE_GATEWAY_WS_URL) or — with
     // timeoutMs — if it never settles at all.
     try {
-      await listener.channels?.ready?.({ timeoutMs: CHANNEL_READY_TIMEOUT_MS });
+      await channels.ready({ timeoutMs: CHANNEL_READY_TIMEOUT_MS });
     } catch (err) {
+      // A rejection that lands after shutdown began is expected fallout, not a
+      // boot failure: the per-channel timeout can fire while `shutdown` is
+      // awaiting `closeBrowser()`. Exiting here would preempt that await —
+      // leaving Chromium alive — and report 1 for a deliberate stop. Do NOT
+      // "simplify" this guard away.
+      if (stopping) return;
       console.error("[channel] Intelligence channel activation failed", err);
       process.exit(1);
     }
+    // Same window, the resolve side. `channels.stop()` marks entries `stopped`
+    // but does NOT settle in-flight activations, so a signal arriving inside
+    // the 30s activation window (a Railway redeploy, or Ctrl-C during boot)
+    // lets this `ready()` resolve afterwards with `overall: "stopped"`. Without
+    // this guard the status gate below reads that as "NOT live", prints advice
+    // about finishing a connector setup that is perfectly fine, and exits 1 —
+    // preempting shutdown's in-flight `closeServer`/`closeBrowser()` and
+    // handing Railway's ON_FAILURE policy a restart. It also stops the watchdog
+    // below from being CREATED after shutdown already ran its `clearInterval`.
+    // One guard, three hazards: do NOT "simplify" it away.
+    if (stopping) return;
     // …but resolving is not the same as live: `setup_required` and `unmanaged`
     // both settle terminally without the channel being able to send. Check the
     // status map before claiming success.
-    const notLive = unhealthyChannels(listener.channels?.status());
+    const notLive = unhealthyChannels(channels.status());
     if (notLive.length > 0) {
       console.error(
         `[channel] activation settled but the channel is NOT live: ${notLive.join(", ")}. ` +
@@ -438,7 +517,7 @@ async function main() {
     );
     let previousOverall = "online";
     watchdog = setInterval(() => {
-      const health = listener.channels?.status();
+      const health = channels.status();
       const action = channelWatchdogTick(health, previousOverall);
       if (health) previousOverall = health.overall;
       if (action.kind === "fatal") {
@@ -462,33 +541,51 @@ async function main() {
   });
 
   const shutdown = async (signal: string) => {
+    // FIRST, before any await and before the first log: from here on this
+    // process is stopping, and the boot path's `process.exit(1)` calls must
+    // stand down. Anything that lands between here and `process.exit(exitCode)`
+    // — a late `ready()` settlement, a server 'error' emitted by
+    // `closeAllConnections` — would otherwise preempt this function mid-await.
+    stopping = true;
     console.log(`\n[channel] received ${signal}, stopping…`);
+    // Also before the first await: a watchdog tick that fires mid-shutdown
+    // would see `overall: "stopped"` and could exit non-zero on its own.
     if (watchdog) clearInterval(watchdog);
     let exitCode = 0;
-    // Tear down managed channel activation first (present only when the runtime
-    // declared channels and activation wasn't opted out of).
+    // Tear down managed channel activation first. Bounded: `ChannelManager.stop`
+    // caps each handle's teardown at 5s.
     try {
-      await listener.channels?.stop();
+      await channels.stop();
     } catch (err) {
       console.error("[channel] error stopping channel runtime", err);
       exitCode = 1;
     }
+    // Bounded by `closeAllConnections` — see the `closeServer` docstring.
     await closeServer(server);
-    // Tear down the shared headless browser used for chart/diagram rendering.
-    await closeBrowser().catch((err: unknown) =>
-      console.error(
-        "[channel] browser cleanup failed (continuing shutdown)",
-        err,
+    // Tear down the shared headless browser used for chart/diagram rendering,
+    // under a deadline. `browser.close()` has none of its own: a wedged or
+    // unresponsive Chromium would hang here indefinitely and reproduce exactly
+    // the failure `closeServer` was hardened against — shutdown outliving the
+    // platform's grace period, SIGKILL, and `process.exit(exitCode)` never
+    // reached, so a clean stop is recorded as a kill. Every other step above is
+    // already bounded; this was the last unbounded await. `.unref()` is
+    // load-bearing: a ref'd timer would itself hold the event loop open for the
+    // full 5s even when the browser closes immediately.
+    await Promise.race([
+      closeBrowser().catch((err: unknown) =>
+        console.error(
+          "[channel] browser cleanup failed (continuing shutdown)",
+          err,
+        ),
       ),
-    );
+      new Promise<void>((resolve) => setTimeout(resolve, 5_000).unref()),
+    ]);
     process.exit(exitCode);
   };
-  const runShutdown = (signal: string): void => {
-    shutdown(signal).catch((err: unknown) => {
-      console.error(`[channel] fatal during ${signal} shutdown`, err);
-      process.exit(1);
-    });
-  };
+  const runShutdown = onceShutdown(shutdown, (signal, err) => {
+    console.error(`[channel] fatal during ${signal} shutdown`, err);
+    process.exit(1);
+  });
   process.on("SIGINT", () => runShutdown("SIGINT"));
   process.on("SIGTERM", () => runShutdown("SIGTERM"));
 }
