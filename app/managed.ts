@@ -4,11 +4,17 @@
  * Unlike app/index.ts (self-hosted: holds Slack tokens, talks to Slack
  * directly), this process holds NO platform credentials. It runs the SAME bot
  * over CopilotKit Intelligence: it declares one channel ("kite-opentag") to the
- * Intelligence runtime and mounts an HTTP listener. Mounting the listener
- * activates the channel — the runtime derives the org/project/channel binding
- * from the Intelligence credentials + the channel name and streams render
- * frames over the managed gateway. Intelligence owns the Slack edge (signed
- * ingress + Connector Outbox egress).
+ * Intelligence runtime and mounts an HTTP listener. Mounting the listener only
+ * CONSTRUCTS the channel-manager control surface — per the installed
+ * `createCopilotNodeListener` (`@copilotkit/runtime/v2` `fetch-handler.d.mts`),
+ * it "does NOT open any connection: activation is lazy and triggered by the
+ * first `handler.channels.ready()`" (confirmed in `channel-manager.mjs`,
+ * where `ready()` calls `this.activate()`). Activation is what derives the
+ * org/project/channel binding from the Intelligence credentials + the channel
+ * name and starts streaming render frames over the managed gateway; `main()`
+ * below triggers it explicitly by awaiting `channels.ready(...)` after
+ * `server.listen()`. Intelligence owns the Slack edge (signed ingress +
+ * Connector Outbox egress).
  *
  * The bot's brain is an external AG-UI agent reached over HTTP at AGENT_URL —
  * either the TS runtime.ts triage backend (a BuiltInAgent) or the Python
@@ -156,20 +162,45 @@ const requiredUrl = (name: string): string => {
 
 /**
  * Every app component whose buttons carry an `onClick`, registered so the
- * channel can re-render it by name to resolve a click.
+ * channel can re-render it by name to resolve a click after a process
+ * restart.
  *
- * On the managed path a click arrives as a FRESH delivery, so the runtime
- * re-renders the component by name to re-derive its handler. Leave a component
- * out and its clicks dead-letter. `ConfirmWrite` is the load-bearing one: it
- * carries the HITL approve/cancel that gates every write, so an unresolvable
- * click silently strands the tool call.
+ * Per the installed `ActionRegistry.dispatch` (`@copilotkit/channels-core`
+ * `dist/action-registry.js`), a click resolves through an in-process "hot"
+ * cache FIRST (`this.hot.get(id)`) and only falls back to re-rendering the
+ * named component on a miss. That cache is populated the moment a component
+ * is bound for posting and is never cleared in production (`clearHotCache()`
+ * exists but has no production call site), and `ActionRegistry` itself is
+ * built once per `channel.start()` — so the cache stays warm for the whole
+ * life of this long-lived process. The named-component fallback below is
+ * therefore reached only across a PROCESS RESTART, never for an ordinary
+ * click on something this process posted.
  *
- * Registration is necessary but NOT sufficient for durability across a restart:
- * `ActionRegistry` falls back to a `{ component, props }` snapshot in the
- * `ActionStore`, and this channel declares no `store`, so the default
- * in-process one is lost with the process. Clicks on messages posted before a
- * restart still degrade to "action expired" — configure a durable store to fix
- * that.
+ * A miss does NOT dead-letter, either: `create-channel.js`'s `onInteraction`
+ * catches `ActionExpiredError` specifically and swallows it. The only
+ * observable effect is that the cosmetic in-place card re-render skips.
+ * `ConfirmWrite`'s HITL gate is not stranded by a miss: the `awaitChoice`
+ * waiter resolves from `evt.value ?? dispatchedValue` — Slack's Block Kit
+ * payload carries `value` directly, so the waiter resolves whether or not
+ * `dispatch` succeeded. Named-component recovery of the value is the
+ * *Telegram* fallback, for a callback payload that can't carry it.
+ *
+ * None of that makes registration free insurance, though: across a restart,
+ * `dispatch` calls `store.get(id)` and throws `ActionExpiredError` BEFORE it
+ * ever reads `this.components` — so the named-component path only helps if
+ * the snapshot survives in a durable `ActionStore`. This channel configures
+ * no `store`, and on the realtime-gateway path `IntelligenceAdapter`'s
+ * default-store builder short-circuits (it only builds one when neither
+ * `source` nor `egress` is injected, and this transport injects both), so
+ * `createChannel`'s backend resolution falls through to an in-process
+ * `MemoryStore` — the snapshot is gone with the process regardless.
+ *
+ * Net effect: today, registering these components is neither necessary
+ * (misses don't dead-letter, and Slack's HITL gate resolves independently)
+ * nor sufficient (the snapshot doesn't survive a restart without a durable
+ * store configured). It is forward-looking insurance that only pays off once
+ * a durable `store` adapter is wired up — keep registering new interactive
+ * components here anyway, so that day-one work is already done.
  *
  * Adding a new interactive card? Add it here — `managed.test.ts` scans the app
  * source for `onClick` and fails if anything is missing.
@@ -385,9 +416,12 @@ export function channelWatchdogTick(
  *
  * Resolves regardless of outcome: the only error `close` reports is
  * `ERR_SERVER_NOT_RUNNING` (the server never bound), which is not a shutdown
- * failure. Passing a callback also keeps that error off the server's `error`
- * event, where the bind handler would misreport it as a bind failure and exit
- * non-zero on an otherwise clean shutdown.
+ * failure. Per Node's own `net.Server.prototype.close`, that error is
+ * reported ONLY through the callback (`this.once("close", () =>
+ * cb(new ERR_SERVER_NOT_RUNNING()))`); with no callback the error is simply
+ * dropped and never emitted on `'error'` — so passing a callback here does
+ * not "protect" the server's `error` event from anything; there was never a
+ * hazard on that path to keep it off of.
  *
  * `close()` alone only stops accepting new connections and drops idle
  * keep-alive sockets — it does NOT end in-flight requests, so the callback
@@ -506,7 +540,9 @@ export function uncaughtExceptionAction(
 /**
  * Build the KiteBot channel: same tools/context/commands/handlers as the native
  * bot, minus any platform adapter (the managed transport is attached at
- * activation when the runtime's node listener is mounted). Pure — no network,
+ * activation — NOT when the runtime's node listener is mounted, but lazily on
+ * the first `channels.ready()` call; see the module docstring above and
+ * `main()`'s explicit `await channels.ready(...)`). Pure — no network,
  * no env reads — so it is unit-testable.
  */
 export function createKiteChannel(opts: CreateKiteChannelOptions): Channel {
@@ -519,6 +555,18 @@ export function createKiteChannel(opts: CreateKiteChannelOptions): Channel {
 
   const channel = createChannel({
     name: channelName,
+    // `provider` defaults to "slack" when unset (per `ManagedChannelProvider`
+    // in `@copilotkit/channels-core`'s `create-channel.d.ts`), which is what
+    // this host was already relying on implicitly. State it explicitly: the
+    // Slack-only `tools`/`context` spread below (`defaultSlackTools` /
+    // `defaultSlackContext`, which mandate `lookup_slack_user` before any
+    // @-mention) should be justified by a declared provider, not by an
+    // unstated SDK default this host happens to match. This channel is
+    // Slack-only by design, so the spread stays unconditional — see
+    // `app/index.ts`, which gates the identical spread on Slack secrets being
+    // present for its multi-platform direct-adapter case; this host has no
+    // such branch to gate on.
+    provider: "slack",
     agent: (threadId: string) => {
       const a = new SanitizingHttpAgent({
         url: opts.agentUrl,

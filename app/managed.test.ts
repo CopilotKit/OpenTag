@@ -594,24 +594,48 @@ describe("onceShutdown", () => {
   });
 
   describe("Finding 3: exitCode passthrough for a non-signal fatal caller", () => {
-    it("passes the exit code through to the run function for the signal that starts the run", () => {
+    it("passes the exit code through to the run function for the signal that starts the run, without invoking onError on a clean run", async () => {
       // Models the watchdog's fatal path calling `runShutdown("watchdog", 1)`
       // instead of `process.exit(1)` directly — the exit code has to reach
       // the same `shutdown()` the SIGINT/SIGTERM handlers use.
+      //
+      // THE BUG THIS REWRITE FIXES: the previous version's `onError` callback
+      // THREW ("onError must not fire on a clean run") instead of recording,
+      // on the assumption that a throw would fail this test if `onError` ever
+      // fired on a clean run. It doesn't: `onError` is only invoked from
+      // inside `onceShutdown`'s `started.catch(...)` reaction, which runs a
+      // full macrotask after this test's synchronous body — and therefore
+      // after any assertion — already returned. A throw there surfaces (if at
+      // all) as an unrelated "Unhandled Rejection" against whatever other
+      // test happens to be running, never as a failure of THIS test. Proven
+      // by mutating `onceShutdown` to call `onError` unconditionally (not
+      // only on rejection): this test stayed GREEN while an unhandled
+      // rejection was reported against an unrelated test elsewhere in this
+      // file. Recording calls into an array and explicitly awaiting past the
+      // reaction — instead of relying on a thrown error's incidental,
+      // unrelated fallout — ties the "onError must not fire" claim to an
+      // assertion this test actually makes.
       const calls: Array<{ signal: string; exitCode: number | undefined }> =
         [];
+      const onErrorCalls: Array<{ signal: string; err: unknown }> = [];
       const run = onceShutdown(
         (signal, exitCode) => {
           calls.push({ signal, exitCode });
           return Promise.resolve();
         },
-        () => {
-          throw new Error("onError must not fire on a clean run");
+        (signal, err) => {
+          onErrorCalls.push({ signal, err });
         },
       );
 
       run("watchdog", 1);
       expect(calls).toEqual([{ signal: "watchdog", exitCode: 1 }]);
+      // A real macrotask boundary, not a microtask: `onceShutdown`'s memoized
+      // `.catch(...)` reaction (or a mutant's `.then(...)`) only runs after
+      // the run's promise settles, and needs a full tick past `run()`
+      // returning to have done so.
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      expect(onErrorCalls).toEqual([]);
     });
 
     it("defaults to no explicit exit code for a plain signal (SIGINT/SIGTERM never pass one)", () => {
