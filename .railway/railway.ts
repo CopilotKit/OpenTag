@@ -99,6 +99,16 @@ export default defineRailway(() => {
   const channel = service("channel", {
     source: github(REPO),
     start: "pnpm channel",
+    // The channel host renders inline charts/diagrams via Playwright/Chromium
+    // (app/render/browser.ts → chromium.launch). Install the browser at build
+    // time; PLAYWRIGHT_BROWSERS_PATH=0 (env below) puts it in node_modules so it
+    // persists into the deploy image, and RAILPACK_DEPLOY_APT_PACKAGES supplies
+    // the shared libs Chromium needs at runtime. Without this, render_chart /
+    // render_diagram fail on the deployed channel. Mirrors the kite reference.
+    build: {
+      buildCommand:
+        "pnpm install && npx playwright install --with-deps chromium",
+    },
     deploy: {
       // Parity with agent/notion-mcp: restart the long-running channel host on
       // crash instead of leaving KiteBot silently offline.
@@ -109,6 +119,12 @@ export default defineRailway(() => {
       // brain: points at the agent service over private networking. The agent
       // pins PORT=8123, so ${{agent.PORT}} resolves to the port uvicorn binds.
       AGENT_URL: "http://${{agent.RAILWAY_PRIVATE_DOMAIN}}:${{agent.PORT}}/",
+      // Chromium for inline chart/diagram rendering: install the browser into
+      // node_modules (0) so it ships with the app, and provide the shared libs
+      // in the deploy image (Railpack strips build-layer apt packages).
+      PLAYWRIGHT_BROWSERS_PATH: "0",
+      RAILPACK_DEPLOY_APT_PACKAGES:
+        "fonts-liberation fonts-noto-color-emoji fonts-unifont libasound2 libatk-bridge2.0-0 libatk1.0-0 libatspi2.0-0 libcairo2 libcups2 libdbus-1-3 libdrm2 libexpat1 libfontconfig1 libfreetype6 libgbm1 libglib2.0-0 libnspr4 libnss3 libpango-1.0-0 libx11-6 libx11-xcb1 libxcb1 libxcomposite1 libxdamage1 libxext6 libxfixes3 libxkbcommon0 libxrandr2 libxrender1 libxshmfence1",
       // INTELLIGENCE_CHANNEL_NAME is intentionally NOT set here: app/managed.ts
       // already defaults it to "kite-opentag", and leaving it unmanaged means a
       // deployer can set their own channel name in the Railway UI without a
