@@ -364,3 +364,41 @@ describe("render_table tool — extra cells per row", () => {
     );
   });
 });
+
+describe("monospace fallback — cells containing newlines", () => {
+  it("collapses embedded newlines so each logical row is one physical line", () => {
+    const cols = [{ header: "id" }, { header: "note" }];
+    const rows = [
+      ["1", "Steps:\n1. do X\n2. do Y"],
+      ["2", "ok"],
+    ];
+    const out = toMonospaceTable(cols, rows);
+    // "```" + header + 2 body rows + "```" = 5 physical lines, regardless of
+    // the newlines inside the first note cell (pre-fix this was 7).
+    expect(out.split("\n")).toHaveLength(5);
+    // The multi-line content is joined onto one physical line.
+    expect(out).toContain("Steps: 1. do X 2. do Y");
+  });
+
+  it("keeps shownRows accurate under budget truncation when cells contain newlines", () => {
+    // Oversized table forces size-based truncation; a newline in every cell
+    // would, pre-fix, make split('\n') over-count body lines vs. real rows.
+    const { columns, rows } = makeOversizedTable(8, 99);
+    const rowsWithNewlines = rows.map((r) => r.map((c) => `${c}\nx`));
+    const { text, shownRows } = toBudgetedMonospaceTable(
+      columns,
+      rowsWithNewlines,
+    );
+    const bodyLines = text.split("\n").slice(2, -1); // drop fence, header, fence
+    // Every body line is a complete, well-formed row. Pre-fix, a newline in a
+    // cell produced orphan physical lines (e.g. "x | …") that don't frame as
+    // "| … |", and shownRows counted physical lines rather than data rows.
+    for (const line of bodyLines) {
+      expect(line.startsWith("| ")).toBe(true);
+      expect(line.endsWith(" |")).toBe(true);
+    }
+    expect(bodyLines).toHaveLength(shownRows);
+    expect(shownRows).toBeGreaterThan(0);
+    expect(shownRows).toBeLessThan(99);
+  });
+});

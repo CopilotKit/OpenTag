@@ -8,9 +8,11 @@ import { defineRailway, github, preserve, project, service } from "railway/iac";
 // (see README "Deploy to Railway").
 //
 // Two topology invariants this file encodes:
-//   1. Ports are pinned as explicit service variables (NOT left to Railway's
-//      auto-injected $PORT) so each service's listen port and the ${{svc.PORT}}
-//      its peers dial always agree.
+//   1. Ports for peer-dialed services (agent, notion-mcp) are pinned as explicit
+//      service variables (NOT left to Railway's auto-injected $PORT) so each
+//      service's listen port and the ${{svc.PORT}} its peers dial always agree.
+//      The outbound-only channel host has no peer dialing it, so it uses
+//      Railway's injected $PORT (app/managed.ts defaults 8300).
 //   2. Services reached over Railway private networking must bind :: (all
 //      interfaces) — private DNS (RAILWAY_PRIVATE_DOMAIN) resolves to IPv6, and
 //      legacy environments are IPv6-only. A service bound to 127.0.0.1/0.0.0.0

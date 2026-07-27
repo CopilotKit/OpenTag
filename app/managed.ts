@@ -11,7 +11,8 @@
  * ingress + Connector Outbox egress).
  *
  * The bot's brain is an external AG-UI agent reached over HTTP at AGENT_URL —
- * for now the runtime.ts triage backend; in Phase 2 a LangGraph deep agent.
+ * either the TS runtime.ts triage backend (a BuiltInAgent) or the Python
+ * agent/ LangGraph deep-research agent (the default AGENT_URL target on Railway).
  * The channel is created WITHOUT a native adapter (no `adapters`), so it is a
  * managed, no-adapter channel: the runtime attaches the managed transport at
  * activation.

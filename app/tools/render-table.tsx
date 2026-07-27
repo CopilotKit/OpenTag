@@ -95,8 +95,15 @@ export function clamp(
  * `alignTable` render the bridge applies to GFM tables in streamed prose.
  */
 export function toMonospaceTable(cols: Column[], dataRows: string[][]): string {
-  const header = cols.map((c) => c.header);
-  const body = dataRows.map((r) => cols.map((_, i) => String(r[i] ?? "")));
+  // Collapse embedded newlines to a space so every cell is a single physical
+  // line. Otherwise a multi-line cell emits extra physical lines, which breaks
+  // column alignment AND the line-based row accounting in
+  // `toBudgetedMonospaceTable` (it splits on "\n" to drop whole rows).
+  const oneLine = (s: string) => s.replace(/[\r\n]+/g, " ");
+  const header = cols.map((c) => oneLine(c.header));
+  const body = dataRows.map((r) =>
+    cols.map((_, i) => oneLine(String(r[i] ?? ""))),
+  );
   const widths = cols.map((_, c) =>
     Math.max(
       (header[c] ?? "").length,

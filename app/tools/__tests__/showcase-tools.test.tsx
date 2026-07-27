@@ -338,3 +338,35 @@ describe("show_links render-tool", () => {
     expect(renderedText.split("·")).toHaveLength(shown);
   });
 });
+
+describe("showcase empty-section edge cases", () => {
+  it("show_links keeps at least one link when a single link exceeds the budget (no empty Section)", async () => {
+    const { posts, thread } = fakeThread();
+    // One link whose [label](url) markdown alone blows past the budget.
+    const giantUrl = `https://example.com/${"x".repeat(4000)}`;
+    const result = await showLinksTool.handler(
+      { heading: "Runbooks", links: [{ label: "Huge", url: giantUrl }] },
+      { thread } as unknown as LinksCtx,
+    );
+    // Only one link supplied, so nothing is reported dropped...
+    expect(result).toBe("Posted the links to the user.");
+    // ...and the rendered Section is NON-empty. The pre-fix clamp returned []
+    // for a single over-budget link, producing an empty <Section> Slack rejects.
+    const { blocks } = renderSlackMessage(renderToIR(posts[0] as never));
+    const sectionBlock = blocks.find(
+      (b) => b.type === "section" && "text" in b,
+    ) as SectionBlockShape | undefined;
+    expect((sectionBlock?.text?.text ?? "").length).toBeGreaterThan(0);
+  });
+
+  it("show_incident omits the summary Section when the summary is empty", async () => {
+    const { posts, thread } = fakeThread();
+    await showIncidentTool.handler(
+      { id: "INC-1", title: "DB down", severity: "SEV1", summary: "" },
+      { thread } as unknown as IncidentCtx,
+    );
+    const { blocks } = renderSlackMessage(renderToIR(posts[0] as never));
+    // The empty summary Section is guarded out entirely — no empty <Section>.
+    expect(blocks.find((b) => b.type === "section")).toBeUndefined();
+  });
+});

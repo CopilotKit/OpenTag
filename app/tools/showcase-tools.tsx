@@ -36,7 +36,10 @@ const incidentSchema = z.object({
   severity: z
     .enum(["SEV1", "SEV2", "SEV3"])
     .describe("Severity — drives the card's accent colour."),
-  summary: z.string().describe("One-paragraph summary of what's happening."),
+  summary: z
+    .string()
+    .min(1)
+    .describe("One-paragraph summary of what's happening."),
 });
 
 type IncidentProps = z.infer<typeof incidentSchema>;
@@ -51,7 +54,7 @@ export function IncidentCard({ id, title, severity, summary }: IncidentProps) {
   return (
     <Message accent={accent}>
       <Header>{`🚨 ${severity} · ${title}`}</Header>
-      <Section>{summary}</Section>
+      {summary ? <Section>{summary}</Section> : null}
       <Context>{`Incident ${id}`}</Context>
       <Actions>
         <Button
@@ -126,7 +129,10 @@ function clampWithinBudget<T>(
   let used = 0;
   for (const item of items) {
     const cost = size(item, kept);
-    if (used + cost > budget) break;
+    // Always keep at least one item — an empty result would render an empty
+    // <Section>, which Slack rejects. If the first item alone exceeds the
+    // budget, keep it and let the renderer's own truncation trim it.
+    if (kept.length > 0 && used + cost > budget) break;
     kept.push(item);
     used += cost;
   }
@@ -195,11 +201,14 @@ export const showStatusTool = defineChannelTool({
 // Joiner between rendered `[label](url)` links in the single-row layout.
 const LINK_JOINER = "  ·  ";
 
-// A Slack section's text is truncated at ~3000 chars
-// (SLACK_LIMITS.sectionText); clamp the joined links list to stay under that
-// budget so whole links are dropped (and reported back) instead of being cut
-// off mid-link by the renderer's own truncation.
-const MAX_LINKS_SECTION_CHARS = 3000;
+// A Slack section's text is truncated at ~3000 chars (SLACK_LIMITS.sectionText);
+// clamp the joined links list to a budget with headroom below that limit so
+// whole links are dropped (and reported back) instead of being cut off mid-link
+// by the renderer's own truncation. The 200-char margin matches the sibling
+// clamps (issue-list, render-table) and absorbs mrkdwn escape-expansion
+// (e.g. `&`->`&amp;`), which can make the rendered text longer than the raw
+// `[label](url)` length this budget measures.
+const MAX_LINKS_SECTION_CHARS = 2800;
 
 const linksSchema = z.object({
   heading: z.string().describe("Card heading, e.g. 'Runbooks'."),
