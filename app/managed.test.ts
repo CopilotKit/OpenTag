@@ -9,6 +9,7 @@ import {
   unhealthyChannels,
   channelWatchdogTick,
   CHANNEL_DEGRADED_FATAL_MS,
+  nextDegradedSince,
   closeServer,
   onceShutdown,
   uncaughtExceptionAction,
@@ -88,7 +89,7 @@ describe("promptFromMessage", () => {
     expect(promptFromMessage({ text: "hello" })).toBe("hello");
   });
 
-  it("Finding 7: treats whitespace-only text as absent, not as an instruction to prepend", () => {
+  it("treats whitespace-only text as absent, not as an instruction to prepend", () => {
     // THE REGRESSION: `message.text ? [...] : parts` checked raw truthiness,
     // and "   " is truthy — so a whitespace-only `text` used to get prepended
     // as a blank leading text part alongside the real attachments. This file
@@ -137,6 +138,7 @@ describe("MANAGED_COMPONENTS", () => {
     for (const file of await walk(appDir)) {
       for (const name of interactiveComponentNames(
         await readFile(file, "utf8"),
+        file,
       )) {
         interactive.add(name);
       }
@@ -232,7 +234,7 @@ describe("requireUrl", () => {
     );
   });
 
-  describe("Finding 4: scheme-less and non-HTTP values", () => {
+  describe("scheme-less and non-HTTP values", () => {
     // Bare `new URL()` accepts anything with a colon, folding whatever
     // precedes it into `protocol` — so a missing scheme (the single most
     // likely paste error) or a non-HTTP scheme both used to "pass" this
@@ -369,13 +371,25 @@ describe("unhealthyChannels", () => {
     ).toEqual(["overall=connecting"]);
   });
 
-  it("reports overall=stopped once every managed channel has been torn down", () => {
+  it("reports the stopped channel by name once every managed channel has been torn down", () => {
+    // THE REAL SHAPE: `stop()` does NOT clear `entries` — it only flips each
+    // entry's own `status` to "stopped" (confirmed in the installed
+    // channel-manager.mjs: `stopEntry` sets `entry.status = "stopped"`, and
+    // `status()` builds `channels` from `entries` in every branch, including
+    // the `this.stopped` one). So the post-stop map is non-empty and already
+    // reads `{ "kite-opentag": "stopped" }` — `{ channels: {} }` is a shape
+    // the manager cannot actually produce after stop(). This is caught by the
+    // per-channel filter directly (same path as the setup_required case
+    // above), not by the overall fold.
     expect(
-      unhealthyChannels({ overall: "stopped", channels: {} }, "kite-opentag"),
-    ).toEqual(["overall=stopped"]);
+      unhealthyChannels(
+        { overall: "stopped", channels: { "kite-opentag": "stopped" } },
+        "kite-opentag",
+      ),
+    ).toEqual(["kite-opentag=stopped"]);
   });
 
-  it("Finding 3: does NOT report healthy when overall is online but the declared channel is absent from the map", () => {
+  it("does NOT report healthy when overall is online but the declared channel is absent from the map", () => {
     // THE BUG THIS GUARDS: `ChannelManager.computeOverall` returns "online"
     // for a ZERO-length input (confirmed in the installed channel-manager.mjs:
     // `if (values.length === 0) return "online"`), so `{ overall: "online",
@@ -401,6 +415,22 @@ describe("unhealthyChannels", () => {
         "kite-opentag",
       ),
     ).toEqual(["overall=online"]);
+  });
+
+  it("surfaces a degraded overall even when every present per-channel entry reads online", () => {
+    // The fold-in condition is broader than "the map is empty": it triggers
+    // whenever the per-channel filter finds nothing UNHEALTHY to report —
+    // which also covers a non-empty, all-online map that simply omits the
+    // declared channel. Without this case, a degraded `overall` (not just
+    // "online") sitting alongside an all-clear-looking map would slip past
+    // both the per-channel filter (nothing to filter) and get read as
+    // healthy.
+    expect(
+      unhealthyChannels(
+        { overall: "setup_required", channels: { "some-other-channel": "online" } },
+        "kite-opentag",
+      ),
+    ).toEqual(["overall=setup_required"]);
   });
 });
 
@@ -465,7 +495,7 @@ describe("channelWatchdogTick", () => {
     });
   });
 
-  describe("Finding 2: escalation after CHANNEL_DEGRADED_FATAL_MS", () => {
+  describe("escalation after CHANNEL_DEGRADED_FATAL_MS", () => {
     it("stays quiet just below the threshold, even on an already-reported degraded state", () => {
       // Regression this guards: a channel wedged in `reconnecting` used to
       // notice once and then stay quiet FOREVER — `overall === previousOverall`
@@ -558,6 +588,51 @@ describe("channelWatchdogTick", () => {
         message: "channel recovered: overall=online",
       });
     });
+  });
+});
+
+describe("nextDegradedSince", () => {
+  const health = (overall: string) => ({
+    overall,
+    channels: { "kite-opentag": overall },
+  });
+
+  it("sets the clock on the first degraded reading", () => {
+    expect(nextDegradedSince(health("reconnecting"), undefined, 1_000)).toBe(
+      1_000,
+    );
+  });
+
+  it("preserves the original timestamp across a continuing degradation", () => {
+    expect(nextDegradedSince(health("reconnecting"), 500, 1_000)).toBe(500);
+  });
+
+  it("preserves an existing clock when the health reading is missing (undefined)", () => {
+    // THE BUG THIS GUARDS: a missing reading is "no data this tick", not
+    // "back online". The previous implementation's `else degradedSince =
+    // undefined` treated a missing reading the same as an affirmative
+    // recovery, wiping the clock every time the status surface happened to
+    // return nothing — so a status surface that intermittently returns no
+    // reading could never accumulate the continuous duration
+    // CHANNEL_DEGRADED_FATAL_MS checks for, and the 10-minute escalation
+    // would never fire.
+    expect(nextDegradedSince(undefined, 500, 1_000)).toBe(500);
+  });
+
+  it("preserves undefined when there is no existing clock and the health reading is missing", () => {
+    expect(nextDegradedSince(undefined, undefined, 1_000)).toBeUndefined();
+  });
+
+  it("clears the clock the moment overall reports online", () => {
+    expect(nextDegradedSince(health("online"), 500, 1_000)).toBeUndefined();
+  });
+
+  it("starts a fresh clock for a new degradation after a recovery", () => {
+    const afterRecovery = nextDegradedSince(health("online"), 500, 1_000);
+    expect(afterRecovery).toBeUndefined();
+    expect(nextDegradedSince(health("reconnecting"), afterRecovery, 2_000)).toBe(
+      2_000,
+    );
   });
 });
 
@@ -656,7 +731,7 @@ describe("onceShutdown", () => {
     expect(errors).toEqual([]);
   });
 
-  it("Finding 6: guards against a run that synchronously re-enters the returned function", () => {
+  it("guards against a run that synchronously re-enters the returned function", () => {
     // THE BUG: the memo (`inFlight`) used to be assigned only AFTER `run(...)`
     // was invoked, so a `run` whose synchronous body calls the returned
     // function again — before `run` itself has returned — saw no guard yet and
@@ -728,7 +803,7 @@ describe("onceShutdown", () => {
     }
   });
 
-  describe("Finding 3: exitCode passthrough for a non-signal fatal caller", () => {
+  describe("exitCode passthrough for a non-signal fatal caller", () => {
     it("passes the exit code through to the run function for the signal that starts the run, without invoking onError on a clean run", async () => {
       // Models the watchdog's fatal path calling `runShutdown("watchdog", 1)`
       // instead of `process.exit(1)` directly — the exit code has to reach
@@ -811,7 +886,7 @@ describe("onceShutdown", () => {
   });
 });
 
-describe("uncaughtExceptionAction (Finding 1)", () => {
+describe("uncaughtExceptionAction (defers to an in-flight graceful shutdown)", () => {
   it("treats an exception during an in-flight graceful shutdown as non-preempting", () => {
     // THE REGRESSION this guards against being reintroduced: an exception
     // raised while `shutdown()` is already tearing down must not race a
@@ -831,7 +906,7 @@ describe("uncaughtExceptionAction (Finding 1)", () => {
   });
 });
 
-describe("fatalText (Finding 5)", () => {
+describe("fatalText (message formatting for the synchronous fatal exit path)", () => {
   it("returns the message unchanged when there is no error", () => {
     expect(fatalText("[channel] boom")).toBe("[channel] boom");
   });

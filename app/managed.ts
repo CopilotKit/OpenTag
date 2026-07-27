@@ -341,13 +341,20 @@ export interface ChannelHealth {
  *
  * That per-channel map is not the whole story, though: per the installed
  * `ChannelManager.status()`, before activation completes it returns
- * `{ overall: "connecting", channels: {} }` — an EMPTY map — and after
- * `stop()` it returns `{ overall: "stopped", channels: {} }`. Filtering only
- * `health.channels` sees nothing to filter and reports `[]`, so the boot gate
- * would log "(channel live)" for a channel that never activated. Fold
- * `overall` in: when the per-channel map has nothing to say (e.g. it's empty)
- * but `overall` itself is not `online`, surface that as `"overall=<status>"`
- * so the false-success case this gate exists to catch can't slip through.
+ * `{ overall: "connecting", channels: {} }` — an EMPTY map, because `channels`
+ * is built from `entries`, which nothing has populated until `activate()`
+ * runs. Filtering only `health.channels` sees nothing to filter and reports
+ * `[]`, so the boot gate would log "(channel live)" for a channel that never
+ * activated. Fold `overall` in: when the per-channel filter finds nothing
+ * unhealthy to report — either because the map is empty, or because every
+ * entry present in it already reads `online` — but `overall` itself is not
+ * `online`, surface that as `"overall=<status>"` so the false-success case
+ * this gate exists to catch can't slip through. (`stop()`, by contrast, does
+ * NOT clear `entries` — it only flips each entry's own `status` to
+ * `"stopped"` — so the post-stop map is non-empty and already reads e.g.
+ * `{ "kite-opentag": "stopped" }`; that case is caught directly by the
+ * per-channel filter itself, the same path as `setup_required` below, without
+ * ever reaching this fold.)
  *
  * That `overall` fold is still not sufficient by itself, though:
  * `ChannelManager.computeOverall` returns `"online"` for a ZERO-length input
@@ -361,7 +368,12 @@ export interface ChannelHealth {
  * per-channel filter has nothing to report, don't stop there — confirm
  * `channelName` (the one channel THIS host declared) is actually present in
  * `health.channels` AND `online`, by name. An absent or non-online entry for
- * it is reported the same way a present-but-bad one would be.
+ * it is reported the same way a present-but-bad one would be. That same
+ * "nothing unhealthy in the filtered map" condition is also what lets a
+ * DEGRADED `overall` (e.g. `setup_required`) surface correctly even alongside
+ * an all-`online` per-channel map, as long as the declared `channelName` is
+ * missing from that map — not only the all-`online`-and-`overall: "online"`
+ * case the tests below happened to spell out first.
  */
 export function unhealthyChannels(
   health: ChannelHealth | undefined,
@@ -555,7 +567,7 @@ export function closeServer(server: {
  * a rejecting `run` reaches `onError`, changing observable timing for every
  * caller (including ones that already await a fixed number of ticks).
  *
- * `exitCode` lets a non-signal caller (Finding 3: the watchdog's fatal path)
+ * `exitCode` lets a non-signal caller (the watchdog's fatal path, below)
  * request a specific exit code from the SAME run — e.g. `1`, so a fatal
  * watchdog tick still exits non-zero after routing through graceful teardown
  * instead of calling `process.exit(1)` directly. Only the signal that starts
@@ -642,9 +654,16 @@ export function createKiteChannel(opts: CreateKiteChannelOptions): Channel {
 
   const channel = createChannel({
     name: channelName,
-    // `provider` defaults to "slack" when unset (per `ManagedChannelProvider`
-    // in `@copilotkit/channels-core`'s `create-channel.d.ts`), which is what
-    // this host was already relying on implicitly. State it explicitly: the
+    // `provider` defaults to "slack" when unset — NOT in channels-core.
+    // `create-channel.js` simply omits the key when `opts.provider` is
+    // undefined (`...(opts.provider !== undefined ? { provider: opts.provider
+    // } : {})`), and its `.d.ts` only documents the closed
+    // `ManagedChannelProvider` union, not a default. The default is applied
+    // downstream, in the installed `@copilotkit/runtime`'s
+    // `dist/v2/runtime/core/channel-activation-config.mjs`
+    // (`deriveChannelActivationConfig`): `adapter: trimmedProvider ?
+    // trimmedProvider : "slack"`. This host was already relying on that
+    // downstream default implicitly. State it explicitly: the
     // Slack-only `tools`/`context` spread below (`defaultSlackTools` /
     // `defaultSlackContext`, which mandate `lookup_slack_user` before any
     // @-mention) should be justified by a declared provider, not by an
@@ -1087,7 +1106,7 @@ async function main() {
 // nothing demonstrated an unhandled rejection could leave the process in the
 // same undefined, still-bound-socket state that motivated making
 // `uncaughtException` fatal. That reasoning was wrong: the `server.listen`
-// callback's own unobserved promise — Finding 1 — is exactly that
+// callback's own unobserved promise (see its `.catch` below) is exactly that
 // demonstration, so both handlers now share one policy.)
 if (
   process.argv[1] &&
