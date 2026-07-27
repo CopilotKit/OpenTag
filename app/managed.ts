@@ -143,6 +143,34 @@ export function httpAuthGate(
 }
 
 /**
+ * Structural view of `ChannelsControl.status()`. Declared locally rather than
+ * imported so this module doesn't reach into the runtime's internal
+ * channel-manager types; the real `Record<string, ChannelStatus>` is a union of
+ * string literals and assigns cleanly to this.
+ */
+export interface ChannelHealth {
+  overall: string;
+  channels: Record<string, string>;
+}
+
+/**
+ * Every declared channel that is not `online`, as `"<name>=<status>"`.
+ *
+ * `channels.ready()` resolving is NOT proof of liveness: it resolves once each
+ * channel reaches a terminal state, and `setup_required` (declared, but no
+ * managed provider bound yet) counts as terminal. `unmanaged` — a channel
+ * carrying a direct adapter this handler doesn't own — resolves immediately and
+ * likewise implies no health. Only `online` means the channel can actually
+ * send, so the boot's success line must be gated on this returning empty.
+ */
+export function unhealthyChannels(health: ChannelHealth | undefined): string[] {
+  if (!health) return [];
+  return Object.entries(health.channels)
+    .filter(([, status]) => status !== "online")
+    .map(([name, status]) => `${name}=${status}`);
+}
+
+/**
  * Build the KiteBot channel: same tools/context/commands/handlers as the native
  * bot, minus any platform adapter (the managed transport is attached at
  * activation when the runtime's node listener is mounted). Pure — no network,
@@ -214,6 +242,14 @@ export function createKiteChannel(opts: CreateKiteChannelOptions): Channel {
   return channel;
 }
 
+/**
+ * How long to wait for managed-channel activation before giving up. Applied
+ * PER CHANNEL by `ready()`. Without it a gateway that accepts the socket but
+ * never settles the join leaves the host bound, silent, and indistinguishable
+ * from healthy — and this service has no Railway healthcheck to catch that.
+ */
+const CHANNEL_READY_TIMEOUT_MS = 30_000;
+
 async function main() {
   const agentUrl = required("AGENT_URL");
   const agentAuthHeader = process.env.AGENT_AUTH_HEADER;
@@ -281,16 +317,26 @@ async function main() {
 
   server.listen(port, async () => {
     // The socket is bound, but the managed channel is not necessarily live yet.
-    // Await activation before claiming success: `channels.ready()` rejects if any
-    // declared channel settled to `error` (bad INTELLIGENCE_API_KEY, unreachable
-    // INTELLIGENCE_GATEWAY_WS_URL, org/project mismatch), so a failed activation
-    // must NOT log the success line. `channels` is absent when no managed
-    // channels are declared / activation was opted out — then this is a no-op and
-    // a bound socket alone counts as success.
+    // `ready()` rejects if any declared channel settled to `error` (bad
+    // INTELLIGENCE_API_KEY, unreachable INTELLIGENCE_GATEWAY_WS_URL) or — with
+    // timeoutMs — if it never settles at all.
     try {
-      await listener.channels?.ready?.();
+      await listener.channels?.ready?.({ timeoutMs: CHANNEL_READY_TIMEOUT_MS });
     } catch (err) {
       console.error("[channel] Intelligence channel activation failed", err);
+      process.exit(1);
+    }
+    // …but resolving is not the same as live: `setup_required` and `unmanaged`
+    // both settle terminally without the channel being able to send. Check the
+    // status map before claiming success.
+    const notLive = unhealthyChannels(listener.channels?.status());
+    if (notLive.length > 0) {
+      console.error(
+        `[channel] activation settled but the channel is NOT live: ${notLive.join(", ")}. ` +
+          `"setup_required" means the channel name exists in your Intelligence project but no ` +
+          `platform connector is bound to it — finish the connector setup in the Intelligence ` +
+          `dashboard, then redeploy this service.`,
+      );
       process.exit(1);
     }
     console.log(

@@ -6,6 +6,7 @@ import {
   buildAgentHeaders,
   httpAuthGate,
   MANAGED_COMPONENTS,
+  unhealthyChannels,
 } from "./managed.js";
 
 describe("createKiteChannel", () => {
@@ -172,5 +173,54 @@ describe("buildAgentHeaders", () => {
     expect(buildAgentHeaders("Bearer abc123")).toEqual({
       Authorization: "Bearer abc123",
     });
+  });
+});
+
+describe("unhealthyChannels", () => {
+  it("reports nothing when there is no control surface", () => {
+    // `listener.channels` is absent when no managed channels are declared —
+    // a bound socket alone is success there, exactly as before.
+    expect(unhealthyChannels(undefined)).toEqual([]);
+  });
+
+  it("reports nothing when every channel is online", () => {
+    expect(
+      unhealthyChannels({
+        overall: "online",
+        channels: { "kite-opentag": "online" },
+      }),
+    ).toEqual([]);
+  });
+
+  it("reports a channel that settled to setup_required", () => {
+    // THE REGRESSION: ready() RESOLVES on setup_required, so this is the state
+    // that used to print "(channel live)" for a channel with no Slack
+    // connector bound — the most likely first-run state for a deployer.
+    expect(
+      unhealthyChannels({
+        overall: "setup_required",
+        channels: { "kite-opentag": "setup_required" },
+      }),
+    ).toEqual(["kite-opentag=setup_required"]);
+  });
+
+  it("reports a channel the handler does not own", () => {
+    // `unmanaged` means a direct adapter is attached; ready() resolves for it
+    // immediately and implies NO health.
+    expect(
+      unhealthyChannels({
+        overall: "unmanaged",
+        channels: { "kite-opentag": "unmanaged" },
+      }),
+    ).toEqual(["kite-opentag=unmanaged"]);
+  });
+
+  it("reports only the channels that are not online", () => {
+    expect(
+      unhealthyChannels({
+        overall: "setup_required",
+        channels: { a: "online", b: "setup_required", c: "reconnecting" },
+      }),
+    ).toEqual(["b=setup_required", "c=reconnecting"]);
   });
 });
