@@ -1,19 +1,17 @@
-import type { ContextEntry } from "@copilotkit/channels";
-import type { PlatformUser } from "@copilotkit/channels-ui";
+import type { ContextEntry, PlatformUser } from "@copilotkit/channels";
 
 /**
  * Build the per-turn context naming the requesting user, so the agent can act
  * "as" them (filter Linear by their email, @-mention/tag them). The platform
  * adapter resolves `{ id, name?, email? }` per turn; if it's absent there's
- * nothing to attribute, so we add no entry. `platform` is the surface the turn
- * came from (`thread.platform`), so the label is correct across Slack, Discord,
- * Telegram, and WhatsApp alike.
+ * nothing to attribute, so we add no entry. `platform` is the source surface,
+ * so the label is correct for managed and direct Slack/Teams turns alike.
  */
 export function senderContext(
   user: PlatformUser | undefined,
   platform: string,
 ): ContextEntry[] {
-  // `createBot` substitutes `{ id: "" }` for an unresolved sender (a truthy
+  // `createChannel` substitutes `{ id: "" }` for an unresolved sender (a truthy
   // object), so guard on a usable id — not mere object presence — otherwise we
   // emit a "Requesting <platform> user (... id )" entry with nothing to attribute.
   if (!user?.id) return [];

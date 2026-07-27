@@ -1,19 +1,20 @@
 /**
  * Slash commands for this bot. Each is registered with the engine via
- * `createBot({ commands })`; the Slack adapter forwards every `/command` it
+ * `createChannel({ commands })`; the Slack adapter forwards every `/command` it
  * receives and the engine routes by name (ignoring unregistered ones).
  *
  * NOTE: a slash command only fires if it's also declared in the Slack app
  * config ("Slash Commands" / manifest) with the same name — Slack won't
  * deliver an unregistered command, even over Socket Mode.
  *
- * Args arrive as free text (`ctx.text`) on Slack; `ctx.options` is for
- * surfaces with native structured args (e.g. Discord). The `options` schema
- * is optional and used there for registration/typing.
+ * Args arrive as free text (`ctx.text`) on Slack; `ctx.options` is available
+ * to surfaces that deliver native structured arguments.
  */
-import { defineBotCommand } from "@copilotkit/channels";
-import type { BotCommand } from "@copilotkit/channels";
-import type { Thread as BotThread } from "@copilotkit/channels-ui";
+import {
+  defineChannelCommand,
+  type ChannelCommand,
+  type Thread as ChannelThread,
+} from "@copilotkit/channels";
 import { senderContext } from "../sender-context.js";
 import { IssueCard } from "../components/index.js";
 import { FileIssueModal } from "../modals/file-issue.js";
@@ -27,8 +28,8 @@ import { FileIssueModal } from "../modals/file-issue.js";
  */
 async function runAgentSafely(
   commandName: string,
-  thread: Pick<BotThread, "runAgent" | "post">,
-  input: Parameters<BotThread["runAgent"]>[0],
+  thread: Pick<ChannelThread, "runAgent" | "post">,
+  input: Parameters<ChannelThread["runAgent"]>[0],
 ): Promise<void> {
   try {
     await thread.runAgent(input);
@@ -42,12 +43,12 @@ async function runAgentSafely(
   }
 }
 
-export const appCommands: BotCommand[] = [
+export const appCommands: ChannelCommand[] = [
   // `/agent <text>` — a mention-free entry point. (Previously hardcoded in the
   // adapter; now an ordinary, app-owned command.) Runs the agent with the
   // command text as the user prompt, since slash-command args are never
   // posted to the channel for the agent to read from history.
-  defineBotCommand({
+  defineChannelCommand({
     name: "agent",
     description: "Ask the triage agent anything (no @mention needed).",
     async handler({ thread, text, user }) {
@@ -64,7 +65,7 @@ export const appCommands: BotCommand[] = [
 
   // `/triage [note]` — summarize the current channel/thread and propose Linear
   // issues to file. Demonstrates a command with its own intent.
-  defineBotCommand({
+  defineChannelCommand({
     name: "triage",
     description:
       "Summarize the conversation and propose Linear issues to file.",
@@ -81,11 +82,9 @@ export const appCommands: BotCommand[] = [
 
   // `/preview <title>` — ephemeral demo. Show the invoker a private draft of the
   // issue we'd file BEFORE anything is posted publicly or written to Linear.
-  // `postEphemeral` is capability-gated with an explicit DM fallback: Slack shows
-  // a native only-you message; Discord and Telegram have no ephemeral surface, so
-  // `fallbackToDM: true` sends it as a direct message instead. We narrate which
-  // path was taken so the degradation is visible, never silent.
-  defineBotCommand({
+  // `postEphemeral` is capability-gated with an explicit DM fallback. Slack
+  // shows a native only-you message; other surfaces report their actual support.
+  defineChannelCommand({
     name: "preview",
     description: "Privately preview the issue I'd file (only you see it).",
     async handler({ thread, text, user, platform }) {
@@ -125,12 +124,9 @@ export const appCommands: BotCommand[] = [
 
   // `/file-issue` — modal demo. Open a structured issue form, or degrade
   // honestly where modals aren't available.
-  //  - Slack   → rich modal (dropdowns + radio).
-  //  - Discord → text-only modal (discord.js modals take only text inputs); the
-  //              dropdowns/radio drop and defaults apply (see FileIssueModal).
-  //  - Telegram→ no modal trigger at all (`ctx.openModal` is undefined), so we
-  //              say so and continue the same job conversationally via the agent.
-  defineBotCommand({
+  // Slack opens the rich modal. Teams currently has no modal trigger, so we say
+  // so and continue the same job conversationally via the agent.
+  defineChannelCommand({
     name: "file-issue",
     description: "Open a form to file a Linear issue.",
     async handler({ thread, openModal, platform, user }) {

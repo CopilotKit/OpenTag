@@ -359,9 +359,8 @@ export const CASES: E2ECase[] = [
     // The agent must call confirm_write before any write. Once the picker
     // lands, we read it back via conversations.replies and verify each
     // button carries a JSON-encoded resume payload in its `value` field.
-    // That's what Slack stores and what the bridge decodes on a "stale
-    // click" after a restart — the durable-action story. (The full
-    // kill→restart→click cycle is covered by e2e/restart-recovery.ts.)
+    // That's what Slack stores and what the Channel decodes on a stale click
+    // after a restart — the durable-action story.
     prompt:
       '<@U0B45V75NNR> file a Linear issue titled "Checkout 500s under load". ' +
       "Use the confirm_write tool to ask me to approve it first.",
@@ -433,9 +432,8 @@ export const CASES: E2ECase[] = [
     // Verifies the human-in-the-loop gate renders into the thread. We
     // can't simulate the button click via Slack's API, so this case only
     // asserts that the Block Kit message lands; the click→resolve flow
-    // is covered by unit tests in the slack package, and the full
-    // restart cycle by e2e/restart-recovery.ts. The agent's run will be
-    // left dangling on the HITL wait for up to the component's timeoutMs.
+    // is covered by the Channels unit tests. The agent's run will be left
+    // dangling on the HITL wait for up to the component's timeoutMs.
     prompt:
       '<@U0B45V75NNR> file a Linear issue titled "Test from e2e". Call the ' +
       "confirm_write tool to ask me to approve it before creating anything.",

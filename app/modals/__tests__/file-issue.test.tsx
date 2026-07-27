@@ -1,19 +1,18 @@
 import { describe, it, expect, vi } from "vitest";
-import { renderToIR } from "@copilotkit/channels-ui";
+import { renderToIR, type ChannelNode } from "@copilotkit/channels";
 import {
   FileIssueModal,
   fileIssueSubmit,
   issueFromValues,
   FILE_ISSUE_CALLBACK,
 } from "../file-issue.js";
-import type { BotNode } from "@copilotkit/channels-ui";
 import { senderContext } from "../../sender-context.js";
 
-function tags(node: BotNode | unknown, acc: string[] = []): string[] {
+function tags(node: ChannelNode | unknown, acc: string[] = []): string[] {
   if (!node || typeof node !== "object") return acc;
-  const n = node as BotNode;
+  const n = node as ChannelNode;
   if (typeof n.type === "string") acc.push(n.type);
-  for (const c of (n.props?.children as BotNode[] | undefined) ?? []) {
+  for (const c of (n.props?.children as ChannelNode[] | undefined) ?? []) {
     tags(c, acc);
   }
   return acc;
@@ -31,7 +30,7 @@ describe("FileIssueModal", () => {
     expect(t).toContain("modal_radio");
   });
 
-  it("text-only variant (Discord) drops selects/radios, ≤5 inputs", () => {
+  it("text-only variant drops selects and radios", () => {
     const ir = renderToIR(FileIssueModal({ rich: false }));
     const root = ir[0]!;
     const t = tags(root);
@@ -58,7 +57,7 @@ describe("issueFromValues", () => {
     });
   });
 
-  it("applies defaults when controls were absent (Discord text-only)", () => {
+  it("applies defaults when optional controls were absent", () => {
     expect(issueFromValues({ title: "X", description: "Y" })).toEqual({
       title: "X",
       description: "Y",

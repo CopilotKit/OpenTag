@@ -8,8 +8,8 @@
  * separately in render-tools.test.tsx.
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { renderToIR } from "@copilotkit/channels-ui";
-import { renderSlackMessage } from "@copilotkit/channels-slack";
+import { renderToIR } from "@copilotkit/channels";
+import { renderSlackMessage } from "@copilotkit/channels/slack";
 
 // The exact PNG buffer instance `renderChart` resolves with, so tests can
 // assert `postFile` was handed the real render output — not just a filename.
@@ -25,7 +25,7 @@ vi.mock("../../render/diagram.js", () => ({ renderDiagram }));
 const { renderChartTool } = await import("../render-chart.js");
 const { renderDiagramTool } = await import("../render-diagram.js");
 
-/** The ctx a BotTool handler receives. */
+/** The ctx a ChannelTool handler receives. */
 type HandlerCtx = Parameters<typeof renderChartTool.handler>[1];
 
 function makeCtx(opts?: {

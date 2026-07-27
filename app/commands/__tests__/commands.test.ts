@@ -1,14 +1,13 @@
 import { describe, it, expect, vi } from "vitest";
-import { renderToIR } from "@copilotkit/channels-ui";
-import type { BotNode } from "@copilotkit/channels-ui";
+import { renderToIR, type ChannelNode } from "@copilotkit/channels";
 import { appCommands } from "../index.js";
 import type { CommandContext } from "@copilotkit/channels";
 
-function tags(node: BotNode | unknown, acc: string[] = []): string[] {
+function tags(node: ChannelNode | unknown, acc: string[] = []): string[] {
   if (!node || typeof node !== "object") return acc;
-  const n = node as BotNode;
+  const n = node as ChannelNode;
   if (typeof n.type === "string") acc.push(n.type);
-  for (const c of (n.props?.children as BotNode[] | undefined) ?? []) {
+  for (const c of (n.props?.children as ChannelNode[] | undefined) ?? []) {
     tags(c, acc);
   }
   return acc;
@@ -211,8 +210,8 @@ describe("example slash commands", () => {
       text: "",
       options: {},
       user: { id: "U1" },
-      platform: "telegram",
-      openModal: undefined, // Telegram: no modal trigger
+      platform: "teams",
+      openModal: undefined,
     } as never);
     expect(post).toHaveBeenCalledWith(
       expect.stringMatching(/aren.t supported|chat/i),
@@ -254,7 +253,7 @@ describe("example slash commands", () => {
       text: "Login broken",
       options: {},
       user: { id: "U1", name: "Ada" },
-      platform: "discord",
+      platform: "teams",
     } as never);
     expect(postEphemeral).toHaveBeenCalledTimes(1);
     expect(post).toHaveBeenCalledTimes(1);
@@ -273,7 +272,7 @@ describe("example slash commands", () => {
       text: "Login broken",
       options: {},
       user: { id: "U1", name: "Ada" },
-      platform: "discord",
+      platform: "teams",
     } as never);
     expect(postEphemeral).toHaveBeenCalledTimes(1);
     expect(post).toHaveBeenCalledTimes(1);

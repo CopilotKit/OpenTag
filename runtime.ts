@@ -1,5 +1,5 @@
 /**
- * Agent backend for the KiteBot triage assistant.
+ * Alternate TypeScript agent backend for OpenTag.
  *
  * This is the brain behind the chat bridge: a single CopilotKit
  * `BuiltInAgent` (LLM + MCP) served over AG-UI by a `CopilotSseRuntime`.
@@ -7,10 +7,9 @@
  * is no Python, no `langgraph dev`, no A2UI middleware. Everything is a
  * few dozen lines of TypeScript.
  *
- * The bridge (`app/index.ts`) fronts this same backend with the
- * platform-specific `@copilotkit/channels-*` packages (Slack, Discord,
- * Telegram, WhatsApp) and cross-platform `@copilotkit/channels-ui`
- * components, so this runtime itself has no platform-specific code.
+ * The canonical Channel host (`server.ts`) fronts this same backend with the
+ * `@copilotkit/channels` umbrella package and keeps this runtime free of
+ * platform-specific code.
  *
  * What it does
  * ------------
@@ -22,9 +21,8 @@
  * search/create pages) from each server at runtime.
  *
  * The chat-side primitives (read_thread, the confirm_write HITL picker,
- * the issue/page @copilotkit/channels-ui components) are forwarded to the
- * agent as client-provided tools by the bridge on every run — see
- * `app/index.ts`.
+ * the issue/page Channels components) are forwarded to the agent as
+ * client-provided tools by the Channel on every run — see `app/channel.ts`.
  *
  * Auth & deployment
  * -----------------

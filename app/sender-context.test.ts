@@ -19,22 +19,22 @@ describe("senderContext", () => {
     ]);
   });
 
-  it("labels a whatsapp user (no email) with the platform", () => {
-    const out = senderContext({ id: "15551230000", name: "Bob" }, "whatsapp");
+  it("labels a Teams user without an email with the platform", () => {
+    const out = senderContext({ id: "teams-user", name: "Bob" }, "teams");
     expect(out).toEqual([
       {
-        description: "Requesting whatsapp user",
-        value: "Bob (whatsapp id 15551230000)",
+        description: "Requesting teams user",
+        value: "Bob (teams id teams-user)",
       },
     ]);
   });
 
-  it("falls back to the id when the user has no name (e.g. a WhatsApp sender)", () => {
-    const out = senderContext({ id: "15551230000" }, "whatsapp");
+  it("falls back to the id when a Teams user has no name", () => {
+    const out = senderContext({ id: "teams-user" }, "teams");
     expect(out).toEqual([
       {
-        description: "Requesting whatsapp user",
-        value: "15551230000 (whatsapp id 15551230000)",
+        description: "Requesting teams user",
+        value: "teams-user (teams id teams-user)",
       },
     ]);
   });

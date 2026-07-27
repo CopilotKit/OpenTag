@@ -1,6 +1,6 @@
 /**
  * Block Kit parity tests for the JSX render components. Each component is a
- * `@copilotkit/channels-ui` `ComponentFn`; we assert the full
+ * `@copilotkit/channels` `ComponentFn`; we assert the full
  * `renderSlackMessage(renderToIR(<… />))` output — both the `blocks` and the
  * attachment `accent` — against the legacy `defineSlackComponent` shapes.
  *
@@ -12,12 +12,12 @@
  * the old `defineSlackComponent` code produced.
  *
  * Status/priority glyphs are now platform-neutral unicode (✅ 🔵 🚨 🔴 etc.)
- * so they render identically on both Slack and Telegram.
+ * so they render identically on both Slack and Teams.
  */
 import { describe, it, expect } from "vitest";
-import { renderToIR } from "@copilotkit/channels-ui";
-import { renderSlackMessage } from "@copilotkit/channels-slack";
-import { renderTelegram } from "@copilotkit/channels-telegram";
+import { renderToIR } from "@copilotkit/channels";
+import { renderSlackMessage } from "@copilotkit/channels/slack";
+import { renderAdaptiveCard } from "@copilotkit/channels/teams";
 import { IssueList } from "../issue-list.js";
 import { IssueCard } from "../issue-card.js";
 import { PageList } from "../page-list.js";
@@ -335,119 +335,38 @@ describe("PageList component", () => {
   });
 });
 
-// ── Telegram parity tests ────────────────────────────────────────────────────
-// These tests render the same IR through renderTelegram and assert that the
-// unicode status/priority glyphs appear correctly (no Slack `:shortcode:`
-// strings that Telegram would not expand).
-
-describe("IssueCard Telegram parity", () => {
-  it("renders unicode status and priority glyphs in Telegram output", () => {
-    const payload = renderTelegram(
+describe("Microsoft Teams rendering parity", () => {
+  it("renders rich issue and page content as an Adaptive Card", () => {
+    const issue = renderAdaptiveCard(
       renderToIR(
         <IssueCard
           identifier="CPK-101"
           title="Checkout 500s under load"
-          url="https://linear.app/copilotkit/issue/CPK-101"
           state="In Progress"
-          assignee="Alem"
           priority="Urgent"
-          team="CPK"
         />,
       ),
     );
-    // renderTelegram returns a TelegramPayload with a `text` field (HTML string)
-    // and `parseMode: "HTML"` — confirmed from telegram.test.ts line:
-    //   expect(out.parseMode).toBe("HTML");
-    //   expect(out.text).toContain("<b>Status</b>");
-    expect(typeof payload.text).toBe("string");
-    // In-progress maps to the blue dot unicode glyph.
-    expect(payload.text).toContain("🔵");
-    // Urgent priority maps to the siren glyph.
-    expect(payload.text).toContain("🚨");
-    // Identifier and title text must appear in the output.
-    expect(payload.text).toContain("CPK-101");
-    expect(payload.text).toContain("Checkout 500s under load");
-    // No Slack mrkdwn shortcodes must appear.
-    expect(payload.text).not.toContain(":large_blue_circle:");
-    expect(payload.text).not.toContain(":rotating_light:");
-  });
-
-  it("renders 'done' unicode glyph for justCreated issue in Telegram output", () => {
-    const payload = renderTelegram(
-      renderToIR(
-        <IssueCard identifier="CPK-200" title="New bug" justCreated />,
-      ),
-    );
-    expect(typeof payload.text).toBe("string");
-    // justCreated uses the check-mark glyph.
-    expect(payload.text).toContain("✅");
-    expect(payload.text).toContain("CPK-200");
-    expect(payload.text).toContain("New bug");
-  });
-});
-
-describe("IssueList Telegram parity", () => {
-  it("renders unicode status glyphs for each issue in Telegram output", () => {
-    const payload = renderTelegram(
-      renderToIR(
-        <IssueList
-          heading="Open"
-          issues={[
-            {
-              identifier: "CPK-101",
-              title: "Checkout 500s under load",
-              url: "https://linear.app/copilotkit/issue/CPK-101",
-              state: "In Progress",
-              assignee: "Alem",
-              priority: "Urgent",
-              updated: "2d ago",
-            },
-            {
-              identifier: "CPK-102",
-              title: "Login redirect loop",
-              url: "https://linear.app/copilotkit/issue/CPK-102",
-              state: "Todo",
-              assignee: "Sam",
-              priority: "High",
-              updated: "5h ago",
-            },
-          ]}
-        />,
-      ),
-    );
-    expect(typeof payload.text).toBe("string");
-    // In-progress maps to the blue dot.
-    expect(payload.text).toContain("🔵");
-    // Todo/unknown maps to the orange dot.
-    expect(payload.text).toContain("🟠");
-    // Identifiers must be present.
-    expect(payload.text).toContain("CPK-101");
-    expect(payload.text).toContain("CPK-102");
-    // No Slack mrkdwn shortcodes.
-    expect(payload.text).not.toContain(":large_blue_circle:");
-    expect(payload.text).not.toContain(":large_orange_circle:");
-  });
-});
-
-describe("PageList Telegram parity", () => {
-  it("renders page titles and snippets in Telegram output", () => {
-    const payload = renderTelegram(
+    const pages = renderAdaptiveCard(
       renderToIR(
         <PageList
           heading="Runbooks"
           pages={[
             {
               title: "Auth outage runbook",
-              url: "https://www.notion.so/abc",
               snippet: "Steps to mitigate auth provider downtime.",
-              edited: "3d ago",
             },
           ]}
         />,
       ),
     );
-    expect(typeof payload.text).toBe("string");
-    expect(payload.text).toContain("Auth outage runbook");
-    expect(payload.text).toContain("Steps to mitigate auth provider downtime.");
+
+    expect(issue.type).toBe("AdaptiveCard");
+    expect(JSON.stringify(issue)).toContain("🔵 CPK-101");
+    expect(JSON.stringify(issue)).toContain("🚨 Urgent");
+    expect(JSON.stringify(pages)).toContain("Auth outage runbook");
+    expect(JSON.stringify(pages)).toContain(
+      "Steps to mitigate auth provider downtime.",
+    );
   });
 });
