@@ -65,8 +65,9 @@ export const fileIssueSubmit: ModalSubmitHandler = async ({
         `Draft this Linear issue from the submitted form:\n` +
         `- Title: ${issue.title}\n- Type: ${issue.type}\n- Priority: ${issue.priority}\n` +
         `- Description: ${issue.description || "(none)"}\n` +
-        `Call confirm_write with these exact details. File it only when the ` +
-        `resumed result confirms approval, then show the issue card.`,
+        `Call the Linear create tool with these exact details. Its protected ` +
+        `MCP handler emits confirm_write and files only after approval. Then ` +
+        `show the issue card.`,
       ...platformRunInput(privateMetadata ?? thread.platform, user),
     })
     .catch((err) => {

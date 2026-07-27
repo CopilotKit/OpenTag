@@ -13,7 +13,7 @@ export const OPENTAG_SERVICE_USER = {
 
 export function createOpenTagRuntime(options: {
   environment: AppEnvironment;
-  channel: Channel;
+  channels: Channel[];
 }) {
   const intelligence = new CopilotKitIntelligence({
     apiUrl: options.environment.intelligenceApiUrl,
@@ -25,7 +25,7 @@ export function createOpenTagRuntime(options: {
     agents: {},
     intelligence,
     identifyUser: () => OPENTAG_SERVICE_USER,
-    channels: [options.channel],
+    channels: options.channels,
   });
 
   const listener = createCopilotNodeListener({

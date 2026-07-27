@@ -20,8 +20,8 @@ export interface CreateOpenTagChannelOptions {
 }
 
 /**
- * Build the single Channel shared by managed Intelligence delivery and
- * developer-owned direct adapters.
+ * Build an OpenTag Channel with the same handlers and UI for either managed
+ * Intelligence delivery or one developer-owned direct adapter.
  */
 export function createOpenTagChannel(
   options: CreateOpenTagChannelOptions,

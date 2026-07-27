@@ -402,11 +402,12 @@ export const CASES: E2ECase[] = [
     name: "E-durable-1 — confirm_write buttons serialize action IDs and resume values",
     // This live case does not restart the process. It reads the initial picker
     // back through conversations.replies and verifies Slack stored durable
-    // action IDs plus JSON resume values. The actual stop/start/rehydrate/click
-    // behavior is covered by the Channel restart test in app/channel.test.ts.
+    // action IDs plus JSON resume values. Handler re-registration with a shared
+    // store is covered in app/channel.test.ts; this does not claim persistence
+    // across an operating-system process restart.
     prompt:
       '<@U0B45V75NNR> file a Linear issue titled "Checkout 500s under load". ' +
-      "Use the confirm_write tool to ask me to approve it first.",
+      "The protected write must ask me to approve it before MCP runs.",
     sampleIntervalMs: 700,
     maxWaitMs: 20_000,
     expectations: {
@@ -454,11 +455,11 @@ export const CASES: E2ECase[] = [
     // Verifies the human-in-the-loop gate renders into the thread. We
     // can't simulate the button click via Slack's API, so this case only
     // asserts that the initial Block Kit card lands with Create/Cancel.
-    // Click→resume and process-restart rehydration are covered by the Channel
-    // unit tests.
+    // Click→resume handling and shared-store action re-registration are covered
+    // by the Channel unit tests.
     prompt:
-      '<@U0B45V75NNR> file a Linear issue titled "Test from e2e". Call the ' +
-      "confirm_write tool to ask me to approve it before creating anything.",
+      '<@U0B45V75NNR> file a Linear issue titled "Test from e2e". The ' +
+      "protected write must ask me to approve it before creating anything.",
     sampleIntervalMs: 700,
     maxWaitMs: 20_000,
     expectations: {

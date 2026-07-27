@@ -1,10 +1,9 @@
 /**
  * `confirm_write` — the human-in-the-loop gate in front of every Linear /
- * Notion write. The agent is instructed (see the system prompt in
- * `agent/agent.py`) to confirm BEFORE creating an issue or a page: a tool handler
- * pauses through a LangGraph interrupt. The Channel interrupt handler posts
- * this card and returns immediately. A click updates the card, then resumes
- * the paused graph with `{ confirmed: true | false }`.
+ * Notion write. The Python MCP interceptor pauses before invoking a mutating
+ * tool. The Channel interrupt handler posts this card and returns immediately.
+ * A click updates the card, then resumes the paused graph with
+ * `{ confirmed: true | false }`.
  *
  * Each button also carries an `onClick` that updates the picker in place to a
  * resolved / declined state — so the card reflects the decision the moment it's

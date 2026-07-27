@@ -32,10 +32,11 @@ agent (Python + LangGraph deepagents)
 ```
 
 There is one canonical Channel host: [`server.ts`](./server.ts). It creates one
-`CopilotKitIntelligence`, one `CopilotRuntime`, and one OpenTag Channel. Platform
-attachments are normally configured in Intelligence. Supplying local Slack or
-Teams credentials adds a direct adapter to that same runtime; it does not create
-a separate lifecycle.
+`CopilotKitIntelligence`, one `CopilotRuntime`, and an adapter-free managed
+OpenTag Channel. Platform attachments are normally configured in Intelligence.
+Supplying local Slack or Teams credentials adds a separately named direct
+Channel to that same runtime; it does not create a separate lifecycle or
+disable managed delivery.
 
 The launch pins the requested canaries:
 
@@ -135,7 +136,8 @@ TEAMS_CLIENT_SECRET=...
 
 `TEAMS_TENANT_ID` and `TEAMS_PORT` are optional. Incomplete credential pairs
 fail at startup instead of silently disabling an adapter. The Intelligence
-connection remains the owner of the runtime.
+connection remains the owner of the runtime, while each direct adapter stays
+isolated from the managed Channel.
 
 ### Slack manifests
 
@@ -157,8 +159,9 @@ Slack app**. Reusing it preserves the bot user, workspace installation, and
   `NOTION_MCP_AUTH_TOKEN` into the root `.env` and `agent/.env`. The Railway
   launch intentionally has no Notion sidecar.
 
-All Linear and Notion creates or updates go through `confirm_write`; reads and
-rendering do not.
+Every Linear and Notion mutation is intercepted in code before the MCP request
+runs. The interceptor emits `confirm_write` and proceeds only after approval;
+reads and rendering do not pause.
 
 ## Railway
 

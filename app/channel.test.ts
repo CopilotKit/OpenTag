@@ -337,7 +337,7 @@ describe("createOpenTagChannel", () => {
     consoleError.mockRestore();
   });
 
-  it("preserves confirm_write button actions across a Channel restart", async () => {
+  it("re-registers confirm_write actions when a new Channel uses the same store", async () => {
     const sharedState = new MemoryStore();
     const firstAdapter = new FakeAdapter({ platform: "intelligence" });
     firstAdapter.stateStore = sharedState;

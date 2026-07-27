@@ -24,19 +24,25 @@ describe("createOpenTagRuntime", () => {
     const teamsAdapter = new FakeAdapter({ platform: "teams" });
     const stopSlack = vi.spyOn(slackAdapter, "stop");
     const stopTeams = vi.spyOn(teamsAdapter, "stop");
-    const channel = createOpenTagChannel({
-      name: environment.channelName,
-      adapters: [slackAdapter, teamsAdapter],
+    const slackChannel = createOpenTagChannel({
+      name: "opentag-direct-slack",
+      adapters: [slackAdapter],
       agent: new FakeAgent(),
     });
+    const teamsChannel = createOpenTagChannel({
+      name: "opentag-direct-teams",
+      adapters: [teamsAdapter],
+      agent: new FakeAgent(),
+    });
+    const channels = [slackChannel, teamsChannel];
 
     const { intelligence, listener, runtime } = createOpenTagRuntime({
       environment,
-      channel,
+      channels,
     });
 
     expect(runtime.mode).toBe("intelligence");
-    expect(runtime.channels).toEqual([channel]);
+    expect(runtime.channels).toEqual(channels);
     expect(intelligence.ɵgetApiUrl()).toBe(environment.intelligenceApiUrl);
     expect(intelligence.ɵgetClientWsUrl()).toContain(
       "gateway.example.test",
@@ -49,7 +55,10 @@ describe("createOpenTagRuntime", () => {
     await listener.channels?.ready({ timeoutMs: 500 });
     expect(listener.channels?.status()).toEqual({
       overall: "online",
-      channels: { opentag: "online" },
+      channels: {
+        "opentag-direct-slack": "online",
+        "opentag-direct-teams": "online",
+      },
     });
     expect(slackAdapter.started).toBe(true);
     expect(teamsAdapter.started).toBe(true);

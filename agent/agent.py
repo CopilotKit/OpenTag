@@ -13,7 +13,7 @@ from deepagents import create_deep_agent
 from langgraph.checkpoint.memory import MemorySaver
 from copilotkit import CopilotKitMiddleware
 
-from tools import confirm_write, research, internal_source_tools
+from tools import research, internal_source_tools
 
 load_dotenv()
 
@@ -33,10 +33,9 @@ Hard rules (ALWAYS follow):
   frontend offers them, rather than large blocks of raw markdown
 - For internal or company-specific questions, prefer the team's Notion/Linear
   (internal sources) first; use the web for external questions
-- CRITICAL: Immediately before every Linear or Notion create or update tool
-  call, call confirm_write with the exact action and draft details
-- Proceed with that write only when the resumed result says confirmed is true;
-  otherwise acknowledge the decision and stop
+- CRITICAL: Every Linear or Notion mutation tool automatically pauses with its
+  exact action and draft details. Call the mutation once; it runs only after
+  the user grants approval, and otherwise no write occurs
 - Reads and rendering never require confirmation
 
 Your workflow:
@@ -112,9 +111,9 @@ def build_agent():
     # its text doesn't stream to the frontend.
     internal_tools = internal_source_tools()
     main_tools = (
-        [confirm_write, research, *internal_tools]
+        [research, *internal_tools]
         if has_research
-        else [confirm_write, *internal_tools]
+        else [*internal_tools]
     )
 
     system_prompt = BASE_SYSTEM_PROMPT + (

@@ -11,13 +11,19 @@ to prevent subagent text from leaking to the frontend via LangChain callback pro
 import os
 import sys
 import asyncio
+import json
 from typing import Any
 from concurrent.futures import ThreadPoolExecutor
-from langchain_core.tools import tool
+from langchain_core.tools import BaseTool, tool
 from langchain_core.messages import HumanMessage
 from tavily import TavilyClient
 from langchain_mcp_adapters.client import MultiServerMCPClient
+from langchain_mcp_adapters.interceptors import (
+    MCPToolCallRequest,
+    MCPToolCallResult,
+)
 from copilotkit.langgraph import copilotkit_interrupt
+from mcp.types import CallToolResult, TextContent
 
 
 @tool
@@ -36,6 +42,79 @@ def confirm_write(action: str, detail: str | None = None):
         args={"action": action, "detail": detail},
     )
     return answer
+
+
+class WriteConfirmationInterceptor:
+    """Enforce confirmation inside every mutating internal-source tool call.
+
+    MCP tool annotations are the authority for read-only calls. Anything not
+    explicitly marked read-only fails closed and pauses before the remote tool
+    handler can run. The two Notion search operations below use POST while
+    remaining read-only, so its OpenAPI bridge cannot infer their annotation.
+    """
+
+    _KNOWN_READ_ONLY_TOOLS = {
+        "API-post-search",
+        "API-query-data-source",
+    }
+
+    def __init__(self):
+        self._read_only_tools = set(self._KNOWN_READ_ONLY_TOOLS)
+
+    def register_tools(self, tools: list[BaseTool]) -> None:
+        for source_tool in tools:
+            metadata = source_tool.metadata or {}
+            if metadata.get("readOnlyHint") is True:
+                self._read_only_tools.add(source_tool.name)
+
+    async def __call__(
+        self,
+        request: MCPToolCallRequest,
+        handler,
+    ) -> MCPToolCallResult:
+        if request.name in self._read_only_tools:
+            return await handler(request)
+
+        action = request.name.replace("_", " ").replace("-", " ").strip()
+        action = action[:1].upper() + action[1:]
+        detail = json.dumps(
+            request.args,
+            ensure_ascii=False,
+            sort_keys=True,
+            default=str,
+        )
+        _answer, response = copilotkit_interrupt(
+            action="confirm_write",
+            args={"action": action, "detail": detail},
+        )
+
+        if isinstance(response, str):
+            try:
+                response = json.loads(response)
+            except json.JSONDecodeError:
+                response = None
+
+        if (
+            not isinstance(response, dict)
+            or not isinstance(response.get("confirmed"), bool)
+        ):
+            raise RuntimeError(
+                "confirm_write resume must contain a boolean `confirmed` value"
+            )
+
+        if response["confirmed"] is False:
+            return CallToolResult(
+                content=[
+                    TextContent(
+                        type="text",
+                        text=(
+                            "Write cancelled by the user; no changes were made."
+                        ),
+                    )
+                ]
+            )
+
+        return await handler(request)
 
 
 def _do_internet_search(query: str, max_results: int = 5) -> list[dict[str, Any]]:
@@ -234,7 +313,11 @@ def internal_source_tools() -> list:
         loaded: list = []
         for name, connection in connections.items():
             try:
-                server_client = MultiServerMCPClient({name: connection})
+                confirmation = WriteConfirmationInterceptor()
+                server_client = MultiServerMCPClient(
+                    {name: connection},
+                    tool_interceptors=[confirmation],
+                )
                 # Bound connect time so a hung MCP server (accepts the
                 # socket but never responds) can't stall build_agent() -
                 # and thus the whole app, including /health - at import
@@ -242,6 +325,7 @@ def internal_source_tools() -> list:
                 server_tools = await asyncio.wait_for(
                     server_client.get_tools(), timeout=8.0
                 )
+                confirmation.register_tools(server_tools)
                 loaded.extend(server_tools)
                 print(
                     f"[TOOLS] internal_source_tools: loaded {len(server_tools)} "

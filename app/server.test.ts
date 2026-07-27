@@ -3,10 +3,12 @@ import type { RequestListener } from "node:http";
 import { describe, expect, it, vi } from "vitest";
 import type { ChannelsControl } from "@copilotkit/runtime/v2";
 import {
+  createOpenTagApplication,
   startOpenTagServer,
   type HttpServerLike,
   type RuntimeListener,
 } from "../server.js";
+import type { AppEnvironment } from "./env.js";
 
 class FakeServer extends EventEmitter implements HttpServerLike {
   listening = false;
@@ -128,5 +130,41 @@ describe("startOpenTagServer", () => {
     expect(controls.stop).toHaveBeenCalledOnce();
     expect(server.closeCalls).toBe(1);
     expect(closeBrowser).toHaveBeenCalledOnce();
+  });
+});
+
+describe("createOpenTagApplication", () => {
+  it("keeps the managed Channel adapter-free and isolates optional direct adapters", () => {
+    const environment: AppEnvironment = {
+      agentUrl: "http://agent.internal/",
+      intelligenceApiKey: "cpk-1_test",
+      intelligenceApiUrl: "https://api.intelligence.test",
+      intelligenceGatewayWsUrl: "wss://realtime.intelligence.test",
+      channelName: "kite",
+      port: 3000,
+      slackBotToken: "xoxb-test",
+      slackAppToken: "xapp-test",
+      teamsClientId: "teams-client",
+      teamsClientSecret: "teams-secret",
+      teamsPort: 3978,
+    };
+
+    const application = createOpenTagApplication(environment);
+
+    expect(application.channel.name).toBe("kite");
+    expect(application.channel.adapters).toEqual([]);
+    expect(
+      application.directChannels.map((channel) => ({
+        name: channel.name,
+        platforms: channel.adapters.map(({ platform }) => platform),
+      })),
+    ).toEqual([
+      { name: "opentag-direct-slack", platforms: ["slack"] },
+      { name: "opentag-direct-teams", platforms: ["teams"] },
+    ]);
+    expect(application.runtime.channels).toEqual([
+      application.channel,
+      ...application.directChannels,
+    ]);
   });
 });

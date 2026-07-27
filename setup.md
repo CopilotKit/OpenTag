@@ -19,8 +19,9 @@ and WhatsApp are coming soon.
 
 The Channel always uses the Intelligence-owned runtime. Managed Slack and
 Microsoft Teams attachments are configured in Intelligence. Direct adapters
-are optional additions to the same runtime, not an alternate non-Intelligence
-mode.
+are optional, separately named Channels in the same runtime, not an alternate
+non-Intelligence mode. Keeping the managed Channel adapter-free ensures local
+credentials cannot disable managed activation.
 
 ## Install
 
@@ -174,8 +175,8 @@ SLACK_BOT_TOKEN=xoxb-...
 SLACK_APP_TOKEN=xapp-...
 ```
 
-Both are required as a pair. The direct adapter runs inside the same
-Intelligence-owned Channel process. Never run it concurrently with another
+Both are required as a pair. The direct adapter runs as its own Channel inside
+the same Intelligence-owned process. Never run it concurrently with another
 consumer of the same production app token.
 
 ## Tools, commands, and UI
@@ -191,10 +192,10 @@ The Channel also forwards sender context, Slack-specific tools on Slack turns,
 file content, and rich issue/page/table/chart/diagram/status/incident/link
 components.
 
-Before a Linear or Notion create or update, the Python agent calls
-`confirm_write`. LangGraph emits an interrupt, the Channel posts an approval
-card, and the button resumes the graph with the user's decision. Reads and UI
-rendering are never gated.
+Before a Linear or Notion mutation reaches MCP, a Python interceptor emits
+`confirm_write`. The Channel posts an approval card, and the button resumes the
+graph with the user's decision. The MCP handler runs only after approval.
+Reads and UI rendering are never gated.
 
 ## Optional sources
 

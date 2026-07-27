@@ -86,7 +86,9 @@ def test_build_agent_requires_openai(monkeypatch):
         agent_mod.build_agent()
 
 
-def test_build_agent_registers_confirm_write(monkeypatch):
+def test_build_agent_does_not_expose_a_bypassable_manual_confirmation_tool(
+    monkeypatch,
+):
     captured = {}
 
     class FakeGraph:
@@ -107,16 +109,16 @@ def test_build_agent_registers_confirm_write(monkeypatch):
 
     agent_mod.build_agent()
 
-    assert [tool.name for tool in captured["tools"]] == ["confirm_write"]
+    assert captured["tools"] == []
 
 
 def test_system_prompt_requires_confirmation_only_for_writes():
     prompt = agent_mod.BASE_SYSTEM_PROMPT
 
     assert "CRITICAL:" in prompt
-    assert "confirm_write" in prompt
-    assert "Linear or Notion create or update" in prompt
-    assert "only when" in prompt and "confirmed" in prompt
+    assert "automatically pauses" in prompt
+    assert "Linear or Notion mutation" in prompt
+    assert "only after" in prompt and "approval" in prompt
     assert "Reads and rendering never require confirmation" in prompt
 
 

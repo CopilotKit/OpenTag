@@ -162,17 +162,33 @@ export function createOpenTagApplication(
   environment: AppEnvironment = readEnvironment(),
 ) {
   const platform = resolvePlatforms(environment);
+  const agent = createAgentFactory({
+    url: environment.agentUrl,
+    authHeader: environment.agentAuthHeader,
+  });
   const channel = createOpenTagChannel({
     name: environment.channelName,
-    adapters: platform.adapters,
-    agent: createAgentFactory({
-      url: environment.agentUrl,
-      authHeader: environment.agentAuthHeader,
-    }),
+    adapters: [],
+    agent,
   });
-  const runtimeHost = createOpenTagRuntime({ environment, channel });
+  const directChannels = platform.adapters.map((adapter) =>
+    createOpenTagChannel({
+      name: `opentag-direct-${adapter.platform}`,
+      adapters: [adapter],
+      agent,
+    }),
+  );
+  const runtimeHost = createOpenTagRuntime({
+    environment,
+    channels: [channel, ...directChannels],
+  });
 
-  return { channel, environment, ...runtimeHost };
+  return {
+    channel,
+    directChannels,
+    environment,
+    ...runtimeHost,
+  };
 }
 
 export async function main(): Promise<RunningOpenTagServer> {
