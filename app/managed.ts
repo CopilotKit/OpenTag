@@ -1025,7 +1025,7 @@ async function main() {
       // and racing a second exit against it would only truncate that teardown.
       if (stopping) return;
       fatal(
-        "[channel] fatal error after HTTP listener bound (Finding 1: previously an unobserved rejection)",
+        "[channel] fatal error after HTTP listener bound — the boot sequence threw past the activation guard",
         err,
       );
     });
