@@ -39,6 +39,19 @@ export default defineRailway(() => {
     deploy: {
       restartPolicyType: "ON_FAILURE",
       restartPolicyMaxRetries: 5,
+      // Railway's SIGTERM->SIGKILL grace period defaults to 0. This launcher
+      // (scripts/start-notion-mcp.ts) DOES have a shutdown routine: its
+      // `shutdown()` forwards the signal to the whole detached process group
+      // via `killTree` (reaching npx and the underlying notion-mcp-server
+      // process), then schedules `setTimeout(() => killTree("SIGKILL"), 5000)`
+      // — a 5s escalation. At 0s draining, that group is never signalled and
+      // the escalation timer never gets a chance to fire before the platform
+      // SIGKILLs the container outright, so every redeploy hard-kills the
+      // `npx`-spawned tree instead of letting it exit cleanly. 10s gives 2x
+      // headroom over that 5s escalation (process-group signal delivery +
+      // npx/node exit overhead) without the drain window itself becoming the
+      // bottleneck.
+      drainingSeconds: 10,
     },
     env: {
       NOTION_MCP_PORT: "3001",
@@ -68,6 +81,22 @@ export default defineRailway(() => {
       healthcheckTimeout: 300,
       restartPolicyType: "ON_FAILURE",
       restartPolicyMaxRetries: 5,
+      // Railway's SIGTERM->SIGKILL grace period defaults to 0. uvicorn DOES
+      // have a shutdown routine to protect: on SIGTERM it stops accepting new
+      // connections and waits for in-flight ones to finish
+      // (`Server.shutdown()` in uvicorn's own server.py), and since main.py's
+      // `uvicorn.run(...)` call above does not set `timeout_graceful_shutdown`,
+      // that wait is UNBOUNDED on uvicorn's side — Railway's drainingSeconds is
+      // the sole ceiling on how long an in-flight AG-UI research stream gets
+      // before SIGKILL truncates it mid-turn. The channel host this agent
+      // streams to over private networking is itself only guaranteed a 15s
+      // drain window (see channel's drainingSeconds below), so giving the
+      // producer less than that would undercut the very guarantee the
+      // consumer's window exists to provide. 30s — roughly double the
+      // channel's 15s — gives an in-flight tool call/model round trip real
+      // room to finish and flush its next SSE chunk before a redeploy tears
+      // the connection down.
+      drainingSeconds: 30,
     },
     env: {
       // Pin PORT so uvicorn's bind and ${{agent.PORT}} (dialed by channel) agree.
