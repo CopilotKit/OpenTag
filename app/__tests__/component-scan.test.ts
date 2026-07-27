@@ -52,9 +52,7 @@ export const CardB = () => <Button onClick={async () => {}}>b</Button>;
 `;
     expect(interactiveComponentNames(src)).toEqual(["CardA", "CardB"]);
   });
-});
 
-describe("interactiveComponentNames — false negatives (must not fail open)", () => {
   it("finds a component declared with `export default function`", () => {
     const src = `
 export default function QuickReply({ label }: Props) {
@@ -74,8 +72,6 @@ export async function QuickReply({ label }: Props) {
   });
 
   it("finds a component declared with `export default async function`", () => {
-    // Not in the review table, but explicitly required by the fix: the
-    // widened matcher must cover this combined form too.
     const src = `
 export default async function QuickReply({ label }: Props) {
   return <Button onClick={async () => {}}>{label}</Button>;
@@ -96,9 +92,6 @@ export { QuickReply };
   });
 
   it("throws rather than silently dropping onClick in a helper above the file's first export", () => {
-    // The original regex only ever looked at spans *between* matched
-    // exports — content before the first one was invisible to it entirely,
-    // so this dead-lettering component was reported as "all clear".
     const src = `
 function helperRender() {
   return <Button onClick={async () => {}}>Click</Button>;
@@ -112,13 +105,8 @@ export function ComponentX({ heading }: Props) {
       /helper-above-export\.tsx/,
     );
   });
-});
 
-describe("interactiveComponentNames — false positives (must not fail closed)", () => {
   it("does not flag a tool descriptor whose config happens to contain onClick=", () => {
-    // `MANAGED_COMPONENTS` takes component functions; a `defineChannelTool`
-    // call can never be "fixed" by adding it there, no matter what its
-    // config literally contains.
     const src = `
 export const someTool = defineChannelTool({
   name: "some_tool",
@@ -150,10 +138,6 @@ export function StatusCard({ heading }: Props) {
   });
 
   it("does not blame a string constant sitting between two components", () => {
-    // Old bug: the regex only recognized `export function`/`export const`,
-    // so `export default function` was invisible to it — the trailing
-    // onClick then bled all the way to EOF and landed on the last export
-    // it *did* see, an unrelated string constant.
     const src = `
 export function ComponentA({ label }: Props) {
   return <Section>{label}</Section>;
@@ -169,96 +153,108 @@ export default function ComponentB({ label }: Props) {
   });
 });
 
-describe("interactiveComponentNames — mutant proof (old regex vs. new cases)", () => {
-  // Not a test of interactiveComponentNames itself — a direct demonstration
-  // that the false-negative fixtures above are only caught because of this
-  // fix, by re-running them through the OLD regex the guard used to ship.
-  const OLD_TOP_LEVEL_EXPORT = /^export (?:function|const) (\w+)/gm;
-  function oldInteractiveComponentNames(src: string): string[] {
-    if (!/\bonClick=/.test(src)) return [];
-    const decls = [...src.matchAll(OLD_TOP_LEVEL_EXPORT)].map((m) => ({
-      name: m[1] as string,
-      start: m.index as number,
-    }));
-    const names: string[] = [];
-    for (const [i, decl] of decls.entries()) {
-      const end = decls[i + 1]?.start ?? src.length;
-      if (/\bonClick=/.test(src.slice(decl.start, end))) names.push(decl.name);
-    }
-    return names;
-  }
-
-  it("the old regex missed `export default function`", () => {
+// The nine distinct failure modes independently confirmed by a 7-agent
+// review round against the old regex scanner. Each row below is the exact
+// shape that used to break it — fails-open modes 1–6 used to return the
+// wrong name (or nothing at all) instead of the real component; fails-closed
+// modes 7–9 used to throw or demand registration when the correct answer was
+// "this is fine" / "this isn't a component". The AST walk gets every one of
+// these right by construction, not by another special case.
+describe("interactiveComponentNames — the nine review-confirmed modes", () => {
+  it("mode 1: a type annotation on `export const` does not defeat recognition or leak the onClick backward", () => {
     const src = `
-export default function QuickReply({ label }: Props) {
+export function Prior() {
+  return <Section>prior</Section>;
+}
+
+export const Card: FC<Props> = (props) => {
+  return <Button onClick={async () => {}}>{props.label}</Button>;
+};
+`;
+    expect(interactiveComponentNames(src)).toEqual(["Card"]);
+  });
+
+  it("mode 2: a generic arrow component is recognized", () => {
+    const src = `
+export const Card = <T,>(p: P<T>) => {
+  return <Button onClick={async () => {}}>{String(p)}</Button>;
+};
+`;
+    expect(interactiveComponentNames(src)).toEqual(["Card"]);
+  });
+
+  it("mode 3: a component wrapped in `memo(...)` is recognized", () => {
+    const src = `
+export const Card = memo(({ label }: Props) => {
   return <Button onClick={async () => {}}>{label}</Button>;
-}
-`;
-    expect(oldInteractiveComponentNames(src)).toEqual([]);
-  });
-
-  it("the old regex missed `export async function`", () => {
-    const src = `
-export async function QuickReply({ label }: Props) {
-  return <Button onClick={async () => {}}>{label}</Button>;
-}
-`;
-    expect(oldInteractiveComponentNames(src)).toEqual([]);
-  });
-
-  it("the old regex missed a bare declaration surfaced via `export { }`", () => {
-    const src = `
-function QuickReply({ label }: Props) {
-  return <Button onClick={async () => {}}>{label}</Button>;
-}
-
-export { QuickReply };
-`;
-    expect(oldInteractiveComponentNames(src)).toEqual([]);
-  });
-
-  it("the old regex silently dropped a helper above the file's first export", () => {
-    const src = `
-function helperRender() {
-  return <Button onClick={async () => {}}>Click</Button>;
-}
-
-export function ComponentX({ heading }: Props) {
-  return <Section>{heading}</Section>;
-}
-`;
-    expect(oldInteractiveComponentNames(src)).toEqual([]);
-  });
-
-  it("the old regex demanded registration of a tool descriptor", () => {
-    const src = `
-export const someTool = defineChannelTool({
-  name: "some_tool",
-  async handler(props, { thread }) {
-    await thread.post(
-      <Message>
-        <Button onClick={async () => {}}>Click</Button>
-      </Message>,
-    );
-    return "done";
-  },
 });
 `;
-    expect(oldInteractiveComponentNames(src)).toEqual(["someTool"]);
+    expect(interactiveComponentNames(src)).toEqual(["Card"]);
   });
 
-  it("the old regex blamed a string constant instead of the real component", () => {
+  it("mode 4: a preceding string-constant export does not swallow the next declaration", () => {
     const src = `
-export function ComponentA({ label }: Props) {
-  return <Section>{label}</Section>;
-}
-
-export const BTN_STYLE = "primary";
-
-export default function ComponentB({ label }: Props) {
+export const A = "x";
+export const Card = ({ label }: Props) => {
   return <Button onClick={async () => {}}>{label}</Button>;
+};
+`;
+    expect(interactiveComponentNames(src)).toEqual(["Card"]);
+  });
+
+  it("mode 5: a `//` inside a string literal does not blank a same-line onClick", () => {
+    const src = `
+export function Card({ label }: Props) {
+  return (
+    <a href="https://example.com//path">
+      <Button onClick={async () => {}}>{label}</Button>
+    </a>
+  );
 }
 `;
-    expect(oldInteractiveComponentNames(src)).toEqual(["BTN_STYLE"]);
+    expect(interactiveComponentNames(src)).toEqual(["Card"]);
+  });
+
+  it("mode 6: `onClick = {...}` with spaces around `=` is still recognized", () => {
+    const src = `
+export function Card({ label }: Props) {
+  return <Button onClick = {async () => {}}>{label}</Button>;
+}
+`;
+    expect(interactiveComponentNames(src)).toEqual(["Card"]);
+  });
+
+  it("mode 7: `export default Foo;` re-exporting an already-declared identifier does not throw", () => {
+    const src = `
+function Card({ label }: Props) {
+  return <Button onClick={async () => {}}>{label}</Button>;
+}
+
+export default Card;
+`;
+    expect(interactiveComponentNames(src)).toEqual(["Card"]);
+  });
+
+  it("mode 8: an exported lowercase factory function returning JSX is not demanded in the registry", () => {
+    const src = `
+export function makeCard() {
+  return <Button onClick={async () => {}}>Click</Button>;
+}
+`;
+    expect(interactiveComponentNames(src)).toEqual([]);
+  });
+
+  it("mode 9: a template literal containing what looks like a function declaration does not trigger a bogus throw", () => {
+    const src = `
+export function Card({ id }: Props) {
+  const script = \`
+function boot() {
+  console.log("boot");
+}
+\`;
+  return <Button onClick={async () => {}}>{id}</Button>;
+}
+`;
+    expect(interactiveComponentNames(src)).toEqual(["Card"]);
   });
 });
