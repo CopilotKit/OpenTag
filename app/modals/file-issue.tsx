@@ -13,7 +13,10 @@ import {
   RadioButtons,
 } from "@copilotkit/channels";
 import type { ModalSubmitHandler, ModalView } from "@copilotkit/channels";
-import { platformRunInput } from "../channel-helpers.js";
+import {
+  platformRunInput,
+  reportRecoverableError,
+} from "../channel-helpers.js";
 
 export const FILE_ISSUE_CALLBACK = "file_issue";
 
@@ -69,13 +72,29 @@ export const fileIssueSubmit: ModalSubmitHandler = async ({
         `show the issue card.`,
       ...platformRunInput(privateMetadata ?? thread.platform, user),
     })
-    .catch((err) => {
-      console.error("[opentag] file-issue modal run failed", err);
-      void thread
-        .post("Sorry — I couldn't file that issue. Please try again.")
-        .catch((postErr: unknown) =>
-          console.error("[file-issue] failed to post error", postErr),
+    .catch(async (error) => {
+      try {
+        await thread.post(
+          "Sorry — I couldn't file that issue. Please try again.",
         );
+      } catch (postError) {
+        throw new AggregateError(
+          [error, postError],
+          "The file-issue agent run and its error reply both failed",
+        );
+      }
+
+      reportRecoverableError(error, {
+        operation: "file_issue_modal_run_agent",
+        recovery: "posted_user_facing_error",
+      });
+    })
+    .catch((error) => {
+      // This is the terminal observer for the intentionally detached promise.
+      reportRecoverableError(error, {
+        operation: "file_issue_modal_run_agent",
+        recovery: "terminal_failure",
+      });
     });
 };
 

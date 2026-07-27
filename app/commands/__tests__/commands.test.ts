@@ -81,7 +81,7 @@ describe("example slash commands", () => {
     expect(thread.post).toHaveBeenCalledTimes(1);
   });
 
-  it("/agent logs and posts an apology when runAgent rejects", async () => {
+  it("/agent reports a recoverable error after posting an apology", async () => {
     const thread = fakeThread();
     thread.runAgent.mockRejectedValueOnce(new Error("backend unavailable"));
     const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
@@ -94,12 +94,42 @@ describe("example slash commands", () => {
       }),
     );
 
-    expect(consoleError).toHaveBeenCalled();
+    expect(consoleError).toHaveBeenCalledWith(
+      "[channel] recoverable error",
+      expect.objectContaining({
+        error: expect.any(Error),
+        context: {
+          operation: "command_agent_run_agent",
+          recovery: "posted_user_facing_error",
+        },
+        timestamp: expect.any(String),
+      }),
+    );
     expect(thread.post).toHaveBeenCalledWith(
       expect.stringMatching(/sorry.*error/i),
     );
 
     consoleError.mockRestore();
+  });
+
+  it("/agent rejects loudly when its run and apology both fail", async () => {
+    const thread = fakeThread();
+    const runError = new Error("backend unavailable");
+    const postError = new Error("Slack unavailable");
+    thread.runAgent.mockRejectedValueOnce(runError);
+    thread.post.mockRejectedValueOnce(postError);
+
+    await expect(
+      byName("agent").handler(
+        ctx({
+          command: "agent",
+          text: "why is prod down",
+          thread: thread as never,
+        }),
+      ),
+    ).rejects.toMatchObject({
+      errors: [runError, postError],
+    });
   });
 
   it("/triage runs the agent with a triage prompt", async () => {

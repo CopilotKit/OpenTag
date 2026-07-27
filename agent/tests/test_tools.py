@@ -21,11 +21,12 @@ def test_do_internet_search_missing_key(monkeypatch):
         tools._do_internet_search("q")
 
 
-def test_do_internet_search_returns_a_discriminated_error(monkeypatch):
+def test_do_internet_search_raises_when_tavily_fails(monkeypatch):
     class BoomClient:
         def __init__(self, api_key): pass
         def search(self, **kwargs): raise ValueError("boom")
     monkeypatch.setenv("TAVILY_API_KEY", "tvly-test")
     monkeypatch.setattr(tools, "TavilyClient", BoomClient)
-    out = tools._do_internet_search("q")
-    assert out == [{"error": "boom"}]
+    with pytest.raises(RuntimeError, match="Tavily search failed") as error:
+        tools._do_internet_search("q")
+    assert isinstance(error.value.__cause__, ValueError)

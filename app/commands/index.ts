@@ -15,7 +15,10 @@ import {
   type ChannelCommand,
   type Thread as ChannelThread,
 } from "@copilotkit/channels";
-import { platformRunInput } from "../channel-helpers.js";
+import {
+  platformRunInput,
+  reportRecoverableError,
+} from "../channel-helpers.js";
 import { IssueCard } from "../components/index.js";
 import { FileIssueModal } from "../modals/file-issue.js";
 
@@ -33,13 +36,22 @@ async function runAgentSafely(
 ): Promise<void> {
   try {
     await thread.runAgent(input);
-  } catch (err) {
-    console.error(`[command] ${commandName} run failed`, err);
-    await thread
-      .post("Sorry — I hit an error handling that. Please try again.")
-      .catch((postErr: unknown) =>
-        console.error(`[command] ${commandName} failed to post error`, postErr),
+  } catch (error) {
+    try {
+      await thread.post(
+        "Sorry — I hit an error handling that. Please try again.",
       );
+    } catch (postError) {
+      throw new AggregateError(
+        [error, postError],
+        `The /${commandName} agent run and its error reply both failed`,
+      );
+    }
+
+    reportRecoverableError(error, {
+      operation: `command_${commandName}_run_agent`,
+      recovery: "posted_user_facing_error",
+    });
   }
 }
 

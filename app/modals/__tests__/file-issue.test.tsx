@@ -159,7 +159,7 @@ describe("fileIssueSubmit", () => {
     ]);
   });
 
-  it("posts a failure message to the thread when runAgent rejects", async () => {
+  it("posts and reports a recoverable failure when runAgent rejects", async () => {
     const consoleError = vi
       .spyOn(console, "error")
       .mockImplementation(() => undefined);
@@ -179,8 +179,49 @@ describe("fileIssueSubmit", () => {
       expect.stringMatching(/couldn.t file|try again/i),
     );
     expect(consoleError).toHaveBeenCalledWith(
-      "[opentag] file-issue modal run failed",
-      expect.any(Error),
+      "[channel] recoverable error",
+      expect.objectContaining({
+        error: expect.any(Error),
+        context: {
+          operation: "file_issue_modal_run_agent",
+          recovery: "posted_user_facing_error",
+        },
+        timestamp: expect.any(String),
+      }),
+    );
+    consoleError.mockRestore();
+  });
+
+  it("reports a structured terminal error when the apology also fails", async () => {
+    const consoleError = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => undefined);
+    const runError = new Error("LLM timeout");
+    const postError = new Error("Slack unavailable");
+    const thread = {
+      runAgent: vi.fn(() => Promise.reject(runError)),
+      post: vi.fn(() => Promise.reject(postError)),
+    };
+
+    await fileIssueSubmit({
+      values: { title: "T", description: "D", type: "bug", priority: "High" },
+      thread,
+      user: { id: "U1" },
+    } as never);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(consoleError).toHaveBeenCalledWith(
+      "[channel] recoverable error",
+      expect.objectContaining({
+        error: expect.objectContaining({
+          errors: [runError, postError],
+        }),
+        context: {
+          operation: "file_issue_modal_run_agent",
+          recovery: "terminal_failure",
+        },
+        timestamp: expect.any(String),
+      }),
     );
     consoleError.mockRestore();
   });

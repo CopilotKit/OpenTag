@@ -57,9 +57,8 @@ def _do_internet_search(query: str, max_results: int = 5) -> list[dict[str, Any]
         print(f"[TOOL] internet_search: found {len(formatted_results)} results")
         return formatted_results
 
-    except Exception as e:
-        print(f"[TOOL] internet_search error: {e}")
-        return [{"error": str(e)}]
+    except Exception as error:
+        raise RuntimeError("Tavily search failed") from error
 
 
 @tool
