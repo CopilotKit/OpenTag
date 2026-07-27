@@ -134,9 +134,9 @@ Slack app**. Reusing it preserves the bot user, workspace installation, and
 - `TAVILY_API_KEY` enables live web research. Without it, OpenTag still chats,
   plans, uses its virtual filesystem, and renders UI from model knowledge.
 - `LINEAR_API_KEY` enables the hosted Linear MCP.
-- Notion can be used locally with `pnpm notion-mcp`; its token and shared
-  `NOTION_MCP_AUTH_TOKEN` live in the root `.env`. The Railway launch
-  intentionally has no Notion sidecar.
+- Notion runs through the `notion-mcp` sidecar in Railway. For local
+  development, put its token and shared `NOTION_MCP_AUTH_TOKEN` in the root
+  `.env` and run `pnpm notion-mcp`.
 
 Every Linear and Notion mutation is intercepted in code before the MCP request
 runs. The interceptor emits `confirm_write` and proceeds only after approval;
@@ -144,20 +144,22 @@ reads and rendering do not pause.
 
 ## Railway
 
-[`.railway/railway.ts`](./.railway/railway.ts) defines exactly two services,
-both sourced from `CopilotKit/OpenTag` on `main`:
+[`.railway/railway.ts`](./.railway/railway.ts) defines exactly three services,
+all sourced from `CopilotKit/OpenTag` on `main`:
 
 | Service | Root | Start | Health |
 | --- | --- | --- | --- |
+| `notion-mcp` | repository root | `pnpm notion-mcp` | process restart policy |
 | `agent` | `agent` | `uvicorn main:app --host :: --port ${PORT:-8123}` | `/health` |
 | `channel` | repository root | `pnpm channel` | Channels readiness before listen |
 
-The Channel reaches the agent over Railway private networking. Railway sets
-`INTELLIGENCE_CHANNEL_NAME=kite`, so the runtime declares the managed `kite`
-Slack Channel and `kite-teams` Teams Channel. It preserves the runtime API key.
-OpenAI is required on `agent`; Tavily and Linear secrets are optional.
-Connecting both services to `main` enables GitHub-triggered deployments after
-merges.
+The Channel reaches the agent, and the agent reaches the Notion sidecar, over
+Railway private networking. Railway sets `INTELLIGENCE_CHANNEL_NAME=kite`, so
+the runtime declares the managed `kite` Slack Channel and `kite-teams` Teams
+Channel. It preserves the runtime API key. OpenAI is required on `agent`;
+Tavily and Linear secrets are optional. `NOTION_TOKEN` and
+`NOTION_MCP_AUTH_TOKEN` must be set on `notion-mcp`. Connecting all three
+services to `main` enables GitHub-triggered deployments after merges.
 
 The repository configuration does not mutate the existing production Railway
 project. Inventory and cutover should happen after Railway authentication.

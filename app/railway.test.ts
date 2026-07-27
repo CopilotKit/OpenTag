@@ -44,11 +44,12 @@ function evaluateRailwayGraph(): RailwayResource[] {
 }
 
 describe("Railway deployment graph", () => {
-  it("ships exactly the Python agent and Chromium-capable channel services", () => {
+  it("ships the Python agent, Notion MCP, and Chromium-capable channel services", () => {
     const resources = evaluateRailwayGraph();
     expect(resources.map(({ name }) => name).sort()).toEqual([
       "agent",
       "channel",
+      "notion-mcp",
     ]);
 
     const agent = resources.find(({ name }) => name === "agent");
@@ -60,6 +61,40 @@ describe("Railway deployment graph", () => {
       },
       deploy: {
         healthcheckPath: "/health",
+      },
+      variables: {
+        NOTION_MCP_URL: {
+          type: "literal",
+          value:
+            "http://${{notion-mcp.RAILWAY_PRIVATE_DOMAIN}}:${{notion-mcp.NOTION_MCP_PORT}}/mcp",
+        },
+        NOTION_MCP_AUTH_TOKEN: {
+          type: "literal",
+          value: "${{notion-mcp.NOTION_MCP_AUTH_TOKEN}}",
+        },
+      },
+    });
+
+    const notionMcp = resources.find(({ name }) => name === "notion-mcp");
+    expect(notionMcp).toMatchObject({
+      source: {
+        repo: "CopilotKit/OpenTag",
+        branch: "main",
+      },
+      deploy: {
+        startCommand: "pnpm notion-mcp",
+      },
+      variables: {
+        NOTION_MCP_PORT: {
+          type: "literal",
+          value: "3001",
+        },
+        NOTION_MCP_HOST: {
+          type: "literal",
+          value: "::",
+        },
+        NOTION_TOKEN: { type: "preserve" },
+        NOTION_MCP_AUTH_TOKEN: { type: "preserve" },
       },
     });
 

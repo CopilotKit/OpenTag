@@ -1,8 +1,7 @@
 /**
- * Reconciles OpenTag's production Railway topology: one Python agent and one
- * Intelligence-connected Channel host, both deployed from `main`. Platform
- * credentials and attachments stay in Intelligence, so Railway owns only the
- * application services and their private AG-UI connection.
+ * Reconciles OpenTag's production Railway topology: a Python agent, its Notion
+ * MCP sidecar, and an Intelligence-connected Channel host, all deployed from
+ * `main`. Platform credentials and attachments stay in Intelligence.
  */
 import { defineRailway, github, preserve, project, service } from "railway/iac";
 
@@ -10,6 +9,21 @@ const REPO = "CopilotKit/OpenTag";
 const BRANCH = "main";
 
 export default defineRailway(() => {
+  const notionMcp = service("notion-mcp", {
+    source: github(REPO, { branch: BRANCH }),
+    start: "pnpm notion-mcp",
+    deploy: {
+      restartPolicyType: "ON_FAILURE",
+      restartPolicyMaxRetries: 5,
+    },
+    env: {
+      NOTION_MCP_PORT: "3001",
+      NOTION_MCP_HOST: "::",
+      NOTION_TOKEN: preserve(),
+      NOTION_MCP_AUTH_TOKEN: preserve(),
+    },
+  });
+
   const agent = service("agent", {
     source: github(REPO, {
       branch: BRANCH,
@@ -28,6 +42,9 @@ export default defineRailway(() => {
       OPENAI_API_KEY: preserve(),
       TAVILY_API_KEY: preserve(),
       LINEAR_API_KEY: preserve(),
+      NOTION_MCP_URL:
+        "http://${{notion-mcp.RAILWAY_PRIVATE_DOMAIN}}:${{notion-mcp.NOTION_MCP_PORT}}/mcp",
+      NOTION_MCP_AUTH_TOKEN: "${{notion-mcp.NOTION_MCP_AUTH_TOKEN}}",
     },
   });
 
@@ -58,5 +75,5 @@ export default defineRailway(() => {
     },
   });
 
-  return project("opentag", { resources: [agent, channel] });
+  return project("opentag", { resources: [notionMcp, agent, channel] });
 });

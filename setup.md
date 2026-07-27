@@ -1,7 +1,8 @@
 # OpenTag setup
 
 This guide covers the canonical OpenTag deployment: one Python deep-agent
-service and one Node Channel service connected to CopilotKit Intelligence.
+service, one Notion MCP sidecar, and one Node Channel service connected to
+CopilotKit Intelligence.
 
 Slack and Microsoft Teams are supported for this launch. Discord, Telegram,
 and WhatsApp are coming soon.
@@ -15,7 +16,7 @@ and WhatsApp are coming soon.
 | Channel definition | [`app/channel.tsx`](./app/channel.tsx) | Mentions, commands, components, modals, and interrupts |
 | Intelligence runtime | [`app/runtime-host.ts`](./app/runtime-host.ts) | One `CopilotKitIntelligence` and one `CopilotRuntime` |
 | Python agent | [`agent/`](./agent) | LangGraph deep agent served over AG-UI |
-| Railway topology | [`.railway/railway.ts`](./.railway/railway.ts) | Two services sourced from OpenTag `main` |
+| Railway topology | [`.railway/railway.ts`](./.railway/railway.ts) | Three services sourced from OpenTag `main` |
 
 The host always uses the Intelligence-owned runtime. It declares an
 adapter-free Slack Channel using the configured base name and an adapter-free
@@ -62,7 +63,7 @@ cp .env.example .env
 | `TAVILY_API_KEY` | No | Enables live web research |
 | `LINEAR_API_KEY` | No | Enables the hosted Linear MCP |
 | `LINEAR_MCP_URL` | No | Overrides the hosted Linear MCP URL |
-| `NOTION_MCP_AUTH_TOKEN` | No | Authenticates to a local Notion MCP sidecar |
+| `NOTION_MCP_AUTH_TOKEN` | No | Authenticates to the Notion MCP sidecar |
 | `NOTION_MCP_URL` | No | Defaults to `http://127.0.0.1:3001/mcp` |
 | `SERVER_HOST` | No | Local bind host; defaults to `0.0.0.0` |
 | `SERVER_PORT` / `PORT` | No | Local port; defaults to `8123` |
@@ -183,30 +184,40 @@ Set `TAVILY_API_KEY` in the root `.env` to enable live web research. The
 Set `LINEAR_API_KEY` in the root `.env`. OpenTag connects to the hosted Linear
 MCP by default. Railway preserves this optional secret on the `agent` service.
 
-### Notion for local development
+### Notion
 
-The Railway launch has no Notion sidecar. For local development:
+Railway deploys the Notion MCP sidecar and connects it to the agent over the
+private network. Set `NOTION_TOKEN` and `NOTION_MCP_AUTH_TOKEN` on the
+`notion-mcp` Railway service. The shared auth token is referenced by the agent
+automatically.
+
+For local development:
 
 1. Put `NOTION_TOKEN` and a strong `NOTION_MCP_AUTH_TOKEN` in the root `.env`.
 2. Run `pnpm notion-mcp`.
 3. Restart `pnpm agent` so it discovers the Notion tools.
 
-Notion is optional and is not a deployment blocker.
+The agent can run without Notion, but both secrets are required when the
+`notion-mcp` service is deployed.
 
 ## Railway
 
 The IaC file declares exactly:
 
+- `notion-mcp`: `CopilotKit/OpenTag`, branch `main`, repository root,
+  `pnpm notion-mcp`, port `3001`.
 - `agent`: `CopilotKit/OpenTag`, branch `main`, root `agent`, Nixpacks,
   `/health`, port `8123`.
 - `channel`: `CopilotKit/OpenTag`, branch `main`, repository root,
   `pnpm channel`, port `3000`.
 
 `channel.AGENT_URL` references the agent's Railway private domain and port.
-Production Intelligence URLs are literal configuration, the API key is
-preserved, and the base Channel name is `kite` (with `kite-teams` derived by
-the application). `OPENAI_API_KEY` is required on `agent`; Tavily and Linear
-are optional preserved secrets.
+The agent's Notion URL and shared bearer reference `notion-mcp` over the same
+private network. Production Intelligence URLs are literal configuration, the
+API key is preserved, and the base Channel name is `kite` (with `kite-teams`
+derived by the application). `OPENAI_API_KEY` is required on `agent`; Tavily
+and Linear are optional preserved secrets. `NOTION_TOKEN` and
+`NOTION_MCP_AUTH_TOKEN` are required on `notion-mcp`.
 
 Evaluate the configuration locally without applying it:
 
@@ -215,8 +226,9 @@ node node_modules/railway/dist/iac/bin.js
 ```
 
 The live Railway migration still requires authenticated access: inventory the
-existing project, reuse its current Kite service as `channel`, add `agent`,
-connect both sources to OpenTag `main`, and enable GitHub autodeploys.
+existing project, reuse its current Kite service as `channel`, add `agent` and
+`notion-mcp`, connect all three sources to OpenTag `main`, and enable GitHub
+autodeploys.
 
 ## Coming soon
 
