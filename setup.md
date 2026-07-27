@@ -164,6 +164,20 @@ Configure it with:
 | `INTELLIGENCE_API_KEY` | Auth for the gateway connection. |
 | `INTELLIGENCE_CHANNEL_NAME` | The registered channel name (lowercase kebab). Defaults to `kite-opentag`. |
 | `CHANNEL_HTTP_TOKEN` | Optional. The channel host's HTTP routes (`agent/run`, `threads/*`, `memories/*`) are **closed** (404) unless this is set; set it to open them behind `Authorization: Bearer <token>`. The managed channel activates over the gateway WebSocket and does not need them. |
+| `PORT` | Port the channel host's HTTP listener binds. Defaults to `8300`; Railway injects its own. |
+
+**The channel host is fail-fast, by design** — it never idles in a half-working state:
+
+- Activation has a **30s per-channel timeout**. A gateway that accepts the socket but never
+  settles the join is fatal, not a silent hang.
+- Once activation settles, the host checks the channel's actual status. Anything other than
+  `online` — most commonly `setup_required`, meaning the channel name exists in your
+  Intelligence project but **no platform connector is bound to it** — is logged and the process
+  **exits non-zero**. Finish the connector setup in the Intelligence dashboard, then restart the
+  channel host (on Railway: redeploy the `channel` service).
+- After a successful boot a watchdog re-checks channel health every **60s** and exits non-zero
+  if the managed session dies for good, so a supervisor (Railway's `ON_FAILURE` restart policy,
+  systemd, Docker `restart:`) rebuilds the host instead of leaving KiteBot silently offline.
 
 The agent backend is still required in this mode — `pnpm runtime` (`runtime.ts`) — the Intelligence
 channel host points its `AGENT_URL` at it exactly like the self-hosted KiteBot does. `AGENT_URL`

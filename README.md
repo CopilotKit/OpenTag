@@ -203,6 +203,13 @@ Applying the config creates the services and their wiring; **KiteBot goes live o
 secrets are set and the `channel` service connects** — that's when your Intelligence dashboard
 flips *Waiting for runtime → live*.
 
+> **Bind the connector before the first deploy — the `channel` host is fail-fast.** If
+> activation settles with the channel not `online` — most commonly `setup_required`, meaning the
+> channel name exists in your Intelligence project but no Slack connector is bound to it — the
+> host logs the reason and **exits non-zero** rather than idling in a half-working state.
+> Railway's `ON_FAILURE` policy retries 5 times and then leaves the service stopped. Finish the
+> connector setup in the Intelligence dashboard, then **redeploy the `channel` service**.
+
 > **Cold-start note (Notion):** the `agent` loads its Notion tools once, at startup. On a first
 > cold deploy the `agent` can finish booting before `notion-mcp` is accepting connections, in
 > which case Notion research is unavailable for that deployment — the agent logs a `WARNING` on
