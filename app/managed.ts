@@ -170,6 +170,47 @@ export function unhealthyChannels(health: ChannelHealth | undefined): string[] {
     .map(([name, status]) => `${name}=${status}`);
 }
 
+/** What a watchdog tick wants `main()` to do. */
+export type WatchdogAction =
+  | { kind: "quiet" }
+  | { kind: "notice"; message: string }
+  | { kind: "fatal"; message: string };
+
+/**
+ * Decide what to do about the channel's current health, given what was last
+ * reported.
+ *
+ * Boot-time liveness (Task: `unhealthyChannels`) says nothing about the hours
+ * that follow. A managed session that drops goes `reconnecting`; one that
+ * exhausts its bounded reconnect window goes `error` and never comes back. The
+ * manager does NOT re-activate — so `error` is terminal, and the only useful
+ * response is to exit and let the platform's restart policy rebuild the host.
+ *
+ * Transitions are reported once, not once per tick, so a long reconnect doesn't
+ * flood the logs.
+ */
+export function channelWatchdogTick(
+  health: ChannelHealth | undefined,
+  previousOverall: string | undefined,
+): WatchdogAction {
+  if (!health) return { kind: "quiet" };
+  const { overall } = health;
+  if (overall === "error") {
+    return {
+      kind: "fatal",
+      message: `channel is dead: ${unhealthyChannels(health).join(", ")}`,
+    };
+  }
+  if (overall === previousOverall) return { kind: "quiet" };
+  if (overall === "online") {
+    return { kind: "notice", message: "channel recovered: overall=online" };
+  }
+  return {
+    kind: "notice",
+    message: `channel degraded: ${unhealthyChannels(health).join(", ")}`,
+  };
+}
+
 /**
  * Build the KiteBot channel: same tools/context/commands/handlers as the native
  * bot, minus any platform adapter (the managed transport is attached at
@@ -250,6 +291,9 @@ export function createKiteChannel(opts: CreateKiteChannelOptions): Channel {
  */
 const CHANNEL_READY_TIMEOUT_MS = 30_000;
 
+/** How often to re-check managed-channel health after a successful boot. */
+const CHANNEL_WATCHDOG_INTERVAL_MS = 60_000;
+
 async function main() {
   const agentUrl = required("AGENT_URL");
   const agentAuthHeader = process.env.AGENT_AUTH_HEADER;
@@ -306,6 +350,7 @@ async function main() {
   });
 
   const server = createServer(listener);
+  let watchdog: NodeJS.Timeout | undefined;
   // Fail loud on a bind failure. Without an 'error' handler an EADDRINUSE/EACCES
   // during listen() surfaces only as a logged-but-swallowed uncaughtException
   // while the process keeps running with no listener — Railway's ON_FAILURE
@@ -342,6 +387,22 @@ async function main() {
     console.log(
       `[channel] KiteBot channel "${channel.name}" mounted on :${port} → Intelligence gateway (channel live)`,
     );
+    let previousOverall = "online";
+    watchdog = setInterval(() => {
+      const health = listener.channels?.status();
+      const action = channelWatchdogTick(health, previousOverall);
+      if (health) previousOverall = health.overall;
+      if (action.kind === "fatal") {
+        console.error(
+          `[channel] ${action.message} — exiting so the platform restarts the host`,
+        );
+        process.exit(1);
+      }
+      if (action.kind === "notice") console.warn(`[channel] ${action.message}`);
+    }, CHANNEL_WATCHDOG_INTERVAL_MS);
+    // The HTTP server already holds the event loop open; don't let the timer be
+    // the reason the process can't exit.
+    watchdog.unref();
     // State the HTTP posture explicitly — a closed surface is the default, and a
     // deployer who opened it should see that in the logs rather than infer it.
     console.log(
@@ -353,6 +414,7 @@ async function main() {
 
   const shutdown = async (signal: string) => {
     console.log(`\n[channel] received ${signal}, stopping…`);
+    if (watchdog) clearInterval(watchdog);
     let exitCode = 0;
     // Tear down managed channel activation first (present only when the runtime
     // declared channels and activation wasn't opted out of).

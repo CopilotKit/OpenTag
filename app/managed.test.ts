@@ -7,6 +7,7 @@ import {
   httpAuthGate,
   MANAGED_COMPONENTS,
   unhealthyChannels,
+  channelWatchdogTick,
 } from "./managed.js";
 
 describe("createKiteChannel", () => {
@@ -222,5 +223,52 @@ describe("unhealthyChannels", () => {
         channels: { a: "online", b: "setup_required", c: "reconnecting" },
       }),
     ).toEqual(["b=setup_required", "c=reconnecting"]);
+  });
+});
+
+describe("channelWatchdogTick", () => {
+  const health = (overall: string) => ({
+    overall,
+    channels: { "kite-opentag": overall },
+  });
+
+  it("is quiet when there is no control surface", () => {
+    expect(channelWatchdogTick(undefined, "online")).toEqual({ kind: "quiet" });
+  });
+
+  it("is quiet while the channel stays online", () => {
+    expect(channelWatchdogTick(health("online"), "online")).toEqual({
+      kind: "quiet",
+    });
+  });
+
+  it("is fatal once the channel gives up reconnecting", () => {
+    // `error` here means the session exhausted its bounded reconnect window.
+    // Exiting is what lets Railway's ON_FAILURE policy restart the host.
+    expect(channelWatchdogTick(health("error"), "online")).toEqual({
+      kind: "fatal",
+      message: "channel is dead: kite-opentag=error",
+    });
+  });
+
+  it("notices the first tick of a degraded state", () => {
+    expect(channelWatchdogTick(health("reconnecting"), "online")).toEqual({
+      kind: "notice",
+      message: "channel degraded: kite-opentag=reconnecting",
+    });
+  });
+
+  it("does not repeat a degraded state it already reported", () => {
+    // A drop that takes minutes to resolve must not emit one line per tick.
+    expect(
+      channelWatchdogTick(health("reconnecting"), "reconnecting"),
+    ).toEqual({ kind: "quiet" });
+  });
+
+  it("notices recovery back to online", () => {
+    expect(channelWatchdogTick(health("online"), "reconnecting")).toEqual({
+      kind: "notice",
+      message: "channel recovered: overall=online",
+    });
   });
 });
