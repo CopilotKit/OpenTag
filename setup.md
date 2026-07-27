@@ -163,6 +163,7 @@ Configure it with:
 | `INTELLIGENCE_GATEWAY_WS_URL` | The Intelligence Realtime Gateway websocket endpoint. |
 | `INTELLIGENCE_API_KEY` | Auth for the gateway connection. |
 | `INTELLIGENCE_CHANNEL_NAME` | The registered channel name (lowercase kebab). Defaults to `kite-opentag`. |
+| `CHANNEL_HTTP_TOKEN` | Optional. The channel host's HTTP routes (`agent/run`, `threads/*`, `memories/*`) are **closed** (404) unless this is set; set it to open them behind `Authorization: Bearer <token>`. The managed channel activates over the gateway WebSocket and does not need them. |
 
 The agent backend is still required in this mode — `pnpm runtime` (`runtime.ts`) — the Intelligence
 channel host points its `AGENT_URL` at it exactly like the self-hosted KiteBot does. `AGENT_URL`
@@ -206,6 +207,7 @@ cp .env.example .env
 | `TELEGRAM_BOT_TOKEN` | Run on Telegram. |
 | `WHATSAPP_ACCESS_TOKEN` (+ siblings) | Run on WhatsApp Cloud API. |
 | `INTELLIGENCE_API_URL` / `INTELLIGENCE_GATEWAY_WS_URL` / `INTELLIGENCE_API_KEY` / `INTELLIGENCE_CHANNEL_NAME` | Run in [Intelligence channel mode](#intelligence-channel-mode) instead of holding platform tokens directly. |
+| `CHANNEL_HTTP_TOKEN` | Optional. Opens the channel host's HTTP runtime routes behind a bearer token; closed by default. |
 | `AGENT_URL` | Where KiteBot POSTs. **Required** — the process exits at startup if unset; the template value points at the local runtime (`…/agent/triage/run`). |
 
 Every integration is independent — set only what you need. The full annotated list, including the

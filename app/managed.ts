@@ -55,12 +55,18 @@ const required = (name: string): string => {
  * Every app component whose buttons carry an `onClick`, registered so the
  * channel can re-render it by name to resolve a click.
  *
- * On the managed path a click arrives as a FRESH delivery, so the in-process
- * handler cache backing an unregistered component is already gone — the runtime
- * re-renders from this registry instead. Leave a component out and its clicks
- * dead-letter (or degrade to "action expired" after a restart). `ConfirmWrite`
- * is the load-bearing one: it carries the HITL approve/cancel that gates every
- * write, so an unresolvable click silently strands the tool call.
+ * On the managed path a click arrives as a FRESH delivery, so the runtime
+ * re-renders the component by name to re-derive its handler. Leave a component
+ * out and its clicks dead-letter. `ConfirmWrite` is the load-bearing one: it
+ * carries the HITL approve/cancel that gates every write, so an unresolvable
+ * click silently strands the tool call.
+ *
+ * Registration is necessary but NOT sufficient for durability across a restart:
+ * `ActionRegistry` falls back to a `{ component, props }` snapshot in the
+ * `ActionStore`, and this channel declares no `store`, so the default
+ * in-process one is lost with the process. Clicks on messages posted before a
+ * restart still degrade to "action expired" — configure a durable store to fix
+ * that.
  *
  * Adding a new interactive card? Add it here — `managed.test.ts` scans the app
  * source for `onClick` and fails if anything is missing.
@@ -343,9 +349,11 @@ async function main() {
     },
     intelligence,
     // Per-turn platform user identity for channel messages is resolved by the
-    // gateway/Slack adapter and passed to the agent via `senderContext`; this
-    // callback only identifies the host for the runtime's own HTTP endpoints,
-    // so a stable stub is sufficient here.
+    // gateway/Slack adapter and passed to the agent via `senderContext`.
+    // `IdentifyUserCallback` takes a `Request`, so this only ever runs on the
+    // runtime's own HTTP endpoints — which are closed unless CHANNEL_HTTP_TOKEN
+    // is set. Note the consequence if a deployer does open them: a single static
+    // identity means every bearer holder shares one thread + memory namespace.
     identifyUser: () => ({ id: "opentag-kite", name: "OpenTag KiteBot" }),
     channels: [channel],
   });
