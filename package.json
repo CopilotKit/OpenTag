@@ -5,6 +5,10 @@
   "description": "OpenTag — an open-source, self-hosted alternative to Claude in Slack: run your own AI agent on your infrastructure, with your model and your tools. Built on @copilotkit/channels; also runs on Discord, Telegram & WhatsApp.",
   "license": "MIT",
   "type": "module",
+  "packageManager": "pnpm@10.33.4",
+  "engines": {
+    "node": ">=22"
+  },
   "scripts": {
     "dev": "tsx watch app/index.ts",
     "start": "tsx app/index.ts",
