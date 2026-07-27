@@ -12,14 +12,9 @@ from mcp.types import CallToolResult, TextContent
 
 
 class WriteConfirmationInterceptor:
-    """Require an explicit user confirmation before any MCP mutation runs.
+    """Require approval for every MCP tool not marked read-only."""
 
-    MCP annotations identify read-only operations. Unknown or unannotated
-    operations fail closed and pause before their remote handler is invoked.
-    The two Notion search operations below use POST while remaining read-only,
-    so the OpenAPI bridge cannot infer their annotation.
-    """
-
+    # These Notion search endpoints use POST but do not mutate data.
     _KNOWN_READ_ONLY_TOOLS = {
         "API-post-search",
         "API-query-data-source",

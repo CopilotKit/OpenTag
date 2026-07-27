@@ -3,6 +3,7 @@
 import asyncio
 import logging
 import os
+from collections.abc import Mapping
 from datetime import datetime, timezone
 from typing import Any
 
@@ -10,6 +11,20 @@ from langchain_mcp_adapters.client import MultiServerMCPClient
 
 from write_confirmation import WriteConfirmationInterceptor
 
+
+MCP_SERVERS = {
+    "linear": {
+        "token_env": "LINEAR_API_KEY",
+        "url_env": "LINEAR_MCP_URL",
+        "default_url": "https://mcp.linear.app/mcp",
+    },
+    "notion": {
+        "token_env": "NOTION_MCP_AUTH_TOKEN",
+        "url_env": "NOTION_MCP_URL",
+        "default_url": "http://127.0.0.1:3001/mcp",
+    },
+}
+MCP_LOAD_TIMEOUT_SECONDS = 8.0
 
 logger = logging.getLogger(__name__)
 
@@ -36,74 +51,65 @@ def _emit_internal_source_error(
     )
 
 
-def internal_source_tools() -> list:
-    """Load independently optional Linear and Notion tools.
-
-    Each configured server gets its own client so one unavailable integration
-    cannot remove the other's tools. Tool discovery is async-only, so this
-    synchronous build hook runs it on a short-lived event loop and bounds each
-    connection attempt. Every loaded mutation is guarded at execution time by
-    ``WriteConfirmationInterceptor``.
-    """
+def _configured_connections(
+    env: Mapping[str, str],
+) -> dict[str, dict[str, Any]]:
     connections: dict[str, dict[str, Any]] = {}
+    for name, config in MCP_SERVERS.items():
+        token = env.get(config["token_env"])
+        if not token:
+            continue
 
-    linear_api_key = os.environ.get("LINEAR_API_KEY")
-    if linear_api_key:
-        connections["linear"] = {
+        connections[name] = {
             "transport": "streamable_http",
-            "url": os.environ.get("LINEAR_MCP_URL", "https://mcp.linear.app/mcp"),
-            "headers": {"Authorization": f"Bearer {linear_api_key}"},
+            "url": env.get(config["url_env"], config["default_url"]),
+            "headers": {"Authorization": f"Bearer {token}"},
         }
+    return connections
 
-    notion_auth_token = os.environ.get("NOTION_MCP_AUTH_TOKEN")
-    if notion_auth_token:
-        connections["notion"] = {
-            "transport": "streamable_http",
-            "url": os.environ.get("NOTION_MCP_URL", "http://127.0.0.1:3001/mcp"),
-            "headers": {"Authorization": f"Bearer {notion_auth_token}"},
-        }
 
+async def _load_tools(connections: dict[str, dict[str, Any]]) -> list:
+    loaded = []
+    for name, connection in connections.items():
+        try:
+            confirmation = WriteConfirmationInterceptor()
+            client = MultiServerMCPClient(
+                {name: connection},
+                tool_interceptors=[confirmation],
+            )
+            tools = await asyncio.wait_for(
+                client.get_tools(),
+                timeout=MCP_LOAD_TIMEOUT_SECONDS,
+            )
+            confirmation.register_tools(tools)
+            loaded.extend(tools)
+            print(f"[TOOLS] loaded {len(tools)} tool(s) from {name}")
+        except asyncio.TimeoutError as error:
+            _emit_internal_source_error(
+                error,
+                message="Configured MCP server timed out while loading tools",
+                source=name,
+                recovery="skip_optional_integration",
+            )
+        except Exception as error:
+            _emit_internal_source_error(
+                error,
+                message="Configured MCP server was unavailable while loading tools",
+                source=name,
+                recovery="skip_optional_integration",
+            )
+    return loaded
+
+
+def internal_source_tools() -> list:
+    """Load optional MCP tools for the configured internal sources."""
+    connections = _configured_connections(os.environ)
     if not connections:
         return []
 
-    async def _load_all() -> list:
-        loaded: list = []
-        for name, connection in connections.items():
-            try:
-                confirmation = WriteConfirmationInterceptor()
-                server_client = MultiServerMCPClient(
-                    {name: connection},
-                    tool_interceptors=[confirmation],
-                )
-                server_tools = await asyncio.wait_for(
-                    server_client.get_tools(), timeout=8.0
-                )
-                confirmation.register_tools(server_tools)
-                loaded.extend(server_tools)
-                print(
-                    f"[TOOLS] internal_source_tools: loaded {len(server_tools)} "
-                    f"tool(s) from {name}"
-                )
-            except asyncio.TimeoutError as error:
-                _emit_internal_source_error(
-                    error,
-                    message="Configured MCP server timed out while loading tools",
-                    source=name,
-                    recovery="skip_optional_integration",
-                )
-            except Exception as error:
-                _emit_internal_source_error(
-                    error,
-                    message=(
-                        "Configured MCP server was unavailable while loading tools"
-                    ),
-                    source=name,
-                    recovery="skip_optional_integration",
-                )
-        return loaded
-
+    # MCP discovery is async; agent construction is synchronous.
     try:
-        return asyncio.run(_load_all())
+        return asyncio.run(_load_tools(connections))
     except Exception as error:
         _emit_internal_source_error(
             error,

@@ -1,5 +1,5 @@
-from pathlib import Path
 import tomllib
+from pathlib import Path
 
 
 def test_wheel_includes_every_runtime_module():
@@ -13,3 +13,4 @@ def test_wheel_includes_every_runtime_module():
     }
 
     assert packaged_modules == runtime_modules
+    assert project["tool"]["setuptools"]["packages"] == ["prompts"]

@@ -34,9 +34,7 @@ export default defineRailway(() => {
   const channel = service("channel", {
     source: github(REPO, { branch: BRANCH }),
     start: "pnpm channel",
-    // render_chart and render_diagram launch Playwright's Chromium binary.
-    // Keep the browser in the deploy artifact and install its shared libraries
-    // in the runtime image; Railpack otherwise drops build-layer apt packages.
+    // Rich rendering needs Chromium and its runtime libraries.
     build: {
       builder: "RAILPACK",
       buildCommand: "pnpm exec playwright install chromium",
