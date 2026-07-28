@@ -11,16 +11,15 @@ and WhatsApp are coming soon.
 | Component | Location | Responsibility |
 | --- | --- | --- |
 | Runtime entrypoint | [`server.ts`](./server.ts) | Environment, Channels readiness, HTTP lifecycle, and shutdown |
-| Application composition | [`app/index.ts`](./app/index.ts) | SDK agent factory, managed Slack/Teams Channels, and runtime |
+| Application composition | [`app/index.ts`](./app/index.ts) | SDK agent factory, managed Channel, and runtime |
 | Channel definition | [`app/channel.tsx`](./app/channel.tsx) | Mentions, commands, components, modals, and interrupts |
 | Intelligence runtime | [`app/runtime-host.ts`](./app/runtime-host.ts) | One `CopilotKitIntelligence` and one `CopilotRuntime` |
 | Python agent | [`agent/`](./agent) | LangGraph deep agent served over AG-UI |
 | Railway topology | [`.railway/railway.ts`](./.railway/railway.ts) | Two services sourced from OpenTag `main` |
 
-The host always uses the Intelligence-owned runtime. It declares an
-adapter-free Slack Channel using the configured base name and an adapter-free
-Teams Channel named `<base>-teams`. Their credentials and attachments are
-configured only in Intelligence.
+The host always uses the Intelligence-owned runtime. It declares one
+adapter-free Channel using the configured name. Its Slack and Microsoft Teams
+adapters, credentials, and attachments are configured only in Intelligence.
 
 ## Install
 
@@ -30,7 +29,7 @@ Prerequisites:
 - pnpm
 - Python 3.12
 - [`uv`](https://docs.astral.sh/uv/)
-- A CopilotKit Intelligence project, Channels, and runtime API key
+- A CopilotKit Intelligence project, Channel, and runtime API key
 - An OpenAI API key for the Python agent
 
 Install both dependency sets:
@@ -87,11 +86,9 @@ The AG-UI endpoint is `http://localhost:8123/`; `/health` reports the
 In [CopilotKit Intelligence](https://intelligence.copilotkit.ai):
 
 1. Create or select the OpenTag project.
-2. Create two Channels. For a normal installation use `opentag` with provider
-   Slack and `opentag-teams` with provider Microsoft Teams. For production use
-   `kite` and `kite-teams`.
+2. Create one Channel named `open-tag`.
 3. Issue a runtime API key.
-4. Configure each platform attachment on its matching Channel.
+4. Configure the Slack and Microsoft Teams adapters on that Channel.
 
 | Variable | Required | Purpose |
 | --- | --- | --- |
@@ -99,7 +96,7 @@ In [CopilotKit Intelligence](https://intelligence.copilotkit.ai):
 | `INTELLIGENCE_API_KEY` | Yes | Runtime authentication |
 | `INTELLIGENCE_API_URL` | No | Defaults to `https://api.intelligence.copilotkit.ai` |
 | `INTELLIGENCE_GATEWAY_WS_URL` | No | Defaults to `wss://realtime.intelligence.copilotkit.ai` |
-| `INTELLIGENCE_CHANNEL_NAME` | No | Defaults to `opentag`; Railway sets `kite` |
+| `INTELLIGENCE_CHANNEL_NAME` | No | Defaults to `open-tag`; Railway uses `open-tag` |
 | `AGENT_AUTH_HEADER` | No | Authorization header forwarded to the agent |
 | `PORT` | No | Channel HTTP port; defaults to `3000` |
 
@@ -131,7 +128,7 @@ For cutover:
 2. Enter the existing `xapp` and `xoxb` tokens directly into the Slack
    attachment in Intelligence. Do not put them in source control or chat.
 3. Start the OpenTag `runtime` service with
-   `INTELLIGENCE_CHANNEL_NAME=kite`.
+   `INTELLIGENCE_CHANNEL_NAME=open-tag`.
 4. Send one `@kite` mention and verify the reply uses the OpenTag persona and
    Python deep agent.
 
@@ -148,10 +145,9 @@ Those manifests are not a production migration step for `@kite`.
 
 ## Microsoft Teams
 
-Managed Microsoft Teams is supported. Configure the Teams attachment on the
-`<base>-teams` Channel in Intelligence. The same Node process and runtime host
-both platform Channels; there is no direct adapter or Railway platform
-credential.
+Managed Microsoft Teams is supported. Configure the Teams adapter on the same
+`open-tag` Channel in Intelligence. The same Node process and runtime host both
+platforms; there is no direct adapter or Railway platform credential.
 
 ## Tools, commands, and UI
 
@@ -204,9 +200,8 @@ The IaC file declares exactly:
 
 `runtime.AGENT_URL` references the agent's Railway private domain and port.
 Production Intelligence URLs are literal configuration, the API key is
-preserved, and the base Channel name is `kite` (with `kite-teams` derived by
-the application). `OPENAI_API_KEY` is required on `agent`; Tavily and Linear
-are optional preserved secrets.
+preserved, and the Channel name is `open-tag`. `OPENAI_API_KEY` is required on
+`agent`; Tavily and Linear are optional preserved secrets.
 
 Evaluate the configuration locally without applying it:
 

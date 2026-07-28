@@ -32,9 +32,8 @@ agent (Python + LangGraph deepagents)
 
 There is one canonical runtime host: [`server.ts`](./server.ts).
 [`app/index.ts`](./app/index.ts) composes one `CopilotKitIntelligence`, one
-`CopilotRuntime`, and two adapter-free managed Channels: the configured base
-name for Slack and `<base>-teams` for Microsoft Teams. Intelligence owns all
-platform credentials and attachments.
+`CopilotRuntime`, and one adapter-free managed Channel. Intelligence owns its
+Slack and Microsoft Teams adapters, credentials, and attachments.
 
 The launch pins the requested canaries:
 
@@ -72,11 +71,10 @@ Prerequisites: Node.js 22+, pnpm, Python 3.12, and
 
    `INTELLIGENCE_API_URL` and `INTELLIGENCE_GATEWAY_WS_URL` default to the
    production Intelligence endpoints. `INTELLIGENCE_CHANNEL_NAME` defaults to
-   `opentag`.
+   `open-tag`.
 
-3. In Intelligence, create two managed Channels: `opentag` for Slack and
-   `opentag-teams` for Microsoft Teams. If you change the base name, use that
-   name and `<base>-teams`.
+3. In Intelligence, create one managed Channel named `open-tag` and configure
+   its Slack and Microsoft Teams adapters.
 
 4. Run both services.
 
@@ -110,10 +108,10 @@ in [`agent/agent.py`](./agent/agent.py); the Channel UI and behavior live under
 Use the normal Intelligence flow for both launch platforms:
 
 1. Create one OpenTag project.
-2. Create the base Channel for Slack and `<base>-teams` for Microsoft Teams.
+2. Create one Channel named `open-tag`.
 3. Issue a runtime API key.
-4. Configure each platform attachment on its matching Channel.
-5. Run one `pnpm runtime` process with the base Channel name and key.
+4. Configure the Slack and Microsoft Teams adapters on that Channel.
+5. Run one `pnpm runtime` process with that Channel name and key.
 
 No organization, project, Channel ID, or runtime-instance ID environment
 variables—or Slack/Teams credentials—are required by the runtime.
@@ -151,12 +149,12 @@ all sourced from `CopilotKit/OpenTag` on `main`:
 | `agent` | `agent` | `uvicorn main:app --host "" --port ${PORT:-8123}` | `/health` |
 | `runtime` | repository root | `pnpm runtime` | `/api/copilotkit/info` |
 
-The runtime reaches the agent over Railway private networking and embeds both
-managed Channels. Railway sets `INTELLIGENCE_CHANNEL_NAME=kite`, so the runtime
-declares `kite` for Slack and `kite-teams` for Teams. It preserves the runtime
-API key. OpenAI is required on `agent`; Tavily and Linear secrets are optional.
-Connecting both services to `main` enables GitHub-triggered deployments after
-merges.
+The runtime reaches the agent over Railway private networking and embeds the
+managed `open-tag` Channel. Railway sets
+`INTELLIGENCE_CHANNEL_NAME=open-tag`; Intelligence owns both platform
+adapters. The runtime API key is preserved. OpenAI is required on `agent`;
+Tavily and Linear secrets are optional. Connecting both services to `main`
+enables GitHub-triggered deployments after merges.
 
 The repository configuration does not mutate the existing production Railway
 project. Inventory and cutover should happen after Railway authentication.

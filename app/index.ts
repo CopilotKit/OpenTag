@@ -18,12 +18,8 @@ export function createOpenTagApplication(
     return instance;
   };
 
-  // Managed providers are declared per Channel. Intelligence owns the Slack and
-  // Teams credentials and routes each provider to its matching declaration.
-  const channels = [
-    createOpenTagChannel(environment.channelName, "slack", agent),
-    createOpenTagChannel(`${environment.channelName}-teams`, "teams", agent),
-  ];
+  // Intelligence owns the Slack and Teams adapters for this logical Channel.
+  const channels = [createOpenTagChannel(environment.channelName, agent)];
   const runtimeHost = createOpenTagRuntime({ environment, channels });
 
   return { channels, environment, ...runtimeHost };

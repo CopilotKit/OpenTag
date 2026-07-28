@@ -13,7 +13,7 @@ const environment: AppEnvironment = {
   intelligenceApiKey: "intelligence-secret",
   intelligenceApiUrl: "https://intelligence.example.test",
   intelligenceGatewayWsUrl: "wss://gateway.example.test",
-  channelName: "opentag",
+  channelName: "open-tag",
   port: 3000,
 };
 
@@ -23,19 +23,10 @@ describe("createOpenTagRuntime", () => {
     const teamsAdapter = new FakeAdapter({ platform: "teams" });
     const stopSlack = vi.spyOn(slackAdapter, "stop");
     const stopTeams = vi.spyOn(teamsAdapter, "stop");
-    const slackChannel = createOpenTagChannel(
-      "opentag",
-      "slack",
-      new FakeAgent(),
-    );
-    slackChannel.ɵruntime.addAdapter(slackAdapter);
-    const teamsChannel = createOpenTagChannel(
-      "opentag-teams",
-      "teams",
-      new FakeAgent(),
-    );
-    teamsChannel.ɵruntime.addAdapter(teamsAdapter);
-    const channels = [slackChannel, teamsChannel];
+    const channel = createOpenTagChannel("open-tag", new FakeAgent());
+    channel.ɵruntime.addAdapter(slackAdapter);
+    channel.ɵruntime.addAdapter(teamsAdapter);
+    const channels = [channel];
 
     const { intelligence, listener, runtime } = createOpenTagRuntime({
       environment,
@@ -57,8 +48,7 @@ describe("createOpenTagRuntime", () => {
     expect(listener.channels?.status()).toEqual({
       overall: "online",
       channels: {
-        opentag: "online",
-        "opentag-teams": "online",
+        "open-tag": "online",
       },
     });
     expect(slackAdapter.started).toBe(true);

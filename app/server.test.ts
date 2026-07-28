@@ -134,13 +134,13 @@ describe("startOpenTagServer", () => {
 });
 
 describe("createOpenTagApplication", () => {
-  it("declares adapter-free managed Slack and Teams Channels", () => {
+  it("declares one adapter-free managed Channel", () => {
     const environment: AppEnvironment = {
       agentUrl: "http://agent.internal/",
       intelligenceApiKey: "cpk-1_test",
       intelligenceApiUrl: "https://api.intelligence.test",
       intelligenceGatewayWsUrl: "wss://realtime.intelligence.test",
-      channelName: "kite",
+      channelName: "open-tag",
       port: 3000,
     };
 
@@ -153,8 +153,7 @@ describe("createOpenTagApplication", () => {
         adapters: channel.adapters,
       })),
     ).toEqual([
-      { name: "kite", provider: "slack", adapters: [] },
-      { name: "kite-teams", provider: "teams", adapters: [] },
+      { name: "open-tag", provider: undefined, adapters: [] },
     ]);
     expect(application.runtime.channels).toEqual(application.channels);
   });

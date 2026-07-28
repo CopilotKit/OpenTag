@@ -98,7 +98,7 @@ describe("Railway deployment graph", () => {
         },
         INTELLIGENCE_CHANNEL_NAME: {
           type: "literal",
-          value: "kite",
+          value: "open-tag",
         },
         PLAYWRIGHT_BROWSERS_PATH: {
           type: "literal",

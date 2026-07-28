@@ -2,7 +2,6 @@ import {
   createChannel,
   type Channel,
   type CreateChannelOptions,
-  type ManagedChannelProvider,
 } from "@copilotkit/channels";
 import {
   managedRunInput,
@@ -18,15 +17,13 @@ import { appTools } from "./tools/index.js";
 
 type ChannelAgent = NonNullable<CreateChannelOptions["agent"]>;
 
-/** Build one managed OpenTag Channel for an Intelligence-owned provider. */
+/** Build the managed OpenTag Channel; Intelligence owns its platform adapters. */
 export function createOpenTagChannel(
   name: string,
-  provider: ManagedChannelProvider,
   agent: ChannelAgent,
 ): Channel {
   const channel = createChannel({
     name,
-    provider,
     agent,
     tools: appTools,
     context: [...appContext],
