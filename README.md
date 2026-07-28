@@ -89,11 +89,16 @@ INTELLIGENCE_API_KEY=cpk-...
 
 ```bash
 pnpm install
-pnpm runtime    # the agent backend, on :8200
+```
 
-pnpm channel    # recommended — the bot over the Intelligence Gateway
+```bash
+pnpm runtime    # terminal 1 — the agent backend, on :8200
+```
+
+```bash
+pnpm channel    # terminal 2 — recommended — the bot over the Intelligence Gateway
 # or
-pnpm dev        # alternative — the bot, self-hosted
+pnpm dev        # terminal 2 — alternative — the bot, self-hosted
 ```
 
 **4. Talk to it.** @mention the bot in any channel thread:

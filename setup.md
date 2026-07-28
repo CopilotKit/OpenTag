@@ -193,8 +193,12 @@ Configure it with:
 The agent backend is still required in this mode — `pnpm runtime` (`runtime.ts`) — the Intelligence
 channel host points its `AGENT_URL` at it exactly like the self-hosted KiteBot does. `AGENT_URL`
 itself is required in every mode (the process exits at startup if it's unset); `.env.example` ships
-it pre-filled with the local runtime URL as a template, not as a code-level default. See
-[`.env.example`](./.env.example) for the full annotated list.
+it pre-filled with the local runtime URL as a template, not as a code-level default. `AGENT_URL`
+must also include an explicit `http://` or `https://` scheme — a bare `host:port` (the shape of a
+Railway private hostname, e.g. `agent:8123`) parses as a URL with the host folded into the
+protocol rather than a valid `http(s)` URL, and is now rejected at boot rather than failing on the
+first turn. Use e.g. `http://agent.railway.internal:8123/` for a Railway private-network target.
+See [`.env.example`](./.env.example) for the full annotated list.
 
 ## 1. Create a Slack app
 
@@ -233,7 +237,7 @@ cp .env.example .env
 | `WHATSAPP_ACCESS_TOKEN` (+ siblings) | Run on WhatsApp Cloud API. |
 | `INTELLIGENCE_API_URL` / `INTELLIGENCE_GATEWAY_WS_URL` / `INTELLIGENCE_API_KEY` / `INTELLIGENCE_CHANNEL_NAME` | Run in [Intelligence channel mode](#intelligence-channel-mode) instead of holding platform tokens directly. |
 | `CHANNEL_HTTP_TOKEN` | Optional. Opens the channel host's HTTP runtime routes behind a bearer token for server-to-server or `curl` use; closed by default. Not CORS-enabled — not reachable from a browser. |
-| `AGENT_URL` | Where KiteBot POSTs. **Required** — the process exits at startup if unset; the template value points at the local runtime (`…/agent/triage/run`). |
+| `AGENT_URL` | Where KiteBot POSTs. **Required** — the process exits at startup if unset; the template value points at the local runtime (`…/agent/triage/run`). Must include an `http://` or `https://` scheme — a bare `host:port` (e.g. the Railway private-hostname shape `agent:8123`) fails boot; use e.g. `http://agent.railway.internal:8123/`. |
 
 Every integration is independent — set only what you need. The full annotated list, including the
 WhatsApp webhook details, is in [`.env.example`](./.env.example).
