@@ -29,9 +29,9 @@ export default defineRailway(() => {
       branch: BRANCH,
       rootDirectory: "agent",
     }),
-    build: { builder: "NIXPACKS" },
+    build: { builder: "RAILPACK" },
     deploy: {
-      startCommand: "uvicorn main:app --host :: --port ${PORT:-8123}",
+      startCommand: 'uvicorn main:app --host "" --port ${PORT:-8123}',
       healthcheckPath: "/health",
       healthcheckTimeout: 300,
       restartPolicyType: "ON_FAILURE",

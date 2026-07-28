@@ -59,7 +59,12 @@ describe("Railway deployment graph", () => {
         branch: "main",
         rootDirectory: "agent",
       },
+      build: {
+        builder: "RAILPACK",
+      },
       deploy: {
+        startCommand:
+          'uvicorn main:app --host "" --port ${PORT:-8123}',
         healthcheckPath: "/health",
       },
       variables: {

@@ -150,7 +150,7 @@ all sourced from `CopilotKit/OpenTag` on `main`:
 | Service | Root | Start | Health |
 | --- | --- | --- | --- |
 | `notion-mcp` | repository root | `pnpm notion-mcp` | process restart policy |
-| `agent` | `agent` | `uvicorn main:app --host :: --port ${PORT:-8123}` | `/health` |
+| `agent` | `agent` | `uvicorn main:app --host "" --port ${PORT:-8123}` | `/health` |
 | `channel` | repository root | `pnpm channel` | Channels readiness before listen |
 
 The Channel reaches the agent, and the agent reaches the Notion sidecar, over
