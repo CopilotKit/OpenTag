@@ -37,8 +37,8 @@ export default defineRailway(() => {
     build: {
       builder: "RAILPACK",
       buildCommand: "pnpm exec playwright install chromium",
-      // The production runtime must follow every push to its connected branch.
-      watchPatterns: ["/**"],
+      // No watch-path filter: deploy every push to the connected branch.
+      watchPatterns: [],
     },
     deploy: {
       healthcheckPath: "/api/copilotkit/info",
