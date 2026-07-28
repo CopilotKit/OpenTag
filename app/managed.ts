@@ -318,76 +318,158 @@ export function httpAuthGate(
 }
 
 /**
+ * Closed status union for a single Channel activation, or for the manager
+ * overall. Mirrors the installed `@copilotkit/runtime` v2 `ChannelStatus`
+ * (`dist/v2/runtime/core/channel-manager.d.mts`) exactly — declared locally
+ * rather than imported so this module doesn't reach into the runtime's
+ * internal channel-manager types, but kept a closed literal union rather than
+ * widened to `string` so a renamed/added status in the SDK fails this file's
+ * typecheck instead of silently disabling every comparison against it. That
+ * widening is exactly what let Findings 1-3 (the boot gate, the watchdog, and
+ * the degraded-clock policy each defining "live" differently) drift
+ * independently: a `string`-typed status makes `=== "online"` compile against
+ * ANY string, so nothing catches a comparison that's checking the wrong
+ * field, or a branch that forgot a case. `pnpm check-types` passing at the
+ * real `channels.status()` call site in `main()` is the proof this stays
+ * structurally compatible with what the runtime actually returns.
+ */
+export type ChannelStatus =
+  | "connecting"
+  | "online"
+  | "setup_required"
+  | "reconnecting"
+  | "stopped"
+  | "unmanaged"
+  | "error";
+
+/**
  * Structural view of `ChannelsControl.status()`. Declared locally rather than
  * imported so this module doesn't reach into the runtime's internal
- * channel-manager types; the real `Record<string, ChannelStatus>` is a union of
- * string literals and assigns cleanly to this.
+ * channel-manager types; the real `{ overall: ChannelStatus, channels:
+ * Record<string, ChannelStatus> }` assigns cleanly to this.
  */
 export interface ChannelHealth {
-  overall: string;
-  channels: Record<string, string>;
+  overall: ChannelStatus;
+  channels: Record<string, ChannelStatus>;
 }
 
 /**
- * Every declared channel that is not `online`, as `"<name>=<status>"` — plus
- * `overall` itself when it disagrees with an all-clear per-channel map.
+ * THE single definition of "the channel is live": the declared `channelName`
+ * is present in the manager's per-channel map AND reads `online`, by name.
+ *
+ * Every other liveness question in this file — the boot gate's success line,
+ * the watchdog's escalation, and the degraded-clock policy's reset condition
+ * — must reduce to this same check, not redefine it against `overall` or
+ * against "nothing bad in the map." Three call sites each rolling their own
+ * version of "live" is exactly how three DIFFERENT definitions of liveness
+ * (Findings 1-3) drifted apart while every test still passed: the shared
+ * `health(overall)` test fixture always set `channels[channelName]` to match
+ * `overall` by construction, so `overall === "online"` and "this predicate"
+ * agreed on every fixture in the suite even though they are not the same
+ * check. They disagree exactly when the declared channel is missing from (or
+ * disagrees with) the per-channel map — which is precisely the shape
+ * `ChannelManager.computeOverall` can produce for a zero-length `entries`
+ * (`{ overall: "online", channels: {} }`): `overall` alone says "online",
+ * this predicate correctly says "not live."
+ *
+ * `health?.channels[channelName]` (not `health.channels[channelName]`) so an
+ * undefined `health` reads as "not live" rather than throwing — this is fed
+ * status readings that can be absent (no control surface, or a watchdog tick
+ * that got no data), and "no data" must never evaluate as "live."
+ */
+export function isChannelLive(
+  health: ChannelHealth | undefined,
+  channelName: string,
+): boolean {
+  return health?.channels[channelName] === "online";
+}
+
+/**
+ * Every unhealthy thing about `health`, as `"<name>=<status>"` strings — the
+ * declared `channelName` ALWAYS checked first and unconditionally (never as a
+ * fallback that only fires when nothing else was found), followed by every
+ * OTHER channel in the map that is not `online`.
  *
  * `channels.ready()` resolving is NOT proof of liveness: it resolves once each
  * channel reaches a terminal state, and `setup_required` (declared, but no
- * managed provider bound yet) counts as terminal. `unmanaged` — a channel
- * carrying a direct adapter this handler doesn't own — resolves immediately and
- * likewise implies no health. Only `online` means the channel can actually
- * send, so the boot's success line must be gated on this returning empty.
+ * managed provider bound yet) counts as terminal, same as `unmanaged` (a
+ * direct adapter this handler doesn't own). Only `online` means the channel
+ * can actually send, so the boot's success line must be gated on this
+ * returning empty — which is exactly `isChannelLive` above, the one function
+ * this reduces to for the declared channel's own status.
  *
- * That per-channel map is not the whole story, though: per the installed
- * `ChannelManager.status()`, before activation completes it returns
- * `{ overall: "connecting", channels: {} }` — an EMPTY map, because `channels`
- * is built from `entries`, which nothing has populated until `activate()`
- * runs. Filtering only `health.channels` sees nothing to filter and reports
- * `[]`, so the boot gate would log "(channel live)" for a channel that never
- * activated. Fold `overall` in: when the per-channel filter finds nothing
- * unhealthy to report — either because the map is empty, or because every
- * entry present in it already reads `online` — but `overall` itself is not
- * `online`, surface that as `"overall=<status>"` so the false-success case
- * this gate exists to catch can't slip through. (`stop()`, by contrast, does
- * NOT clear `entries` — it only flips each entry's own `status` to
- * `"stopped"` — so the post-stop map is non-empty and already reads e.g.
- * `{ "kite-opentag": "stopped" }`; that case is caught directly by the
- * per-channel filter itself, the same path as `setup_required` below, without
- * ever reaching this fold.)
+ * The declared-channel check runs UNCONDITIONALLY, not only when the
+ * per-channel filter over every OTHER entry comes up empty. Two reviewer
+ * findings motivate that:
  *
- * That `overall` fold is still not sufficient by itself, though:
- * `ChannelManager.computeOverall` returns `"online"` for a ZERO-length input
- * (`if (values.length === 0) return "online"`), so `{ overall: "online",
- * channels: {} }` is a shape the manager can genuinely produce — not only for
- * a host with no declared channels, but for the pathological case of this
- * host's own declared channel silently missing from `entries` after
- * activation. Neither the per-channel filter (nothing to filter) nor the
- * `overall !== "online"` fold (it IS "online") catches that; inferring health
- * from the absence of bad entries is exactly the hazard. So: when the
- * per-channel filter has nothing to report, don't stop there — confirm
- * `channelName` (the one channel THIS host declared) is actually present in
- * `health.channels` AND `online`, by name. An absent or non-online entry for
- * it is reported the same way a present-but-bad one would be. That same
- * "nothing unhealthy in the filtered map" condition is also what lets a
- * DEGRADED `overall` (e.g. `setup_required`) surface correctly even alongside
- * an all-`online` per-channel map, as long as the declared `channelName` is
- * missing from that map — not only the all-`online`-and-`overall: "online"`
- * case the tests below happened to spell out first.
+ * 1. (Finding 3, the contradiction) When `channelName` is present but
+ *    non-`online` (e.g. `setup_required`), report `"<name>=<status>"`; when it
+ *    is ABSENT from the map entirely, report `"<name>=absent (overall=…)"`
+ *    instead — never the self-contradicting `overall=online` the old
+ *    implementation printed for exactly the shape it exists to catch (`{
+ *    overall: "online", channels: {} }`, which `ChannelManager.computeOverall`
+ *    genuinely produces for zero-length input — not only for a host with no
+ *    declared channels, but for THIS host's own declared channel silently
+ *    missing from `entries` after activation). Naming the channel and its real
+ *    condition, instead of an `overall` value that can itself read "online",
+ *    is what makes the boot-fatal message stop contradicting itself.
+ * 2. (Finding 3, the buried fact) If the map is `{ "some-other-channel":
+ *    "reconnecting" }` and `channelName` is absent, the more serious fact —
+ *    THIS host's own channel is missing — must be surfaced too, not shadowed
+ *    by a filter that only runs when it finds nothing else. Checking
+ *    `channelName` first, always, guarantees it is never buried behind an
+ *    unrelated channel's status.
+ *
+ * `stop()` does not clear `entries` — it flips each entry's own `status` to
+ * `"stopped"` — so the post-stop map already reads `{ "kite-opentag":
+ * "stopped" }`; that is the ordinary "present but non-online" branch, not the
+ * "absent" one.
  */
 export function unhealthyChannels(
   health: ChannelHealth | undefined,
   channelName: string,
 ): string[] {
   if (!health) return [];
-  const perChannel = Object.entries(health.channels)
-    .filter(([, status]) => status !== "online")
+  const declaredStatus = health.channels[channelName];
+  const declared = isChannelLive(health, channelName)
+    ? undefined
+    : declaredStatus === undefined
+      ? `${channelName}=absent (overall=${health.overall})`
+      : `${channelName}=${declaredStatus}`;
+  const others = Object.entries(health.channels)
+    .filter(([name, status]) => name !== channelName && status !== "online")
     .map(([name, status]) => `${name}=${status}`);
-  if (perChannel.length > 0) return perChannel;
-  if (health.channels[channelName] !== "online") {
-    return [`overall=${health.overall}`];
-  }
-  return [];
+  return declared ? [declared, ...others] : others;
+}
+
+/**
+ * Build the boot-gate fatal message for a channel that settled but isn't
+ * live, per `unhealthyChannels` above.
+ *
+ * The `setup_required` remediation paragraph is appended ONLY when the
+ * declared channel's own status is actually `setup_required` (Finding 3): the
+ * old unconditional text printed "finish the connector setup in the
+ * Intelligence dashboard" even for the absent-from-entries false-alive shape,
+ * where that advice is not just unhelpful but wrong — there is no connector
+ * step to finish, the channel's entry never got created.
+ *
+ * Pure and exported so this message — and its conditional advice — has a test
+ * without needing to trigger the real boot path in `main()`.
+ */
+export function notLiveMessage(
+  health: ChannelHealth | undefined,
+  channelName: string,
+): string {
+  const notLive = unhealthyChannels(health, channelName);
+  const setupRequired = health?.channels[channelName] === "setup_required";
+  return (
+    `activation settled but the channel is NOT live: ${notLive.join(", ")}.` +
+    (setupRequired
+      ? ` "setup_required" means the channel name exists in your Intelligence project but no ` +
+        `platform connector is bound to it — finish the connector setup in the Intelligence ` +
+        `dashboard, then redeploy this service.`
+      : "")
+  );
 }
 
 /** What a watchdog tick wants `main()` to do. */
@@ -397,12 +479,12 @@ export type WatchdogAction =
   | { kind: "fatal"; message: string };
 
 /**
- * How long a channel may stay continuously non-`online` before the watchdog
- * escalates a logged notice into `fatal`.
+ * How long a channel may stay continuously non-live (per `isChannelLive`)
+ * before the watchdog escalates a logged notice into `fatal`.
  *
  * Without this, a channel wedged in `reconnecting` (not `error` — that path
  * is already fatal above) emits exactly one `console.warn` on the first
- * degraded tick and then stays quiet forever: `overall === previousOverall`
+ * degraded tick and then stays quiet forever: `live === previousLive`
  * short-circuits every later tick to `quiet`. This service has no healthcheck
  * and no public domain, so nothing else would ever notice — `setup.md`'s
  * promise that the watchdog "rebuilds the host instead of leaving KiteBot
@@ -413,22 +495,42 @@ export type WatchdogAction =
 export const CHANNEL_DEGRADED_FATAL_MS = 10 * 60 * 1000;
 
 /**
- * Decide what to do about the channel's current health, given what was last
- * reported and how long (in ms) the channel has been continuously
- * non-`online`.
+ * Decide what to do about the channel's current health, given whether it was
+ * live on the LAST tick (`previousLive`) and how long (in ms) it has been
+ * continuously non-live.
  *
- * Boot-time liveness (Task: `unhealthyChannels`) says nothing about the hours
- * that follow. A managed session that drops goes `reconnecting`; one that
- * exhausts its bounded reconnect window goes `error` and never comes back. The
- * manager does NOT re-activate — so `error` is terminal, and the only useful
- * response is to exit and let the platform's restart policy rebuild the host.
- * A channel stuck `reconnecting` (never reaching `error`) is terminal in
- * effect, just slower, so it gets the same fatal treatment once
- * `degradedForMs` clears `CHANNEL_DEGRADED_FATAL_MS`.
+ * Keyed on `isChannelLive`, the one shared definition of "live" — NOT on raw
+ * `overall` (Finding 1). The old implementation branched solely on
+ * `health.overall`, so `{ overall: "online", channels: {} }` — the shape
+ * `ChannelManager.computeOverall` genuinely returns for a zero-length input,
+ * and which is exactly what THIS host's own declared channel silently missing
+ * from `entries` after activation looks like — read as `overall === "online"`
+ * forever: quiet on the first tick, quiet on every tick after, and
+ * `degradedForMs` never even starts (see `nextDegradedSince` below), so the
+ * 10-minute escalation could never fire. That is precisely the state this
+ * function's docstring already promised to catch. Deciding on `isChannelLive`
+ * instead makes that shape "not live" like any other degraded state, so it
+ * notices, then escalates, exactly like `reconnecting` does.
+ *
+ * Boot-time liveness (`unhealthyChannels`/`notLiveMessage`) says nothing about
+ * the hours that follow. A managed session that drops goes `reconnecting`;
+ * one that exhausts its bounded reconnect window goes `error` and never comes
+ * back. The manager does NOT re-activate — so `error` is terminal, and the
+ * only useful response is to exit and let the platform's restart policy
+ * rebuild the host. A channel stuck non-live for any other reason (never
+ * reaching `error`) is terminal in effect, just slower, so it gets the same
+ * fatal treatment once `degradedForMs` clears `CHANNEL_DEGRADED_FATAL_MS` —
+ * INCLUDING when `health` itself is missing (Finding 2): a status surface
+ * that stops returning readings is not "quiet," it's unknown, and unknown for
+ * ten-plus continuous minutes is exactly as actionable as `reconnecting` for
+ * that long. Only the `error` fast path above still requires `health` to be
+ * present, because it reports a specific status string that a missing
+ * reading cannot supply.
  *
  * `degradedForMs` is supplied by the caller (`main()` tracks a first-degraded
- * timestamp and does the clock read) — this function stays pure, with no
- * clock of its own, so it's unit-testable without faking time.
+ * timestamp and does the clock read, via the paired `nextDegradedSince`
+ * below) — this function stays pure, with no clock of its own, so it's
+ * unit-testable without faking time.
  *
  * The duration check runs BEFORE the "already reported" early-return below,
  * so a channel that has been silently quiet for many ticks still escalates
@@ -436,30 +538,36 @@ export const CHANNEL_DEGRADED_FATAL_MS = 10 * 60 * 1000;
  * suppressed by the first notice having already fired.
  *
  * Transitions are otherwise reported once, not once per tick, so a long
- * reconnect doesn't flood the logs.
+ * reconnect doesn't flood the logs. `main()` only advances `previousLive`
+ * when a reading was actually present (see the call site) — a missing
+ * reading leaves the dedup key exactly as it was, the same "no data is not a
+ * transition" stance `nextDegradedSince` takes for its own clock.
  */
 export function channelWatchdogTick(
   health: ChannelHealth | undefined,
-  previousOverall: string | undefined,
+  previousLive: boolean,
   degradedForMs: number,
   channelName: string,
 ): WatchdogAction {
-  if (!health) return { kind: "quiet" };
-  const { overall } = health;
-  if (overall === "error") {
+  const live = isChannelLive(health, channelName);
+  if (health?.overall === "error") {
     return {
       kind: "fatal",
       message: `channel is dead: ${unhealthyChannels(health, channelName).join(", ")}`,
     };
   }
-  if (overall !== "online" && degradedForMs >= CHANNEL_DEGRADED_FATAL_MS) {
+  if (!live && degradedForMs >= CHANNEL_DEGRADED_FATAL_MS) {
+    const detail = health
+      ? unhealthyChannels(health, channelName).join(", ")
+      : "no health reading";
     return {
       kind: "fatal",
-      message: `channel has been non-online for >= ${CHANNEL_DEGRADED_FATAL_MS / 60_000}m: ${unhealthyChannels(health, channelName).join(", ")}`,
+      message: `channel has been non-online for >= ${CHANNEL_DEGRADED_FATAL_MS / 60_000}m: ${detail}`,
     };
   }
-  if (overall === previousOverall) return { kind: "quiet" };
-  if (overall === "online") {
+  if (!health) return { kind: "quiet" };
+  if (live === previousLive) return { kind: "quiet" };
+  if (live) {
     return { kind: "notice", message: "channel recovered: overall=online" };
   }
   return {
@@ -482,9 +590,19 @@ export function channelWatchdogTick(
  * reading as "nothing to report" rather than "healthy" — this makes the
  * clock consistent with that.
  *
- * Only an AFFIRMATIVE `overall === "online"` resets the clock; anything else
- * (degraded, or no reading at all) leaves an existing timestamp alone and
- * only starts a fresh one if none was running.
+ * Only an AFFIRMATIVE `isChannelLive` resets the clock — the same shared
+ * predicate `unhealthyChannels` and `channelWatchdogTick` consult, NOT raw
+ * `overall === "online"` (Finding 1). Keying this on `overall` alone was the
+ * other half of the false-alive hazard: for `{ overall: "online", channels:
+ * {} }`, `overall === "online"` is true even though the declared channel is
+ * actually absent, so the old implementation reset the clock to `undefined`
+ * every single tick — `degradedForMs` could never accumulate, and
+ * `channelWatchdogTick`'s 10-minute escalation could never fire for that
+ * shape. `isChannelLive` correctly reads that shape as not-live, so the clock
+ * now starts (and keeps running) instead of being wiped.
+ *
+ * Anything else (degraded, or no reading at all) leaves an existing timestamp
+ * alone and only starts a fresh one if none was running.
  *
  * Takes `now` as a parameter instead of reading `Date.now()` itself, so this
  * stays pure and unit-testable without faking the clock — `main()`'s
@@ -494,9 +612,10 @@ export function nextDegradedSince(
   health: ChannelHealth | undefined,
   degradedSince: number | undefined,
   now: number,
+  channelName: string,
 ): number | undefined {
   if (!health) return degradedSince;
-  if (health.overall === "online") return undefined;
+  if (isChannelLive(health, channelName)) return undefined;
   return degradedSince ?? now;
 }
 
@@ -957,39 +1076,45 @@ async function main() {
       // …but resolving is not the same as live: `setup_required` and `unmanaged`
       // both settle terminally without the channel being able to send. Check the
       // status map before claiming success.
-      const notLive = unhealthyChannels(channels.status(), channelName);
-      if (notLive.length > 0) {
-        fatal(
-          `[channel] activation settled but the channel is NOT live: ${notLive.join(", ")}. ` +
-            `"setup_required" means the channel name exists in your Intelligence project but no ` +
-            `platform connector is bound to it — finish the connector setup in the Intelligence ` +
-            `dashboard, then redeploy this service.`,
-        );
+      const bootHealth = channels.status();
+      if (unhealthyChannels(bootHealth, channelName).length > 0) {
+        fatal(`[channel] ${notLiveMessage(bootHealth, channelName)}`);
       }
       console.log(
         `[channel] KiteBot channel "${channel.name}" mounted on :${port} → Intelligence gateway (channel live)`,
       );
-      let previousOverall = "online";
-      // First-degraded timestamp: unset while the channel is online, set to
+      // Confirmed live by the boot gate just above (isChannelLive === true),
+      // so the watchdog's dedup key starts in agreement with that.
+      let previousLive = true;
+      // First-degraded timestamp: unset while the channel is live, set to
       // `Date.now()` the moment it first isn't (via the pure `nextDegradedSince`
       // above — a missing reading leaves it untouched rather than resetting it,
-      // and only an affirmative `overall === "online"` resets it).
+      // and only an affirmative `isChannelLive` resets it — the same shared
+      // predicate `channelWatchdogTick` decides on, not raw `overall`).
       // `channelWatchdogTick` stays pure (no clock of its own) by taking the
       // elapsed duration as a plain number — this is the one place that reads
       // the clock and does the subtraction.
       let degradedSince: number | undefined;
       watchdog = setInterval(() => {
         const health = channels.status();
-        degradedSince = nextDegradedSince(health, degradedSince, Date.now());
+        degradedSince = nextDegradedSince(
+          health,
+          degradedSince,
+          Date.now(),
+          channelName,
+        );
         const degradedForMs =
           degradedSince === undefined ? 0 : Date.now() - degradedSince;
         const action = channelWatchdogTick(
           health,
-          previousOverall,
+          previousLive,
           degradedForMs,
           channelName,
         );
-        if (health) previousOverall = health.overall;
+        // Only advance the dedup key when a reading was actually present — a
+        // missing reading is "no data," not a transition, the same stance
+        // `nextDegradedSince` takes for its own clock.
+        if (health) previousLive = isChannelLive(health, channelName);
         if (action.kind === "fatal") {
           console.error(
             `[channel] ${action.message} — exiting so the platform restarts the host`,

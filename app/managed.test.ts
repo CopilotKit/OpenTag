@@ -6,7 +6,9 @@ import {
   buildAgentHeaders,
   httpAuthGate,
   MANAGED_COMPONENTS,
+  isChannelLive,
   unhealthyChannels,
+  notLiveMessage,
   channelWatchdogTick,
   CHANNEL_DEGRADED_FATAL_MS,
   nextDegradedSince,
@@ -16,6 +18,7 @@ import {
   requireNonBlank,
   requireUrl,
   fatalText,
+  type ChannelHealth,
 } from "./managed.js";
 
 describe("createKiteChannel", () => {
@@ -297,6 +300,51 @@ describe("buildAgentHeaders", () => {
   });
 });
 
+describe("isChannelLive (the single definition of liveness)", () => {
+  it("is false when there is no control surface", () => {
+    expect(isChannelLive(undefined, "kite-opentag")).toBe(false);
+  });
+
+  it("is true when the declared channel is present and online", () => {
+    expect(
+      isChannelLive(
+        { overall: "online", channels: { "kite-opentag": "online" } },
+        "kite-opentag",
+      ),
+    ).toBe(true);
+  });
+
+  it("is false when the declared channel is present but not online", () => {
+    expect(
+      isChannelLive(
+        { overall: "setup_required", channels: { "kite-opentag": "setup_required" } },
+        "kite-opentag",
+      ),
+    ).toBe(false);
+  });
+
+  it("is false when the declared channel is absent, even if overall reports online", () => {
+    // THE CRITICAL DISAGREEMENT (Finding 1): `ChannelManager.computeOverall`
+    // returns "online" for a ZERO-length input, so `{ overall: "online",
+    // channels: {} }` is a shape the manager genuinely produces — not only
+    // for a host with no declared channels, but for THIS host's own declared
+    // channel silently missing from `entries` after activation. `overall`
+    // alone says "online"; this predicate must say "not live."
+    expect(isChannelLive({ overall: "online", channels: {} }, "kite-opentag")).toBe(
+      false,
+    );
+  });
+
+  it("is false when a different channel is online but the declared one is absent", () => {
+    expect(
+      isChannelLive(
+        { overall: "online", channels: { "some-other-channel": "online" } },
+        "kite-opentag",
+      ),
+    ).toBe(false);
+  });
+});
+
 describe("unhealthyChannels", () => {
   it("reports nothing when there is no control surface", () => {
     // Defensive purity only — NOT a success signal. `main()` resolves
@@ -360,15 +408,17 @@ describe("unhealthyChannels", () => {
     ).toEqual(["b=setup_required", "c=reconnecting"]);
   });
 
-  it("reports overall=connecting when activation hasn't produced any channel entries yet", () => {
+  it("reports the declared channel as absent (naming overall, not contradicting it) when activation hasn't produced any channel entries yet", () => {
     // THE REGRESSION: per the installed ChannelManager.status(), before
     // activation completes status() returns { overall: "connecting", channels:
     // {} } — an EMPTY map. Filtering only `channels` finds nothing to filter
     // and used to return [], so the boot gate logged "(channel live)" for a
-    // channel that never activated.
+    // channel that never activated. Also Finding 3: the OLD fold-in reported
+    // this as the self-contradicting `overall=connecting` string with no
+    // channel name in it at all; report the declared channel by name instead.
     expect(
       unhealthyChannels({ overall: "connecting", channels: {} }, "kite-opentag"),
-    ).toEqual(["overall=connecting"]);
+    ).toEqual(["kite-opentag=absent (overall=connecting)"]);
   });
 
   it("reports the stopped channel by name once every managed channel has been torn down", () => {
@@ -378,9 +428,8 @@ describe("unhealthyChannels", () => {
     // `status()` builds `channels` from `entries` in every branch, including
     // the `this.stopped` one). So the post-stop map is non-empty and already
     // reads `{ "kite-opentag": "stopped" }` — `{ channels: {} }` is a shape
-    // the manager cannot actually produce after stop(). This is caught by the
-    // per-channel filter directly (same path as the setup_required case
-    // above), not by the overall fold.
+    // the manager cannot actually produce after stop(). This is the ordinary
+    // "present but non-online" branch, not the "absent" one.
     expect(
       unhealthyChannels(
         { overall: "stopped", channels: { "kite-opentag": "stopped" } },
@@ -390,19 +439,23 @@ describe("unhealthyChannels", () => {
   });
 
   it("does NOT report healthy when overall is online but the declared channel is absent from the map", () => {
-    // THE BUG THIS GUARDS: `ChannelManager.computeOverall` returns "online"
-    // for a ZERO-length input (confirmed in the installed channel-manager.mjs:
-    // `if (values.length === 0) return "online"`), so `{ overall: "online",
-    // channels: {} }` is a shape the manager can genuinely produce — not just
-    // for a host with no declared channels, but for the pathological case of
-    // THIS host's own declared channel silently missing from the manager's
-    // entries after activation. The old implementation inferred health from
-    // the absence of bad entries and returned `[]` here — the exact
-    // false-alive state the boot gate exists to kill. Assert positively that
-    // the channel this host declared is present and online, by name, instead.
+    // THE BUG THIS GUARDS (Finding 1): `ChannelManager.computeOverall` returns
+    // "online" for a ZERO-length input (confirmed in the installed
+    // channel-manager.mjs: `if (values.length === 0) return "online"`), so `{
+    // overall: "online", channels: {} }` is a shape the manager can genuinely
+    // produce — not just for a host with no declared channels, but for the
+    // pathological case of THIS host's own declared channel silently missing
+    // from the manager's entries after activation. The old implementation
+    // inferred health from the absence of bad entries and returned `[]` here
+    // — the exact false-alive state the boot gate exists to kill.
+    //
+    // Finding 3: the message also must not contradict itself. The OLD
+    // implementation printed the literal, self-contradicting
+    // "overall=online" for this exact case ("NOT live: overall=online").
+    // Name the channel and its real condition instead.
     expect(
       unhealthyChannels({ overall: "online", channels: {} }, "kite-opentag"),
-    ).toEqual(["overall=online"]);
+    ).toEqual(["kite-opentag=absent (overall=online)"]);
   });
 
   it("does not report healthy when a different channel is online but the declared one is missing", () => {
@@ -414,41 +467,100 @@ describe("unhealthyChannels", () => {
         { overall: "online", channels: { "some-other-channel": "online" } },
         "kite-opentag",
       ),
-    ).toEqual(["overall=online"]);
+    ).toEqual(["kite-opentag=absent (overall=online)"]);
   });
 
-  it("surfaces a degraded overall even when every present per-channel entry reads online", () => {
-    // The fold-in condition is broader than "the map is empty": it triggers
-    // whenever the per-channel filter finds nothing UNHEALTHY to report —
-    // which also covers a non-empty, all-online map that simply omits the
-    // declared channel. Without this case, a degraded `overall` (not just
-    // "online") sitting alongside an all-clear-looking map would slip past
-    // both the per-channel filter (nothing to filter) and get read as
-    // healthy.
+  it("surfaces the declared channel's absence even when every present per-channel entry reads online", () => {
+    // The declared-channel check is now unconditional, not a fallback that
+    // only fires when the per-channel filter over every OTHER entry finds
+    // nothing — so a degraded `overall` (not just "online") sitting alongside
+    // an all-clear-looking map for OTHER channels still surfaces the declared
+    // channel's own absence.
     expect(
       unhealthyChannels(
         { overall: "setup_required", channels: { "some-other-channel": "online" } },
         "kite-opentag",
       ),
-    ).toEqual(["overall=setup_required"]);
+    ).toEqual(["kite-opentag=absent (overall=setup_required)"]);
+  });
+
+  it("surfaces the declared channel's absence AND another channel's bad status together, not one shadowing the other", () => {
+    // THE BUG THIS GUARDS (Finding 3, "the buried fact"): with the OLD
+    // implementation, a non-empty per-channel filter result short-circuited
+    // before the by-name presence check ever ran — so if the map is `{
+    // "some-other-channel": "reconnecting" }` and the declared channel is
+    // absent entirely, only "some-other-channel=reconnecting" was reported.
+    // The more serious fact — THIS host's own channel is missing — was never
+    // surfaced. The by-name check must be unconditional, and the declared
+    // channel's own absence must lead, not follow.
+    expect(
+      unhealthyChannels(
+        { overall: "reconnecting", channels: { "some-other-channel": "reconnecting" } },
+        "kite-opentag",
+      ),
+    ).toEqual([
+      "kite-opentag=absent (overall=reconnecting)",
+      "some-other-channel=reconnecting",
+    ]);
+  });
+});
+
+describe("notLiveMessage", () => {
+  it("appends the setup_required remediation only when the declared channel's own status is setup_required", () => {
+    expect(
+      notLiveMessage(
+        {
+          overall: "setup_required",
+          channels: { "kite-opentag": "setup_required" },
+        },
+        "kite-opentag",
+      ),
+    ).toBe(
+      'activation settled but the channel is NOT live: kite-opentag=setup_required. "setup_required" means the channel name exists in your Intelligence project but no platform connector is bound to it — finish the connector setup in the Intelligence dashboard, then redeploy this service.',
+    );
+  });
+
+  it("omits the setup_required remediation for the absent-from-entries false-alive shape", () => {
+    // THE BUG THIS GUARDS (Finding 3): the OLD message unconditionally told
+    // every operator to "finish the connector setup in the Intelligence
+    // dashboard" — including for `{ overall: "online", channels: {} }`, where
+    // that advice is not just unhelpful but wrong: there is no connector step
+    // to finish, the channel's entry never got created at all.
+    expect(
+      notLiveMessage({ overall: "online", channels: {} }, "kite-opentag"),
+    ).toBe(
+      "activation settled but the channel is NOT live: kite-opentag=absent (overall=online).",
+    );
+  });
+
+  it("omits the setup_required remediation for a stopped channel", () => {
+    expect(
+      notLiveMessage(
+        { overall: "stopped", channels: { "kite-opentag": "stopped" } },
+        "kite-opentag",
+      ),
+    ).toBe("activation settled but the channel is NOT live: kite-opentag=stopped.");
   });
 });
 
 describe("channelWatchdogTick", () => {
-  const health = (overall: string) => ({
+  // `previousLive` is now a boolean — the watchdog's dedup key is keyed on
+  // the SAME shared `isChannelLive` predicate as the boot gate and
+  // `nextDegradedSince`, not on raw `overall` (Finding 1).
+  const health = (overall: ChannelHealth["overall"]): ChannelHealth => ({
     overall,
     channels: { "kite-opentag": overall },
   });
 
-  it("is quiet when there is no control surface", () => {
-    expect(channelWatchdogTick(undefined, "online", 0, "kite-opentag")).toEqual({
+  it("is quiet when there is no control surface and degradedForMs is still low", () => {
+    expect(channelWatchdogTick(undefined, true, 0, "kite-opentag")).toEqual({
       kind: "quiet",
     });
   });
 
   it("is quiet while the channel stays online", () => {
     expect(
-      channelWatchdogTick(health("online"), "online", 0, "kite-opentag"),
+      channelWatchdogTick(health("online"), true, 0, "kite-opentag"),
     ).toEqual({
       kind: "quiet",
     });
@@ -458,7 +570,7 @@ describe("channelWatchdogTick", () => {
     // `error` here means the session exhausted its bounded reconnect window.
     // Exiting is what lets Railway's ON_FAILURE policy restart the host.
     expect(
-      channelWatchdogTick(health("error"), "online", 0, "kite-opentag"),
+      channelWatchdogTick(health("error"), true, 0, "kite-opentag"),
     ).toEqual({
       kind: "fatal",
       message: "channel is dead: kite-opentag=error",
@@ -467,7 +579,7 @@ describe("channelWatchdogTick", () => {
 
   it("notices the first tick of a degraded state", () => {
     expect(
-      channelWatchdogTick(health("reconnecting"), "online", 0, "kite-opentag"),
+      channelWatchdogTick(health("reconnecting"), true, 0, "kite-opentag"),
     ).toEqual({
       kind: "notice",
       message: "channel degraded: kite-opentag=reconnecting",
@@ -477,34 +589,108 @@ describe("channelWatchdogTick", () => {
   it("does not repeat a degraded state it already reported", () => {
     // A drop that takes minutes to resolve must not emit one line per tick.
     expect(
-      channelWatchdogTick(
-        health("reconnecting"),
-        "reconnecting",
-        0,
-        "kite-opentag",
-      ),
+      channelWatchdogTick(health("reconnecting"), false, 0, "kite-opentag"),
     ).toEqual({ kind: "quiet" });
   });
 
   it("notices recovery back to online", () => {
     expect(
-      channelWatchdogTick(health("online"), "reconnecting", 0, "kite-opentag"),
+      channelWatchdogTick(health("online"), false, 0, "kite-opentag"),
     ).toEqual({
       kind: "notice",
       message: "channel recovered: overall=online",
     });
   });
 
+  describe("Finding 1: keyed on isChannelLive, not on raw overall", () => {
+    it("treats { overall: online, channels: {} } as degraded, not quiet — the false-alive shape the boot gate was hardened to catch", () => {
+      // THE BUG THIS GUARDS: the OLD implementation branched solely on
+      // `health.overall`, so this exact shape — which `ChannelManager.
+      // computeOverall` genuinely returns for a zero-length input, and which
+      // is what THIS host's own declared channel silently missing from
+      // `entries` looks like — read as `overall === "online"` forever:
+      // `{ kind: "quiet" }` on every tick, no matter how long it persisted.
+      const falseAlive: ChannelHealth = { overall: "online", channels: {} };
+      expect(
+        channelWatchdogTick(falseAlive, true, 0, "kite-opentag"),
+      ).toEqual({
+        kind: "notice",
+        message: "channel degraded: kite-opentag=absent (overall=online)",
+      });
+    });
+
+    it("escalates the false-alive shape to fatal once degradedForMs crosses the threshold", () => {
+      const falseAlive: ChannelHealth = { overall: "online", channels: {} };
+      expect(
+        channelWatchdogTick(
+          falseAlive,
+          false,
+          CHANNEL_DEGRADED_FATAL_MS,
+          "kite-opentag",
+        ),
+      ).toEqual({
+        kind: "fatal",
+        message: `channel has been non-online for >= ${CHANNEL_DEGRADED_FATAL_MS / 60_000}m: kite-opentag=absent (overall=online)`,
+      });
+    });
+
+    it("stays quiet (already reported) on a later tick of the false-alive shape below the threshold", () => {
+      const falseAlive: ChannelHealth = { overall: "online", channels: {} };
+      expect(
+        channelWatchdogTick(
+          falseAlive,
+          false,
+          CHANNEL_DEGRADED_FATAL_MS - 1,
+          "kite-opentag",
+        ),
+      ).toEqual({ kind: "quiet" });
+    });
+  });
+
+  describe("Finding 2: a missing health reading escalates too, instead of staying quiet forever", () => {
+    it("escalates when the health reading itself is missing and degradedForMs crosses the threshold", () => {
+      // THE BUG THIS GUARDS: the OLD implementation returned `{ kind: "quiet"
+      // }` unconditionally whenever `health` was undefined — so a status
+      // surface that stopped returning readings accumulated an
+      // ever-growing `degradedForMs` (per `nextDegradedSince`, which
+      // correctly preserves the clock on a missing reading) that could NEVER
+      // trip the escalation, because this function never even looked at it
+      // in that branch.
+      expect(
+        channelWatchdogTick(
+          undefined,
+          false,
+          CHANNEL_DEGRADED_FATAL_MS,
+          "kite-opentag",
+        ),
+      ).toEqual({
+        kind: "fatal",
+        message: `channel has been non-online for >= ${CHANNEL_DEGRADED_FATAL_MS / 60_000}m: no health reading`,
+      });
+    });
+
+    it("stays quiet for a missing reading below the threshold", () => {
+      expect(
+        channelWatchdogTick(
+          undefined,
+          false,
+          CHANNEL_DEGRADED_FATAL_MS - 1,
+          "kite-opentag",
+        ),
+      ).toEqual({ kind: "quiet" });
+    });
+  });
+
   describe("escalation after CHANNEL_DEGRADED_FATAL_MS", () => {
     it("stays quiet just below the threshold, even on an already-reported degraded state", () => {
       // Regression this guards: a channel wedged in `reconnecting` used to
-      // notice once and then stay quiet FOREVER — `overall === previousOverall`
+      // notice once and then stay quiet FOREVER — `live === previousLive`
       // suppressed every later tick. Confirm sub-threshold ticks are still
       // quiet (not yet fatal), not that the old silent-forever bug is back.
       expect(
         channelWatchdogTick(
           health("reconnecting"),
-          "reconnecting",
+          false,
           CHANNEL_DEGRADED_FATAL_MS - 1,
           "kite-opentag",
         ),
@@ -517,12 +703,7 @@ describe("channelWatchdogTick", () => {
       // reports as a plain "degraded" notice via the general branch below —
       // this only holds while degradedForMs stays under threshold.
       expect(
-        channelWatchdogTick(
-          health("reconnecting"),
-          "online",
-          1_000,
-          "kite-opentag",
-        ),
+        channelWatchdogTick(health("reconnecting"), true, 1_000, "kite-opentag"),
       ).toEqual({
         kind: "notice",
         message: "channel degraded: kite-opentag=reconnecting",
@@ -533,7 +714,7 @@ describe("channelWatchdogTick", () => {
       expect(
         channelWatchdogTick(
           health("reconnecting"),
-          "reconnecting",
+          false,
           CHANNEL_DEGRADED_FATAL_MS,
           "kite-opentag",
         ),
@@ -547,7 +728,7 @@ describe("channelWatchdogTick", () => {
       expect(
         channelWatchdogTick(
           health("reconnecting"),
-          "reconnecting",
+          false,
           CHANNEL_DEGRADED_FATAL_MS + 60_000,
           "kite-opentag",
         ),
@@ -564,7 +745,7 @@ describe("channelWatchdogTick", () => {
       expect(
         channelWatchdogTick(
           health("reconnecting"),
-          "reconnecting",
+          false,
           CHANNEL_DEGRADED_FATAL_MS + 1,
           "kite-opentag",
         ).kind,
@@ -573,13 +754,13 @@ describe("channelWatchdogTick", () => {
 
     it("never escalates while online, no matter how large a stale degradedForMs is passed in", () => {
       // Models recovery resetting the clock: main() zeroes degradedSince the
-      // moment overall goes back to "online", so a later degradation starts
+      // moment the channel becomes live again, so a later degradation starts
       // counting from zero again. The pure function itself also refuses to
-      // go fatal while online, as a defensive backstop.
+      // go fatal while live, as a defensive backstop.
       expect(
         channelWatchdogTick(
           health("online"),
-          "reconnecting",
+          false,
           CHANNEL_DEGRADED_FATAL_MS + 1_000_000,
           "kite-opentag",
         ),
@@ -592,19 +773,21 @@ describe("channelWatchdogTick", () => {
 });
 
 describe("nextDegradedSince", () => {
-  const health = (overall: string) => ({
+  const health = (overall: ChannelHealth["overall"]): ChannelHealth => ({
     overall,
     channels: { "kite-opentag": overall },
   });
 
   it("sets the clock on the first degraded reading", () => {
-    expect(nextDegradedSince(health("reconnecting"), undefined, 1_000)).toBe(
-      1_000,
-    );
+    expect(
+      nextDegradedSince(health("reconnecting"), undefined, 1_000, "kite-opentag"),
+    ).toBe(1_000);
   });
 
   it("preserves the original timestamp across a continuing degradation", () => {
-    expect(nextDegradedSince(health("reconnecting"), 500, 1_000)).toBe(500);
+    expect(
+      nextDegradedSince(health("reconnecting"), 500, 1_000, "kite-opentag"),
+    ).toBe(500);
   });
 
   it("preserves an existing clock when the health reading is missing (undefined)", () => {
@@ -616,23 +799,57 @@ describe("nextDegradedSince", () => {
     // reading could never accumulate the continuous duration
     // CHANNEL_DEGRADED_FATAL_MS checks for, and the 10-minute escalation
     // would never fire.
-    expect(nextDegradedSince(undefined, 500, 1_000)).toBe(500);
+    expect(nextDegradedSince(undefined, 500, 1_000, "kite-opentag")).toBe(500);
   });
 
   it("preserves undefined when there is no existing clock and the health reading is missing", () => {
-    expect(nextDegradedSince(undefined, undefined, 1_000)).toBeUndefined();
+    expect(
+      nextDegradedSince(undefined, undefined, 1_000, "kite-opentag"),
+    ).toBeUndefined();
   });
 
-  it("clears the clock the moment overall reports online", () => {
-    expect(nextDegradedSince(health("online"), 500, 1_000)).toBeUndefined();
+  it("clears the clock the moment the declared channel reports online", () => {
+    expect(
+      nextDegradedSince(health("online"), 500, 1_000, "kite-opentag"),
+    ).toBeUndefined();
   });
 
   it("starts a fresh clock for a new degradation after a recovery", () => {
-    const afterRecovery = nextDegradedSince(health("online"), 500, 1_000);
-    expect(afterRecovery).toBeUndefined();
-    expect(nextDegradedSince(health("reconnecting"), afterRecovery, 2_000)).toBe(
-      2_000,
+    const afterRecovery = nextDegradedSince(
+      health("online"),
+      500,
+      1_000,
+      "kite-opentag",
     );
+    expect(afterRecovery).toBeUndefined();
+    expect(
+      nextDegradedSince(health("reconnecting"), afterRecovery, 2_000, "kite-opentag"),
+    ).toBe(2_000);
+  });
+
+  describe("Finding 1: keyed on isChannelLive, not on raw overall === \"online\"", () => {
+    it("does NOT clear the clock for { overall: online, channels: {} } — the declared channel is absent, not live", () => {
+      // THE BUG THIS GUARDS: the OLD implementation reset the clock on raw
+      // `health.overall === "online"`, which is true for this exact shape
+      // even though the declared channel itself is absent from `entries`.
+      // `ChannelManager.computeOverall` genuinely returns "online" for a
+      // zero-length input, so the OLD code wiped `degradedSince` to
+      // `undefined` on EVERY tick for a host whose declared channel silently
+      // dropped out of the manager's entries — `degradedForMs` could never
+      // accumulate, and `channelWatchdogTick`'s 10-minute escalation could
+      // never fire for that shape.
+      const falseAlive: ChannelHealth = { overall: "online", channels: {} };
+      expect(nextDegradedSince(falseAlive, 500, 1_000, "kite-opentag")).toBe(
+        500,
+      );
+    });
+
+    it("starts the clock for { overall: online, channels: {} } when none was running yet", () => {
+      const falseAlive: ChannelHealth = { overall: "online", channels: {} };
+      expect(
+        nextDegradedSince(falseAlive, undefined, 1_000, "kite-opentag"),
+      ).toBe(1_000);
+    });
   });
 });
 
