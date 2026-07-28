@@ -1,4 +1,4 @@
-"""FastAPI server for the OpenTag research agent."""
+"""FastAPI server for the OpenTag triage agent."""
 
 from collections.abc import Mapping
 import os
@@ -12,14 +12,15 @@ from fastapi.middleware.cors import CORSMiddleware
 from agent import build_agent
 
 app = FastAPI(
-    title="OpenTag Deep Research Agent",
-    description="A research assistant powered by Deep Agents and CopilotKit",
+    title="OpenTag Agent",
+    description="An on-call triage assistant powered by Deep Agents and CopilotKit",
     version="0.1.0",
 )
 
 AGENT_NAME = "opentag_research"
 AGENT_DESCRIPTION = (
-    "OpenTag deep research assistant — plans, searches, and synthesizes cited briefs"
+    "OpenTag on-call triage assistant for incidents, research, and "
+    "Linear/Notion workflows"
 )
 
 # Allow all origins locally, or set CORS_ALLOW_ORIGINS to restrict access.
@@ -40,7 +41,7 @@ app.add_middleware(
 @app.get("/health")
 def health():
     """Return service health."""
-    return {"status": "ok", "service": "opentag-research-agent", "version": "0.1.0"}
+    return {"status": "ok", "service": "opentag-agent", "version": "0.1.0"}
 
 
 def local_server_port(env: Mapping[str, str] = os.environ) -> int:
@@ -70,7 +71,7 @@ try:
         path="/",
     )
 
-    print("[SERVER] Deep Research Agent registered at /")
+    print("[SERVER] OpenTag Agent registered at /")
 except Exception as error:
     print(f"[ERROR] Failed to build agent: {error}", file=sys.stderr)
     raise

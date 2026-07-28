@@ -15,7 +15,7 @@ def test_health_ok(monkeypatch):
     assert r.status_code == 200
     assert r.json() == {
         "status": "ok",
-        "service": "opentag-research-agent",
+        "service": "opentag-agent",
         "version": "0.1.0",
     }
 
@@ -27,9 +27,9 @@ def test_server_exposes_opentag_metadata(monkeypatch):
     monkeypatch.delenv("NOTION_MCP_AUTH_TOKEN", raising=False)
     import main
 
-    assert main.app.title == "OpenTag Deep Research Agent"
+    assert main.app.title == "OpenTag Agent"
     assert main.AGENT_NAME == "opentag_research"
-    assert main.AGENT_DESCRIPTION.startswith("OpenTag deep research assistant")
+    assert main.AGENT_DESCRIPTION.startswith("OpenTag on-call triage assistant")
 
 
 def test_local_agent_port_ignores_the_shared_channel_port():
@@ -55,7 +55,7 @@ def test_build_agent_without_tavily(monkeypatch, capsys):
     graph = agent_mod.build_agent()
     assert graph is not None
     out = capsys.readouterr().out
-    assert "[AGENT] research: disabled" in out
+    assert "[AGENT] web search: disabled" in out
 
 
 def test_build_agent_with_tavily(monkeypatch, capsys):
@@ -66,7 +66,7 @@ def test_build_agent_with_tavily(monkeypatch, capsys):
     graph = agent_mod.build_agent()
     assert graph is not None
     out = capsys.readouterr().out
-    assert "[AGENT] research: enabled" in out
+    assert "[AGENT] web search: enabled" in out
 
 
 def test_build_agent_requires_openai(monkeypatch):
@@ -113,4 +113,4 @@ def test_system_prompt_requires_confirmation_only_for_writes():
 
 
 def test_system_prompt_uses_opentag_persona():
-    assert "OpenTag's Deep Research Assistant" in agent_mod.BASE_SYSTEM_PROMPT
+    assert "OpenTag, your team's on-call triage assistant" in agent_mod.BASE_SYSTEM_PROMPT
