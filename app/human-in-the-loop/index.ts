@@ -7,4 +7,3 @@
  * event posts `ConfirmWrite`; the card's buttons call `thread.resume(...)`.
  */
 export { ConfirmWrite } from "./confirm-write.js";
-export type { ConfirmWriteProps } from "./confirm-write.js";

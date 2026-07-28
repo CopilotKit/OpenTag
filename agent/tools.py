@@ -7,9 +7,9 @@ from langchain_core.tools import tool
 from tavily import TavilyClient
 
 
-def _do_internet_search(query: str, max_results: int = 5) -> list[dict[str, Any]]:
+def _search_tavily(query: str, max_results: int = 5) -> list[dict[str, Any]]:
     """Search Tavily and normalize its results."""
-    print(f"[TOOL] internet_search: query='{query}', max_results={max_results}")
+    print(f"[TOOL] web_search: query='{query}', max_results={max_results}")
 
     tavily_key = os.environ.get("TAVILY_API_KEY")
     if not tavily_key:
@@ -34,7 +34,7 @@ def _do_internet_search(query: str, max_results: int = 5) -> list[dict[str, Any]
                 }
             )
 
-        print(f"[TOOL] internet_search: found {len(formatted_results)} results")
+        print(f"[TOOL] web_search: found {len(formatted_results)} results")
         return formatted_results
 
     except Exception as error:
@@ -44,4 +44,4 @@ def _do_internet_search(query: str, max_results: int = 5) -> list[dict[str, Any]
 @tool
 def web_search(query: str, max_results: int = 5) -> list[dict[str, Any]]:
     """Search the live web and return source URLs with concise content snippets."""
-    return _do_internet_search(query, max_results)
+    return _search_tavily(query, max_results)

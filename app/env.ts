@@ -26,21 +26,12 @@ export function parsePort(
   raw: string | undefined,
   defaultPort = 3000,
   name = "PORT",
-  options: {
-    emptyIsDefault?: boolean;
-    strictDecimal?: boolean;
-  } = {},
 ): number {
-  const value = options.emptyIsDefault && raw === "" ? undefined : raw;
-  if (value === undefined) return defaultPort;
+  if (raw === undefined) return defaultPort;
 
-  if (options.strictDecimal && !/^\d+$/.test(value)) {
-    throw new Error(`Invalid ${name}: "${value}"`);
-  }
-
-  const port = Number(value);
+  const port = Number(raw);
   if (!Number.isInteger(port) || port < 1 || port > 65_535) {
-    throw new Error(`Invalid ${name}: "${value}"`);
+    throw new Error(`Invalid ${name}: "${raw}"`);
   }
   return port;
 }

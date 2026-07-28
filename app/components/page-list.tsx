@@ -48,7 +48,7 @@ export const pageListSchema = z.object({
   pages: z.array(pageSchema).min(1).describe("The pages to render."),
 });
 
-export type PageListProps = z.infer<typeof pageListSchema>;
+type PageListProps = z.infer<typeof pageListSchema>;
 type Page = z.infer<typeof pageSchema>;
 
 /** Max pages rendered inline; the rest are summarized in the footer. */

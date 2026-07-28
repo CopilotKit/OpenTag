@@ -65,8 +65,13 @@ describe("Railway deployment graph", () => {
         healthcheckPath: "/health",
       },
     });
-    expect(agent?.variables).not.toHaveProperty("NOTION_MCP_URL");
-    expect(agent?.variables).not.toHaveProperty("NOTION_MCP_AUTH_TOKEN");
+    expect(agent?.variables).toMatchObject({
+      OPENAI_API_KEY: { type: "preserve" },
+      TAVILY_API_KEY: { type: "preserve" },
+      LINEAR_API_KEY: { type: "preserve" },
+      NOTION_MCP_URL: { type: "preserve" },
+      NOTION_MCP_AUTH_TOKEN: { type: "preserve" },
+    });
 
     const runtime = resources.find(({ name }) => name === "runtime");
     expect(runtime).toMatchObject({

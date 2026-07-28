@@ -935,7 +935,7 @@ dev = [
 requires-dist = [
     { name = "ag-ui-langgraph", specifier = ">=0.0.23" },
     { name = "copilotkit", specifier = ">=0.1.76" },
-    { name = "deepagents", specifier = ">=0.3.5" },
+    { name = "deepagents", specifier = ">=0.6.12" },
     { name = "fastapi", specifier = ">=0.115.14" },
     { name = "langchain", specifier = ">=1.2.4" },
     { name = "langchain-mcp-adapters", specifier = ">=0.3.0" },

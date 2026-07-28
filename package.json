@@ -10,7 +10,6 @@
     "start": "tsx server.ts",
     "runtime": "tsx server.ts",
     "agent": "cd agent && uv run python main.py",
-    "notion-mcp": "tsx scripts/start-notion-mcp.ts",
     "check-types": "tsc --noEmit -p tsconfig.json",
     "test": "vitest run",
     "e2e": "tsx e2e/run.ts"
@@ -19,7 +18,6 @@
     "@ag-ui/client": "^0.0.57",
     "@copilotkit/channels": "0.2.2-canary.rc-1",
     "@copilotkit/runtime": "1.63.3-canary.rc-1",
-    "@notionhq/notion-mcp-server": "^2.4.0",
     "dotenv": "^16.4.5",
     "playwright": "^1.49.0",
     "tsx": "^4.19.2",

@@ -45,7 +45,7 @@ export async function postAsUser(
 ) {
   if (!USER_TOKEN) {
     throw new Error(
-      "SLACK_USER_TOKEN missing — run `pnpm exec tsx e2e/grab-user-token.ts` first",
+      "SLACK_USER_TOKEN missing — add an xoxp token with chat:write to .env; see e2e/README.md",
     );
   }
   // `link_names: 1` makes Slack resolve `@username` (and `@here`/`@channel`)

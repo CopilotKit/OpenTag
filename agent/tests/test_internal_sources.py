@@ -18,7 +18,7 @@ def test_mcp_servers_are_configured_in_one_place():
         "notion": {
             "token_env": "NOTION_MCP_AUTH_TOKEN",
             "url_env": "NOTION_MCP_URL",
-            "default_url": "http://127.0.0.1:3001/mcp",
+            "default_url": None,
         },
     }
 
@@ -27,6 +27,17 @@ def test_internal_source_tools_empty_without_env(monkeypatch):
     monkeypatch.delenv("LINEAR_API_KEY", raising=False)
     monkeypatch.delenv("NOTION_MCP_AUTH_TOKEN", raising=False)
     assert internal_sources.internal_source_tools() == []
+
+
+@pytest.mark.parametrize(
+    "env",
+    [
+        {"NOTION_MCP_AUTH_TOKEN": "notion-test-token"},
+        {"NOTION_MCP_URL": "https://notion.example.test/mcp"},
+    ],
+)
+def test_remote_notion_requires_both_url_and_auth_token(env):
+    assert internal_sources._configured_connections(env) == {}
 
 
 def test_internal_source_tools_loads_when_env_set(monkeypatch):
@@ -112,6 +123,10 @@ def test_one_unavailable_source_does_not_remove_the_other(
 
     monkeypatch.setenv("LINEAR_API_KEY", "lin_api_test")
     monkeypatch.setenv("NOTION_MCP_AUTH_TOKEN", "notion-test-token")
+    monkeypatch.setenv(
+        "NOTION_MCP_URL",
+        "https://notion.example.test/mcp",
+    )
     monkeypatch.setattr(
         internal_sources,
         "MultiServerMCPClient",

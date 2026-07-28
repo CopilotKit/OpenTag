@@ -21,7 +21,7 @@ MCP_SERVERS = {
     "notion": {
         "token_env": "NOTION_MCP_AUTH_TOKEN",
         "url_env": "NOTION_MCP_URL",
-        "default_url": "http://127.0.0.1:3001/mcp",
+        "default_url": None,
     },
 }
 MCP_LOAD_TIMEOUT_SECONDS = 8.0
@@ -57,12 +57,29 @@ def _configured_connections(
     connections: dict[str, dict[str, Any]] = {}
     for name, config in MCP_SERVERS.items():
         token = env.get(config["token_env"])
+        configured_url = env.get(config["url_env"])
+        url = configured_url or config["default_url"]
         if not token:
+            if configured_url:
+                logger.warning(
+                    "[TOOLS] skipping %s: %s must be set with %s",
+                    name,
+                    config["token_env"],
+                    config["url_env"],
+                )
+            continue
+        if not url:
+            logger.warning(
+                "[TOOLS] skipping %s: %s must be set with %s",
+                name,
+                config["url_env"],
+                config["token_env"],
+            )
             continue
 
         connections[name] = {
             "transport": "streamable_http",
-            "url": env.get(config["url_env"], config["default_url"]),
+            "url": url,
             "headers": {"Authorization": f"Bearer {token}"},
         }
     return connections

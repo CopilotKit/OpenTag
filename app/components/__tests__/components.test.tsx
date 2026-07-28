@@ -336,7 +336,7 @@ describe("PageList component", () => {
 });
 
 describe("Microsoft Teams rendering parity", () => {
-  it("renders rich issue and page content as an Adaptive Card", () => {
+  it("renders rich issue and page content as Adaptive Cards", () => {
     const issue = renderAdaptiveCard(
       renderToIR(
         <IssueCard
@@ -344,6 +344,21 @@ describe("Microsoft Teams rendering parity", () => {
           title="Checkout 500s under load"
           state="In Progress"
           priority="Urgent"
+        />,
+      ),
+    );
+    const issues = renderAdaptiveCard(
+      renderToIR(
+        <IssueList
+          heading="Open incidents"
+          issues={[
+            {
+              identifier: "CPK-102",
+              title: "Login redirect loop",
+              state: "Todo",
+              priority: "High",
+            },
+          ]}
         />,
       ),
     );
@@ -364,6 +379,8 @@ describe("Microsoft Teams rendering parity", () => {
     expect(issue.type).toBe("AdaptiveCard");
     expect(JSON.stringify(issue)).toContain("🔵 CPK-101");
     expect(JSON.stringify(issue)).toContain("🚨 Urgent");
+    expect(JSON.stringify(issues)).toContain("Open incidents");
+    expect(JSON.stringify(issues)).toContain("CPK-102");
     expect(JSON.stringify(pages)).toContain("Auth outage runbook");
     expect(JSON.stringify(pages)).toContain(
       "Steps to mitigate auth provider downtime.",

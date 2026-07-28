@@ -23,7 +23,7 @@ import {
 } from "@copilotkit/channels";
 import type { InteractionContext } from "@copilotkit/channels";
 
-export interface ConfirmWriteProps {
+interface ConfirmWriteProps {
   /** Short imperative title of the write, e.g. 'Create Linear issue'. */
   action: string;
   /** The specifics being approved — issue title + one-line description, etc. */

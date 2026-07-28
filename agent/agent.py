@@ -17,8 +17,8 @@ from langgraph.checkpoint.memory import MemorySaver
 from internal_sources import internal_source_tools
 from prompts import (
     BASE_SYSTEM_PROMPT,
-    NO_RESEARCH_TOOL_ADDENDUM,
-    RESEARCH_TOOL_ADDENDUM,
+    NO_WEB_SEARCH_TOOL_ADDENDUM,
+    WEB_SEARCH_TOOL_ADDENDUM,
 )
 from tools import web_search
 
@@ -88,7 +88,9 @@ def build_agent():
     )
 
     system_prompt = BASE_SYSTEM_PROMPT + (
-        RESEARCH_TOOL_ADDENDUM if has_web_search else NO_RESEARCH_TOOL_ADDENDUM
+        WEB_SEARCH_TOOL_ADDENDUM
+        if has_web_search
+        else NO_WEB_SEARCH_TOOL_ADDENDUM
     )
 
     agent_graph = create_deep_agent(

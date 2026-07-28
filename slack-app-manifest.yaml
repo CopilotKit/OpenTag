@@ -42,7 +42,7 @@ features:
 oauth_config:
   scopes:
     user:
-      - chat:write # user-token write access (e.g. grab-user-token.ts for e2e)
+      - chat:write # user-token write access for the optional live E2E harness
     bot:
       # --- Read what the user said ---
       - app_mentions:read # see @mentions of the bot

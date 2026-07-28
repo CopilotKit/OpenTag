@@ -13,6 +13,7 @@ import { appContext } from "./context/app-context.js";
 import { ConfirmWrite } from "./human-in-the-loop/index.js";
 import { parseConfirmWriteInterrupt } from "./interrupt.js";
 import { FILE_ISSUE_CALLBACK, fileIssueSubmit } from "./modals/file-issue.js";
+import { IncidentCard } from "./tools/showcase-tools.js";
 import { appTools } from "./tools/index.js";
 
 type ChannelAgent = NonNullable<CreateChannelOptions["agent"]>;
@@ -28,7 +29,7 @@ export function createOpenTagChannel(
     tools: appTools,
     context: [...appContext],
     commands: appCommands,
-    components: [IssueCard, IssueList, PageList, ConfirmWrite],
+    components: [IssueCard, IssueList, PageList, IncidentCard, ConfirmWrite],
   });
 
   channel.onMention(async ({ thread, message }) => {

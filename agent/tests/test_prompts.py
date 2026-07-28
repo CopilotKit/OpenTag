@@ -1,7 +1,7 @@
 from prompts import (
     BASE_SYSTEM_PROMPT,
-    NO_RESEARCH_TOOL_ADDENDUM,
-    RESEARCH_TOOL_ADDENDUM,
+    NO_WEB_SEARCH_TOOL_ADDENDUM,
+    WEB_SEARCH_TOOL_ADDENDUM,
 )
 
 
@@ -17,6 +17,6 @@ def test_prompt_uses_triage_first_behavior():
 
 
 def test_prompt_describes_direct_optional_web_search():
-    assert "web_search(query, max_results=5)" in RESEARCH_TOOL_ADDENDUM
-    assert "source snippets" in RESEARCH_TOOL_ADDENDUM
-    assert "do NOT have a live web research tool" in NO_RESEARCH_TOOL_ADDENDUM
+    assert "web_search(query, max_results=5)" in WEB_SEARCH_TOOL_ADDENDUM
+    assert "source snippets" in WEB_SEARCH_TOOL_ADDENDUM
+    assert "do NOT have a live web research tool" in NO_WEB_SEARCH_TOOL_ADDENDUM
