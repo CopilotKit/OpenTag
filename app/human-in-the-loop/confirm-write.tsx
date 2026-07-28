@@ -50,9 +50,9 @@ async function resumeOrShowFailure(
         </Message>,
       );
     } catch (updateError) {
-      console.error(
-        "[confirm-write] failed to show resume error",
-        updateError,
+      throw new AggregateError(
+        [error, updateError],
+        `Failed to resume "${action}" and show its retry state`,
       );
     }
     throw error;
@@ -70,17 +70,13 @@ export function ConfirmWrite({ action, detail }: ConfirmWriteProps) {
           value={{ confirmed: true }}
           style="primary"
           onClick={async ({ thread, message }: InteractionContext) => {
-            try {
-              await thread.update(
-                message.ref,
-                <Message accent="#27AE60">
-                  <Header>{`✅ ${action}`}</Header>
-                  <Context>{"✅  Approved — writing now."}</Context>
-                </Message>,
-              );
-            } catch (err) {
-              console.error("[confirm-write] approval update failed", err);
-            }
+            await thread.update(
+              message.ref,
+              <Message accent="#27AE60">
+                <Header>{`✅ ${action}`}</Header>
+                <Context>{"✅  Approved — writing now."}</Context>
+              </Message>,
+            );
             await resumeOrShowFailure(
               thread,
               message.ref,
@@ -95,17 +91,13 @@ export function ConfirmWrite({ action, detail }: ConfirmWriteProps) {
           value={{ confirmed: false }}
           style="danger"
           onClick={async ({ thread, message }: InteractionContext) => {
-            try {
-              await thread.update(
-                message.ref,
-                <Message accent="#EB5757">
-                  <Header>{`🚫 ${action}`}</Header>
-                  <Context>{"🚫  Declined — nothing was written."}</Context>
-                </Message>,
-              );
-            } catch (err) {
-              console.error("[confirm-write] decline update failed", err);
-            }
+            await thread.update(
+              message.ref,
+              <Message accent="#EB5757">
+                <Header>{`🚫 ${action}`}</Header>
+                <Context>{"🚫  Declined — nothing was written."}</Context>
+              </Message>,
+            );
             await resumeOrShowFailure(
               thread,
               message.ref,

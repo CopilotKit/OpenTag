@@ -146,6 +146,25 @@ describe("ConfirmWrite", () => {
     expect(context?.elements[0]?.text).toContain("Approved");
   });
 
+  it("does not resume approval when the status update fails", async () => {
+    const ir = renderToIR(<ConfirmWrite action="Create Linear issue" />);
+    const create = buttonByText(ir, "Create");
+    const failure = new Error("status update unavailable");
+    const update = vi.fn(async () => {
+      throw failure;
+    });
+    const resume = vi.fn(async () => ({ id: "m2" }));
+    const ctx = {
+      thread: { update, resume },
+      message: { ref: { id: "m1" } },
+    } as unknown as InteractionContext;
+
+    await expect(
+      (create.props.onClick as ClickHandler)(ctx),
+    ).rejects.toBe(failure);
+    expect(resume).not.toHaveBeenCalled();
+  });
+
   it("cancel onClick updates the picker and resumes the interrupted agent", async () => {
     const ir = renderToIR(
       <ConfirmWrite action="Create Linear issue" detail="CPK-9: ..." />,
@@ -186,6 +205,25 @@ describe("ConfirmWrite", () => {
     expect(context?.elements[0]?.text).toContain("Declined");
   });
 
+  it("does not resume a decline when the status update fails", async () => {
+    const ir = renderToIR(<ConfirmWrite action="Create Linear issue" />);
+    const cancel = buttonByText(ir, "Cancel");
+    const failure = new Error("status update unavailable");
+    const update = vi.fn(async () => {
+      throw failure;
+    });
+    const resume = vi.fn(async () => ({ id: "m2" }));
+    const ctx = {
+      thread: { update, resume },
+      message: { ref: { id: "m1" } },
+    } as unknown as InteractionContext;
+
+    await expect(
+      (cancel.props.onClick as ClickHandler)(ctx),
+    ).rejects.toBe(failure);
+    expect(resume).not.toHaveBeenCalled();
+  });
+
   it("replaces the optimistic card with a retry state when resume fails", async () => {
     const ir = renderToIR(
       <ConfirmWrite action="Create Linear issue" detail="CPK-9: ..." />,
@@ -215,5 +253,36 @@ describe("ConfirmWrite", () => {
     );
     expect(accent).toBe("#EB5757");
     expect(JSON.stringify(blocks)).toMatch(/couldn.t resume|retry/i);
+  });
+
+  it("surfaces both resume and retry-card failures", async () => {
+    const ir = renderToIR(<ConfirmWrite action="Create Linear issue" />);
+    const create = buttonByText(ir, "Create");
+    const resumeFailure = new Error("resume unavailable");
+    const updateFailure = new Error("retry card unavailable");
+    const update = vi
+      .fn()
+      .mockResolvedValueOnce({ id: "m1" })
+      .mockRejectedValueOnce(updateFailure);
+    const resume = vi.fn(async () => {
+      throw resumeFailure;
+    });
+    const ctx = {
+      thread: { update, resume },
+      message: { ref: { id: "m1" } },
+    } as unknown as InteractionContext;
+
+    let thrown: unknown;
+    try {
+      await (create.props.onClick as ClickHandler)(ctx);
+    } catch (error) {
+      thrown = error;
+    }
+
+    expect(thrown).toBeInstanceOf(AggregateError);
+    expect((thrown as AggregateError).errors).toEqual([
+      resumeFailure,
+      updateFailure,
+    ]);
   });
 });

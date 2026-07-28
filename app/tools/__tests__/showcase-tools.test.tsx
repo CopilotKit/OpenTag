@@ -142,6 +142,41 @@ describe("show_incident render-tool", () => {
     expect(JSON.stringify(blocks)).toContain("Ack'd by Alem");
   });
 
+  it("propagates Acknowledge update failures", async () => {
+    const { posts, thread } = fakeThread();
+    await showIncidentTool.handler(
+      {
+        id: "INC-1",
+        title: "Checkout 500s",
+        severity: "SEV2",
+        summary: "Latency creeping up.",
+      },
+      { thread } as unknown as IncidentCtx,
+    );
+    const failure = new Error("message update unavailable");
+    thread.update.mockRejectedValueOnce(failure);
+
+    const ir = renderToIR(posts[0] as never);
+    const button = findWithProp(ir, "button", "onClick");
+    const onClick = button?.props.onClick as ClickHandler;
+
+    await expect(
+      onClick({
+        thread,
+        message: {
+          ref: { id: "m1" },
+          text: "",
+          user: { id: "U1" },
+          platform: "slack",
+        },
+        user: { id: "U1", name: "Alem" },
+        action: { id: "a1" },
+        values: {},
+        platform: "slack",
+      } as unknown as InteractionContext),
+    ).rejects.toBe(failure);
+  });
+
   it("the Escalate button's onClick posts a paging notice", async () => {
     const { posts, thread } = fakeThread();
     await showIncidentTool.handler(
@@ -182,6 +217,44 @@ describe("show_incident render-tool", () => {
     expect(thread.post).toHaveBeenCalledWith(
       "🚨 Escalating *Checkout 500s* — paging the next on-call.",
     );
+  });
+
+  it("propagates Escalate post failures", async () => {
+    const { posts, thread } = fakeThread();
+    await showIncidentTool.handler(
+      {
+        id: "INC-1",
+        title: "Checkout 500s",
+        severity: "SEV1",
+        summary: "Error rate spiking on /checkout.",
+      },
+      { thread } as unknown as IncidentCtx,
+    );
+    const failure = new Error("message post unavailable");
+    thread.post.mockRejectedValueOnce(failure);
+
+    const ir = renderToIR(posts[0] as never);
+    const escalateButton = findAllWithProp(ir, "button", "onClick").find(
+      (button) =>
+        (button.props?.value as { action?: string })?.action === "escalate",
+    );
+    const onClick = escalateButton?.props.onClick as ClickHandler;
+
+    await expect(
+      onClick({
+        thread,
+        message: {
+          ref: { id: "m1" },
+          text: "",
+          user: { id: "U1" },
+          platform: "slack",
+        },
+        user: { id: "U1", name: "Alem" },
+        action: { id: "a1" },
+        values: {},
+        platform: "slack",
+      } as unknown as InteractionContext),
+    ).rejects.toBe(failure);
   });
 
   it("uses the SEV2 accent (#F2994A)", async () => {

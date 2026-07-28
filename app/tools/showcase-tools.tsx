@@ -54,17 +54,13 @@ export function IncidentCard({ id, title, severity, summary }: IncidentProps) {
           value={{ action: "ack", id }}
           style="primary"
           onClick={async ({ thread, user, message }: InteractionContext) => {
-            try {
-              await thread.update(
-                message.ref,
-                <Message accent="#27AE60">
-                  <Header>{`✅ Acknowledged · ${title}`}</Header>
-                  <Context>{`Ack'd by ${user?.name ?? user?.id ?? "someone"}`}</Context>
-                </Message>,
-              );
-            } catch (err) {
-              console.error("[showcase] onClick failed", err);
-            }
+            await thread.update(
+              message.ref,
+              <Message accent="#27AE60">
+                <Header>{`✅ Acknowledged · ${title}`}</Header>
+                <Context>{`Ack'd by ${user?.name ?? user?.id ?? "someone"}`}</Context>
+              </Message>,
+            );
           }}
         >
           Acknowledge
@@ -73,13 +69,9 @@ export function IncidentCard({ id, title, severity, summary }: IncidentProps) {
           value={{ action: "escalate", id }}
           style="danger"
           onClick={async ({ thread }: InteractionContext) => {
-            try {
-              await thread.post(
-                `🚨 Escalating *${title}* — paging the next on-call.`,
-              );
-            } catch (err) {
-              console.error("[showcase] onClick failed", err);
-            }
+            await thread.post(
+              `🚨 Escalating *${title}* — paging the next on-call.`,
+            );
           }}
         >
           Escalate

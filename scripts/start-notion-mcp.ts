@@ -14,6 +14,7 @@
  */
 import "dotenv/config";
 import { spawn } from "node:child_process";
+import { parsePort } from "../app/env.js";
 
 const authToken = process.env["NOTION_MCP_AUTH_TOKEN"];
 const notionToken = process.env["NOTION_TOKEN"];
@@ -40,18 +41,19 @@ if (!notionToken) {
 // (`shell: isWindows`) — an unvalidated value with spaces/shell metacharacters
 // could mangle or inject the command there. An empty string (a bare
 // `NOTION_MCP_PORT=` in .env) is treated as unset → default.
-const rawPort = process.env["NOTION_MCP_PORT"] || undefined;
-if (rawPort !== undefined && !/^\d+$/.test(rawPort)) {
-  console.error(
-    `[notion-mcp] NOTION_MCP_PORT must be a positive integer (1–65535), got: ${JSON.stringify(rawPort)}`,
+let portNumber: number;
+try {
+  portNumber = parsePort(
+    process.env["NOTION_MCP_PORT"],
+    3001,
+    "NOTION_MCP_PORT",
+    {
+      emptyIsDefault: true,
+      strictDecimal: true,
+    },
   );
-  process.exit(1);
-}
-const portNumber = rawPort === undefined ? 3001 : Number(rawPort);
-if (!Number.isInteger(portNumber) || portNumber < 1 || portNumber > 65535) {
-  console.error(
-    `[notion-mcp] NOTION_MCP_PORT must be an integer between 1 and 65535, got: ${JSON.stringify(rawPort)}`,
-  );
+} catch (error) {
+  console.error(`[notion-mcp] ${(error as Error).message}`);
   process.exit(1);
 }
 const port = String(portNumber);

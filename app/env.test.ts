@@ -73,6 +73,23 @@ describe("parsePort", () => {
     expect(parsePort("4242")).toBe(4242);
   });
 
+  it("can require an unpadded decimal string", () => {
+    expect(() =>
+      parsePort(" 4242", 3001, "NOTION_MCP_PORT", {
+        strictDecimal: true,
+      }),
+    ).toThrow('Invalid NOTION_MCP_PORT: " 4242"');
+  });
+
+  it("can treat an empty value as the configured default", () => {
+    expect(
+      parsePort("", 3001, "NOTION_MCP_PORT", {
+        emptyIsDefault: true,
+        strictDecimal: true,
+      }),
+    ).toBe(3001);
+  });
+
   it.each(["", "0", "65536", "12.5", "abc"])(
     "rejects invalid PORT %j",
     (raw) => {
