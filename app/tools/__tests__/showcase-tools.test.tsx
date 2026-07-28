@@ -9,7 +9,7 @@
 import { describe, it, expect, vi } from "vitest";
 import { renderToIR } from "@copilotkit/channels-ui";
 import type {
-  BotNode,
+  ChannelNode,
   InteractionContext,
   ClickHandler,
 } from "@copilotkit/channels-ui";
@@ -23,6 +23,13 @@ import {
 type IncidentCtx = Parameters<typeof showIncidentTool.handler>[1];
 type StatusCtx = Parameters<typeof showStatusTool.handler>[1];
 type LinksCtx = Parameters<typeof showLinksTool.handler>[1];
+
+/** The subset of a Slack `section` block's shape these tests need. */
+interface SectionBlockShape {
+  type: string;
+  text?: { type: string; text: string };
+  fields?: Array<{ type: string; text: string }>;
+}
 
 /** A fake `thread` recording posts and updates. */
 function fakeThread() {
@@ -43,29 +50,29 @@ function fakeThread() {
 
 /** Depth-first: find the first IR node whose `type` matches and that has the named prop. */
 function findWithProp(
-  nodes: BotNode[],
+  nodes: ChannelNode[],
   type: string,
   prop: string,
-): BotNode | undefined {
+): ChannelNode | undefined {
   return findAllWithProp(nodes, type, prop)[0];
 }
 
 /** Depth-first: find every IR node whose `type` matches and that has the named prop. */
 function findAllWithProp(
-  nodes: BotNode[],
+  nodes: ChannelNode[],
   type: string,
   prop: string,
-): BotNode[] {
-  const matches: BotNode[] = [];
+): ChannelNode[] {
+  const matches: ChannelNode[] = [];
   for (const node of nodes) {
     if (node.type === type && node.props && prop in node.props) {
       matches.push(node);
     }
     const children = node.props?.children;
     const childArr = Array.isArray(children)
-      ? (children as BotNode[])
+      ? (children as ChannelNode[])
       : children && typeof children === "object"
-        ? [children as BotNode]
+        ? [children as ChannelNode]
         : [];
     matches.push(...findAllWithProp(childArr, type, prop));
   }
@@ -242,6 +249,30 @@ describe("show_status render-tool", () => {
     expect(text).toContain("*Queue depth*");
     expect(text).toContain("operational");
   });
+
+  it("clamps to 10 fields (Slack's per-section max) and reports the drop", async () => {
+    const { posts, thread } = fakeThread();
+    const manyFields = Array.from({ length: 14 }, (_, i) => ({
+      label: `Field ${i}`,
+      value: `v${i}`,
+    }));
+    const result = await showStatusTool.handler(
+      { heading: "Service health", fields: manyFields },
+      { thread } as unknown as StatusCtx,
+    );
+
+    // The drop is reported back to the agent...
+    expect(result).toBe(
+      "Posted the status card to the user. Showing 10 of 14 fields.",
+    );
+
+    // ...and only 10 fields actually reach the rendered card.
+    const { blocks } = renderSlackMessage(renderToIR(posts[0] as never));
+    const fieldsBlock = blocks.find(
+      (b) => b.type === "section" && "fields" in b,
+    ) as SectionBlockShape | undefined;
+    expect(fieldsBlock?.fields).toHaveLength(10);
+  });
 });
 
 describe("show_links render-tool", () => {
@@ -265,5 +296,77 @@ describe("show_links render-tool", () => {
     expect(text).toContain("<https://example.com/dash|Dashboard>");
     // No leftover markdown link syntax.
     expect(text).not.toContain("](http");
+  });
+
+  it("clamps links to stay within the section-text budget and reports the drop", async () => {
+    const { posts, thread } = fakeThread();
+    // 100 links whose joined markdown comfortably exceeds Slack's
+    // ~3000-char section-text budget (SLACK_LIMITS.sectionText).
+    const manyLinks = Array.from({ length: 100 }, (_, i) => ({
+      label: `Runbook ${i}`,
+      url: `https://example.com/runbooks/${i}`,
+    }));
+    const result = (await showLinksTool.handler(
+      { heading: "Runbooks", links: manyLinks },
+      { thread } as unknown as LinksCtx,
+    )) as string;
+
+    // The drop is reported back to the agent...
+    const match = result.match(
+      /^Posted the links to the user\. Showing (\d+) of (\d+) links\.$/,
+    );
+    expect(match).not.toBeNull();
+    const shown = Number(match?.[1]);
+    const supplied = Number(match?.[2]);
+    expect(supplied).toBe(100);
+    expect(shown).toBeGreaterThan(0);
+    expect(shown).toBeLessThan(100);
+
+    // ...and the rendered section text actually stays within budget instead
+    // of relying on (or hitting) the renderer's own truncation.
+    const { blocks } = renderSlackMessage(renderToIR(posts[0] as never));
+    const sectionBlock = blocks.find(
+      (b) => b.type === "section" && "text" in b,
+    ) as SectionBlockShape | undefined;
+    const renderedText = sectionBlock?.text?.text ?? "";
+    expect(renderedText.length).toBeLessThanOrEqual(3000);
+    // No ellipsis truncation marker — the clamp stopped short of the
+    // renderer ever having to truncate mid-link.
+    expect(renderedText).not.toContain("…");
+    // Rendered link count (dot-separated pieces) matches the "Showing N of
+    // M" count in the returned status.
+    expect(renderedText.split("·")).toHaveLength(shown);
+  });
+});
+
+describe("showcase empty-section edge cases", () => {
+  it("show_links keeps at least one link when a single link exceeds the budget (no empty Section)", async () => {
+    const { posts, thread } = fakeThread();
+    // One link whose [label](url) markdown alone blows past the budget.
+    const giantUrl = `https://example.com/${"x".repeat(4000)}`;
+    const result = await showLinksTool.handler(
+      { heading: "Runbooks", links: [{ label: "Huge", url: giantUrl }] },
+      { thread } as unknown as LinksCtx,
+    );
+    // Only one link supplied, so nothing is reported dropped...
+    expect(result).toBe("Posted the links to the user.");
+    // ...and the rendered Section is NON-empty. The pre-fix clamp returned []
+    // for a single over-budget link, producing an empty <Section> Slack rejects.
+    const { blocks } = renderSlackMessage(renderToIR(posts[0] as never));
+    const sectionBlock = blocks.find(
+      (b) => b.type === "section" && "text" in b,
+    ) as SectionBlockShape | undefined;
+    expect((sectionBlock?.text?.text ?? "").length).toBeGreaterThan(0);
+  });
+
+  it("show_incident omits the summary Section when the summary is empty", async () => {
+    const { posts, thread } = fakeThread();
+    await showIncidentTool.handler(
+      { id: "INC-1", title: "DB down", severity: "SEV1", summary: "" },
+      { thread } as unknown as IncidentCtx,
+    );
+    const { blocks } = renderSlackMessage(renderToIR(posts[0] as never));
+    // The empty summary Section is guarded out entirely — no empty <Section>.
+    expect(blocks.find((b) => b.type === "section")).toBeUndefined();
   });
 });

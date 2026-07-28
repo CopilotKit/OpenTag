@@ -5,6 +5,10 @@
   "description": "OpenTag — an open-source, self-hosted alternative to Claude in Slack: run your own AI agent on your infrastructure, with your model and your tools. Built on @copilotkit/channels; also runs on Discord, Telegram & WhatsApp.",
   "license": "MIT",
   "type": "module",
+  "packageManager": "pnpm@10.33.4",
+  "engines": {
+    "node": ">=22"
+  },
   "scripts": {
     "dev": "tsx watch app/index.ts",
     "start": "tsx app/index.ts",
@@ -19,14 +23,13 @@
     "e2e:telegram": "tsx e2e/telegram-run.ts"
   },
   "dependencies": {
-    "@copilotkit/channels": "^0.1.1",
-    "@copilotkit/channels-discord": "^0.0.3",
-    "@copilotkit/channels-intelligence": "^0.1.1",
-    "@copilotkit/channels-slack": "^0.1.2",
-    "@copilotkit/channels-telegram": "^0.0.4",
-    "@copilotkit/channels-ui": "^0.1.1",
-    "@copilotkit/channels-whatsapp": "^0.0.2",
-    "@copilotkit/runtime": "^1.62.3",
+    "@copilotkit/channels": "^0.2.1",
+    "@copilotkit/channels-discord": "^0.2.1",
+    "@copilotkit/channels-slack": "^0.2.1",
+    "@copilotkit/channels-telegram": "^0.2.1",
+    "@copilotkit/channels-ui": "^0.2.1",
+    "@copilotkit/channels-whatsapp": "^0.2.1",
+    "@copilotkit/runtime": "^1.63.2",
     "@notionhq/notion-mcp-server": "^2.4.0",
     "@slack/bolt": "^4.2.0",
     "@slack/types": "^2.21.1",

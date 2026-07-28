@@ -1,0 +1,43 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  # main is exempt: it's the deploy source, so a superseding push must never
+  # cancel an in-flight run and leave an earlier commit without a green check.
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      # pnpm version comes from the `packageManager` field in package.json —
+      # no `version` input needed here; that's the single source of truth.
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      # No `npx playwright install` here on purpose: every test that would need
+      # a headless browser is mocked at one of two layers — the renderer mocks
+      # in app/tools/__tests__/render-tools.test.ts (mocks ../../render/chart.js
+      # and ../../render/diagram.js) and the playwright-module mock in
+      # app/render/__tests__/browser.test.ts (mocks the playwright module
+      # directly) — so CI needs no Chromium.
+      - run: pnpm install --frozen-lockfile
+
+      - run: pnpm check-types
+
+      - run: pnpm test

@@ -1,5 +1,5 @@
 /**
- * Showcase render-tools — three small JSX `BotTool`s that demonstrate the
+ * Showcase render-tools — three small JSX `ChannelTool`s that demonstrate the
  * `@copilotkit/channels-ui` vocabulary end-to-end:
  *
  *  - `show_incident` — an interactive card whose `Acknowledge`/`Escalate`
@@ -7,8 +7,12 @@
  *    interactions (not `awaitChoice`): the bot dispatches the handler on click
  *    with no waiter, so a render-tool can bind live actions directly.
  *  - `show_status` — a `Fields` grid with an accent and bold field labels.
+ *    Clamped to Slack's 10-fields-per-section limit; the returned status
+ *    notes it when fields are dropped.
  *  - `show_links` — a `Section` of markdown links (`[label](url)` →
- *    `<url|label>` via the mrkdwn bridge).
+ *    `<url|label>` via the mrkdwn bridge). Clamped to stay within Slack's
+ *    section-text budget; the returned status notes it when links are
+ *    dropped.
  */
 import { z } from "zod";
 import {
@@ -22,7 +26,7 @@ import {
   Button,
 } from "@copilotkit/channels-ui";
 import type { InteractionContext } from "@copilotkit/channels-ui";
-import { defineBotTool } from "@copilotkit/channels";
+import { defineChannelTool } from "@copilotkit/channels";
 
 // ── show_incident ──────────────────────────────────────────────────────────
 
@@ -32,7 +36,10 @@ const incidentSchema = z.object({
   severity: z
     .enum(["SEV1", "SEV2", "SEV3"])
     .describe("Severity — drives the card's accent colour."),
-  summary: z.string().describe("One-paragraph summary of what's happening."),
+  summary: z
+    .string()
+    .min(1)
+    .describe("One-paragraph summary of what's happening."),
 });
 
 type IncidentProps = z.infer<typeof incidentSchema>;
@@ -47,7 +54,7 @@ export function IncidentCard({ id, title, severity, summary }: IncidentProps) {
   return (
     <Message accent={accent}>
       <Header>{`🚨 ${severity} · ${title}`}</Header>
-      <Section>{summary}</Section>
+      {summary ? <Section>{summary}</Section> : null}
       <Context>{`Incident ${id}`}</Context>
       <Actions>
         <Button
@@ -89,7 +96,7 @@ export function IncidentCard({ id, title, severity, summary }: IncidentProps) {
   );
 }
 
-export const showIncidentTool = defineBotTool({
+export const showIncidentTool = defineChannelTool({
   name: "show_incident",
   description:
     "Render an interactive incident card with Acknowledge/Escalate buttons. " +
@@ -103,7 +110,40 @@ export const showIncidentTool = defineBotTool({
   },
 });
 
+// ── shared clamp helper ────────────────────────────────────────────────────
+
+/**
+ * Clamp `items` to fit within `budget`, where `size` reports the incremental
+ * cost of adding the next item given what's already been kept. Keeps items
+ * in their original order and stops as soon as the next one would overflow
+ * the budget — so excess content is dropped explicitly here (and reported
+ * back to the caller) instead of being silently truncated downstream by the
+ * platform renderer.
+ */
+function clampWithinBudget<T>(
+  items: T[],
+  budget: number,
+  size: (item: T, keptSoFar: T[]) => number,
+): { kept: T[]; droppedCount: number } {
+  const kept: T[] = [];
+  let used = 0;
+  for (const item of items) {
+    const cost = size(item, kept);
+    // Always keep at least one item — an empty result would render an empty
+    // <Section>, which Slack rejects. If the first item alone exceeds the
+    // budget, keep it and let the renderer's own truncation trim it.
+    if (kept.length > 0 && used + cost > budget) break;
+    kept.push(item);
+    used += cost;
+  }
+  return { kept, droppedCount: items.length - kept.length };
+}
+
 // ── show_status ────────────────────────────────────────────────────────────
+
+// A Slack section renders at most 10 fields (SLACK_LIMITS.fieldsPerSection);
+// excess fields are silently dropped by the renderer if not clamped first.
+const MAX_STATUS_FIELDS = 10;
 
 const statusSchema = z.object({
   heading: z.string().describe("Card heading, e.g. 'Service health'."),
@@ -115,7 +155,10 @@ const statusSchema = z.object({
       }),
     )
     .min(1)
-    .describe("Label/value pairs laid out as a two-column grid."),
+    .describe(
+      "Label/value pairs laid out as a two-column grid. At most " +
+        `${MAX_STATUS_FIELDS} are shown; extras are dropped.`,
+    ),
 });
 
 type StatusProps = z.infer<typeof statusSchema>;
@@ -133,20 +176,39 @@ export function StatusCard({ heading, fields }: StatusProps) {
   );
 }
 
-export const showStatusTool = defineBotTool({
+export const showStatusTool = defineChannelTool({
   name: "show_status",
   description:
     "Render a status card: a heading plus a grid of label/value fields " +
     "(labels shown bold). Use for service health, deploy status, or any set " +
-    "of small key/value metrics.",
+    `of small key/value metrics. Max ${MAX_STATUS_FIELDS} fields.`,
   parameters: statusSchema,
-  async handler(props, { thread }) {
-    await thread.post(<StatusCard {...props} />);
-    return "Posted the status card to the user.";
+  async handler({ heading, fields }, { thread }) {
+    const { kept, droppedCount } = clampWithinBudget(
+      fields,
+      MAX_STATUS_FIELDS,
+      () => 1,
+    );
+    await thread.post(<StatusCard heading={heading} fields={kept} />);
+    return droppedCount > 0
+      ? `Posted the status card to the user. Showing ${kept.length} of ${fields.length} fields.`
+      : "Posted the status card to the user.";
   },
 });
 
 // ── show_links ─────────────────────────────────────────────────────────────
+
+// Joiner between rendered `[label](url)` links in the single-row layout.
+const LINK_JOINER = "  ·  ";
+
+// A Slack section's text is truncated at ~3000 chars (SLACK_LIMITS.sectionText);
+// clamp the joined links list to a budget with headroom below that limit so
+// whole links are dropped (and reported back) instead of being cut off mid-link
+// by the renderer's own truncation. The 200-char margin matches the sibling
+// clamps (issue-list, render-table) and absorbs mrkdwn escape-expansion
+// (e.g. `&`->`&amp;`), which can make the rendered text longer than the raw
+// `[label](url)` length this budget measures.
+const MAX_LINKS_SECTION_CHARS = 2800;
 
 const linksSchema = z.object({
   heading: z.string().describe("Card heading, e.g. 'Runbooks'."),
@@ -158,10 +220,19 @@ const linksSchema = z.object({
       }),
     )
     .min(1)
-    .describe("Links rendered as a single dot-separated row."),
+    .describe(
+      "Links rendered as a single dot-separated row. Enough are kept to " +
+        "stay within Slack's section-text budget; extras are dropped.",
+    ),
 });
 
 type LinksProps = z.infer<typeof linksSchema>;
+type Link = LinksProps["links"][number];
+
+/** Render a single link as the markdown `[label](url)` the mrkdwn bridge rewrites. */
+function linkMarkdown(l: Link): string {
+  return `[${l.label}](${l.url})`;
+}
 
 export function LinksCard({ heading, links }: LinksProps) {
   // `[label](url)` is rewritten to Slack's `<url|label>` link form by
@@ -170,21 +241,29 @@ export function LinksCard({ heading, links }: LinksProps) {
   return (
     <Message>
       <Header>{`🔗 ${heading}`}</Header>
-      <Section>
-        {links.map((l) => `[${l.label}](${l.url})`).join("  ·  ")}
-      </Section>
+      <Section>{links.map(linkMarkdown).join(LINK_JOINER)}</Section>
     </Message>
   );
 }
 
-export const showLinksTool = defineBotTool({
+export const showLinksTool = defineChannelTool({
   name: "show_links",
   description:
     "Render a card of links: a heading plus a dot-separated row of clickable " +
-    "links. Use to surface runbooks, dashboards, or related pages.",
+    "links. Use to surface runbooks, dashboards, or related pages. Enough " +
+    "are kept to stay within Slack's section-text budget; extras are dropped.",
   parameters: linksSchema,
-  async handler(props, { thread }) {
-    await thread.post(<LinksCard {...props} />);
-    return "Posted the links to the user.";
+  async handler({ heading, links }, { thread }) {
+    const { kept, droppedCount } = clampWithinBudget(
+      links,
+      MAX_LINKS_SECTION_CHARS,
+      (link, keptSoFar) =>
+        (keptSoFar.length > 0 ? LINK_JOINER.length : 0) +
+        linkMarkdown(link).length,
+    );
+    await thread.post(<LinksCard heading={heading} links={kept} />);
+    return droppedCount > 0
+      ? `Posted the links to the user. Showing ${kept.length} of ${links.length} links.`
+      : "Posted the links to the user.";
   },
 });

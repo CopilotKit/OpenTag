@@ -7,7 +7,12 @@
 import { describe, it, expect } from "vitest";
 import { renderToIR } from "@copilotkit/channels-ui";
 import { renderSlackMessage } from "@copilotkit/channels-slack";
-import { renderTableTool, toMonospaceTable, clamp } from "../render-table.js";
+import {
+  renderTableTool,
+  toMonospaceTable,
+  toBudgetedMonospaceTable,
+  clamp,
+} from "../render-table.js";
 
 type HandlerCtx = Parameters<typeof renderTableTool.handler>[1];
 
@@ -19,6 +24,24 @@ const ROWS = [
   ["CPK-1", "High"],
   ["CPK-2", "Low"],
 ];
+
+/**
+ * Build a table whose column-aligned monospace render comfortably exceeds
+ * the monospace-fallback's section-text budget (Slack's own <Section> cap is
+ * 3000 chars) — used to force and verify size-based row truncation on the
+ * fallback path, distinct from the row/column COUNT clamp exercised above.
+ * 8 columns x 99 rows, every cell padded to a uniform 12 chars, renders to
+ * well over 12,000 chars.
+ */
+function makeOversizedTable(numCols: number, numRows: number) {
+  const columns = Array.from({ length: numCols }, (_, i) => ({
+    header: `Column${i}`.padEnd(12, "X"),
+  }));
+  const rows = Array.from({ length: numRows }, (_, r) =>
+    columns.map((_, c) => `r${r}c${c}`.padEnd(12, "-")),
+  );
+  return { columns, rows };
+}
 
 interface TableBlock {
   type: string;
@@ -80,6 +103,44 @@ describe("toMonospaceTable", () => {
     expect(out).toContain("| CPK-1 |   OK   |");
     // "FAILED" (6) exactly fills the width — no padding needed.
     expect(out).toContain("| CPK-2 | FAILED |");
+  });
+});
+
+describe("toBudgetedMonospaceTable", () => {
+  it("returns the full render unchanged when it's within the section budget (happy-path fallback)", () => {
+    const { text, shownRows } = toBudgetedMonospaceTable(COLS, ROWS);
+    expect(text).toBe(toMonospaceTable(COLS, ROWS));
+    expect(shownRows).toBe(ROWS.length);
+  });
+
+  it("drops trailing rows at a row boundary (never mid-row) when the full render exceeds the budget", () => {
+    const { columns, rows } = makeOversizedTable(8, 99);
+    const full = toMonospaceTable(columns, rows);
+    // Sanity: this table really does blow well past Slack's hard 3000-char
+    // section-text limit, so this exercises real truncation, not a no-op.
+    expect(full.length).toBeGreaterThan(3000);
+
+    const { text, shownRows } = toBudgetedMonospaceTable(columns, rows);
+    expect(shownRows).toBeGreaterThan(0);
+    expect(shownRows).toBeLessThan(rows.length);
+    expect(text.length).toBeLessThanOrEqual(3000);
+    expect(text).not.toContain("…");
+
+    // Row-boundary safety: the result is a well-formed fence wrapping the
+    // header plus exactly `shownRows` complete data rows — no partial row.
+    const lines = text.split("\n");
+    expect(lines[0]).toBe("```");
+    expect(lines[lines.length - 1]).toBe("```");
+    const contentLines = lines.slice(1, -1);
+    expect(contentLines).toHaveLength(shownRows + 1); // + header row
+    // Every column pads to a fixed width, so every content line (header and
+    // data alike) is the same length; a mid-row chop would leave a shorter,
+    // ragged final line instead.
+    expect(new Set(contentLines.map((l) => l.length)).size).toBe(1);
+    // The dropped rows are the trailing ones — the kept rows are a prefix.
+    expect(contentLines.slice(1)).toEqual(
+      full.split("\n").slice(2, 2 + shownRows),
+    );
   });
 });
 
@@ -234,6 +295,52 @@ describe("clamp", () => {
   });
 });
 
+describe("render_table tool — monospace fallback size budget", () => {
+  it("truncates the monospace fallback at a row boundary and annotates the drop when the rendered text would exceed the section budget", async () => {
+    const { columns, rows } = makeOversizedTable(8, 99);
+    const { posts, ctx } = fakeThread([1]); // native post rejected -> monospace fallback
+    const out = (await renderTableTool.handler(
+      { title: "Big table", columns, rows },
+      ctx,
+    )) as string;
+
+    expect(posts).toHaveLength(1);
+
+    // (b) the returned status annotates the size-driven truncation.
+    const match = out.match(
+      /only the first (\d+) of 99 rows shown in the text fallback/,
+    );
+    expect(match).not.toBeNull();
+    const shownRows = Number(match?.[1]);
+    expect(shownRows).toBeGreaterThan(0);
+    expect(shownRows).toBeLessThan(99);
+
+    // (a) the emitted text is within budget and cut at a row boundary, not
+    // silently chopped mid-row by the renderer's own truncation.
+    const { blocks } = renderSlackMessage(renderToIR(posts[0] as never));
+    const section = blocks.find((b) => b.type === "section") as
+      | { text?: { text: string } }
+      | undefined;
+    const text = section?.text?.text ?? "";
+    expect(text.length).toBeLessThanOrEqual(3000); // Slack's hard section-text cap
+    expect(text.startsWith("```\n")).toBe(true);
+    expect(text.endsWith("\n```")).toBe(true);
+    expect(text).not.toContain("…"); // no blind renderer truncation kicked in
+
+    const contentLines = text.split("\n").slice(1, -1); // drop the ``` fences
+    expect(contentLines).toHaveLength(shownRows + 1); // + header row
+    // Uniform row width (every column pads to a fixed width) — a mid-row cut
+    // would leave a shorter, ragged final line instead.
+    expect(new Set(contentLines.map((l) => l.length)).size).toBe(1);
+
+    // The annotation also reaches the thread itself (a Context block), not
+    // just the agent-facing status string — matching how `clamp` notes are
+    // surfaced in both places.
+    const fullText = JSON.stringify(blocks);
+    expect(fullText).toContain("shown in the text fallback");
+  });
+});
+
 describe("render_table tool — extra cells per row", () => {
   it("surfaces a note (to the agent and the thread) when a row has more cells than columns", async () => {
     const { posts, ctx } = fakeThread();
@@ -255,5 +362,43 @@ describe("render_table tool — extra cells per row", () => {
     expect(text).toContain(
       "1 row(s) had extra cells beyond the 2 columns; extras were dropped",
     );
+  });
+});
+
+describe("monospace fallback — cells containing newlines", () => {
+  it("collapses embedded newlines so each logical row is one physical line", () => {
+    const cols = [{ header: "id" }, { header: "note" }];
+    const rows = [
+      ["1", "Steps:\n1. do X\n2. do Y"],
+      ["2", "ok"],
+    ];
+    const out = toMonospaceTable(cols, rows);
+    // "```" + header + 2 body rows + "```" = 5 physical lines, regardless of
+    // the newlines inside the first note cell (pre-fix this was 7).
+    expect(out.split("\n")).toHaveLength(5);
+    // The multi-line content is joined onto one physical line.
+    expect(out).toContain("Steps: 1. do X 2. do Y");
+  });
+
+  it("keeps shownRows accurate under budget truncation when cells contain newlines", () => {
+    // Oversized table forces size-based truncation; a newline in every cell
+    // would, pre-fix, make split('\n') over-count body lines vs. real rows.
+    const { columns, rows } = makeOversizedTable(8, 99);
+    const rowsWithNewlines = rows.map((r) => r.map((c) => `${c}\nx`));
+    const { text, shownRows } = toBudgetedMonospaceTable(
+      columns,
+      rowsWithNewlines,
+    );
+    const bodyLines = text.split("\n").slice(2, -1); // drop fence, header, fence
+    // Every body line is a complete, well-formed row. Pre-fix, a newline in a
+    // cell produced orphan physical lines (e.g. "x | …") that don't frame as
+    // "| … |", and shownRows counted physical lines rather than data rows.
+    for (const line of bodyLines) {
+      expect(line.startsWith("| ")).toBe(true);
+      expect(line.endsWith(" |")).toBe(true);
+    }
+    expect(bodyLines).toHaveLength(shownRows);
+    expect(shownRows).toBeGreaterThan(0);
+    expect(shownRows).toBeLessThan(99);
   });
 });

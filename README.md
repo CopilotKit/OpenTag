@@ -58,7 +58,6 @@ OpenTag is a thin layer on top of a handful of CopilotKit packages. The `pnpm in
 | Package | When you need it |
 | --- | --- |
 | [`@copilotkit/channels-discord`](https://github.com/CopilotKit/CopilotKit/tree/main/packages/channels-discord) · [`-telegram`](https://github.com/CopilotKit/CopilotKit/tree/main/packages/channels-telegram) · [`-whatsapp`](https://github.com/CopilotKit/CopilotKit/tree/main/packages/channels-whatsapp) | Running on a platform other than Slack — one adapter per platform. |
-| [`@copilotkit/channels-intelligence`](https://github.com/CopilotKit/CopilotKit/tree/main/packages/channels-intelligence) | Runs the bot over the CopilotKit Intelligence Realtime Gateway instead of holding platform tokens — see `app/managed.ts`. **Required for the recommended `pnpm channel` (Intelligence Gateway) mode**; omit it only if you run self-hosted mode exclusively. |
 
 **1. Create a Slack app.** At [api.slack.com/apps](https://api.slack.com/apps?new_app=1) →
 *From a manifest* → paste [`slack-app-manifest.yaml`](./slack-app-manifest.yaml). Install it,
@@ -81,22 +80,25 @@ SLACK_BOT_TOKEN=xoxb-...
 SLACK_APP_TOKEN=xapp-...
 
 # Intelligence Gateway mode — full list in .env.example:
+INTELLIGENCE_API_URL=https://...
 INTELLIGENCE_GATEWAY_WS_URL=wss://...
 INTELLIGENCE_API_KEY=cpk-...
-INTELLIGENCE_ORG_ID=org_...
-INTELLIGENCE_PROJECT_ID=...
-INTELLIGENCE_CHANNEL_ID=channel_...
 ```
 
 **3. Run it:**
 
 ```bash
 pnpm install
-pnpm runtime    # the agent backend, on :8200
+```
 
-pnpm channel    # recommended — the bot over the Intelligence Gateway
+```bash
+pnpm runtime    # terminal 1 — the agent backend, on :8200
+```
+
+```bash
+pnpm channel    # terminal 2 — recommended — the bot over the Intelligence Gateway
 # or
-pnpm dev        # alternative — the bot, self-hosted
+pnpm dev        # terminal 2 — alternative — the bot, self-hosted
 ```
 
 **4. Talk to it.** @mention the bot in any channel thread:
@@ -117,7 +119,7 @@ OpenTag is deliberately small and hackable:
 - **Copy `app/` to start your own bot.** It's the platform-agnostic bot (tools, components, the
   human-in-the-loop gate). `runtime.ts` is the agent backend: one CopilotKit `BuiltInAgent` (an
   LLM + optional MCP tools — no Python, no LangGraph), served over AG-UI.
-- **One platform, or all of them.** `createBot` takes an array of adapters; set the secrets for
+- **One platform, or all of them.** `createChannel` takes an array of adapters; set the secrets for
   whichever platform(s) you want and the bot starts an adapter for each.
 
 The full architecture, the file-by-file map, and every integration live in
@@ -165,11 +167,17 @@ built from this one repo and wired together automatically over Railway's private
 | --- | --- | --- |
 | `agent` | the Python deep-research backend (`agent/`) | nixpacks, `uvicorn`, `/health` (root dir `agent/`) |
 | `notion-mcp` | the Notion MCP sidecar (`pnpm notion-mcp`) | Node |
-| `channel` | the KiteBot channel host (`pnpm channel`) | Node |
+| `channel` | the KiteBot channel host (`pnpm channel`) | `RAILPACK` (pinned), custom `buildCommand` — installs Chromium + the apt libs it needs for `render_chart`/`render_diagram` |
 
 `channel` reaches `agent` via `AGENT_URL`, and `agent` reaches `notion-mcp` via `NOTION_MCP_URL`
 — both wired with Railway reference variables in [`.railway/railway.ts`](./.railway/railway.ts),
 so you don't set them by hand.
+
+> **Don't change the `channel` service's builder in the Railway UI.** The apt packages that give
+> it a working Chromium (`RAILPACK_DEPLOY_APT_PACKAGES` in
+> [`.railway/railway.ts`](./.railway/railway.ts)) are honored only by Railpack — switching to a
+> different builder silently makes that a no-op and breaks `render_chart`/`render_diagram` at
+> runtime with no build-time signal.
 
 **Deploy via Infrastructure-as-Code (recommended):**
 
@@ -193,19 +201,32 @@ railway config apply         # from the repo root: provisions agent + notion-mcp
   service from `resources` in [`.railway/railway.ts`](./.railway/railway.ts) and delete the
   agent's `NOTION_MCP_URL` / `NOTION_MCP_AUTH_TOKEN` lines; the agent still runs (chat, UI, and —
   with `TAVILY_API_KEY` — web research).
-- **`channel`** — `INTELLIGENCE_GATEWAY_WS_URL`, `INTELLIGENCE_API_KEY`, `INTELLIGENCE_ORG_ID`,
-  `INTELLIGENCE_PROJECT_ID`, `INTELLIGENCE_CHANNEL_ID` (from your CopilotKit Intelligence
-  project + channel).
+- **`channel`** — `INTELLIGENCE_API_URL`, `INTELLIGENCE_GATEWAY_WS_URL`, `INTELLIGENCE_API_KEY`
+  (from your CopilotKit Intelligence project). `CHANNEL_HTTP_TOKEN` is also declared here with
+  `preserve()`, but normally leave it **unset** — the channel host's HTTP routes are closed by
+  default and the managed channel activates over the gateway WebSocket, not HTTP, so it doesn't
+  need them. Only set it if you deliberately want to open those routes for server-to-server or
+  `curl` use.
 
 The inter-service URLs/ports are wired for you in [`.railway/railway.ts`](./.railway/railway.ts).
 Two values are left unmanaged by the IaC so a UI override survives `railway config apply`: the
 agent's `OPENAI_MODEL` (defaults to `gpt-5.5`) and the channel's `INTELLIGENCE_CHANNEL_NAME`
-(defaults to `kitebot`). Set either in that service's *Variables* to change it — e.g. set
-`INTELLIGENCE_CHANNEL_NAME` if your Intelligence channel isn't named `kitebot`.
+(defaults to `kite-opentag`). Set either in that service's *Variables* to change it — e.g. set
+`INTELLIGENCE_CHANNEL_NAME` if your Intelligence channel isn't named `kite-opentag`.
 
 Applying the config creates the services and their wiring; **KiteBot goes live only once the
 secrets are set and the `channel` service connects** — that's when your Intelligence dashboard
 flips *Waiting for runtime → live*.
+
+> **Bind the connector before the first deploy — the `channel` host is fail-fast.** If
+> activation settles with the channel not `online` — most commonly `setup_required`, meaning the
+> channel name exists in your Intelligence project but no Slack connector is bound to it — the
+> host logs the reason and **exits non-zero** rather than idling in a half-working state.
+> Railway's `ON_FAILURE` policy then retries — see `restartPolicyMaxRetries` on the `channel`
+> service in [`.railway/railway.ts`](./.railway/railway.ts) for the current budget (deliberately
+> higher than the `agent`/`notion-mcp` services', since it's sized as an outage-tolerance budget
+> rather than a crash-loop guard) — and once that's exhausted, leaves the service stopped. Finish
+> the connector setup in the Intelligence dashboard, then **redeploy the `channel` service**.
 
 > **Cold-start note (Notion):** the `agent` loads its Notion tools once, at startup. On a first
 > cold deploy the `agent` can finish booting before `notion-mcp` is accepting connections, in

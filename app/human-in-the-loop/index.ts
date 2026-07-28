@@ -4,9 +4,10 @@
  * answer.
  *
  * `confirm_write` is now a JSX component (`ConfirmWrite`) used as a BLOCKING
- * FRONTEND TOOL: a tool handler calls `await thread.awaitChoice(<ConfirmWrite
- * .../>)` (wired in a later wave), which posts the picker and resolves to the
- * clicked button's `value`. Add new HITL components here and re-export them.
+ * FRONTEND TOOL: its tool handler (`confirmWriteTool` in `confirm-write-tool.ts`,
+ * re-exported below) calls `await thread.awaitChoice(<ConfirmWrite .../>)`, which
+ * posts the picker and resolves to the clicked button's `value`. Add new HITL
+ * components here and re-export them.
  */
 export { ConfirmWrite } from "./confirm-write.js";
 export type { ConfirmWriteProps } from "./confirm-write.js";

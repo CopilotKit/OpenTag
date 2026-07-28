@@ -18,7 +18,13 @@ import { describe, it, expect } from "vitest";
 import { renderToIR } from "@copilotkit/channels-ui";
 import { renderSlackMessage } from "@copilotkit/channels-slack";
 import { renderTelegram } from "@copilotkit/channels-telegram";
-import { IssueList } from "../issue-list.js";
+import {
+  IssueList,
+  fitLinesToBudget,
+  formatIssueLine,
+  SECTION_CHAR_BUDGET,
+  SECTION_CHAR_SAFETY_MARGIN,
+} from "../issue-list.js";
 import { IssueCard } from "../issue-card.js";
 import { PageList } from "../page-list.js";
 import { accentForIssues } from "../_status.js";
@@ -108,6 +114,61 @@ describe("IssueList component", () => {
     expect(JSON.stringify(blocks[2])).toContain("Showing 15 of 20 issues");
   });
 
+  it("stops adding lines before Slack's section char budget would be exceeded, and reports the ACTUAL shown count (not the raw MAX)", () => {
+    // Realistic Linear issues: a slugged URL + full metadata puts each line
+    // at ~230-250 chars (per the finding's "~190-220 chars" estimate), so
+    // with 30 of them, 15 lines (the raw count cap) would already be well
+    // past Slack's ~3000-char section-text budget — the exact
+    // silent-truncation scenario this fix addresses.
+    const LONG_TITLE =
+      "Investigate and fix the intermittent checkout failures under load";
+    const LONG_SLUG =
+      "investigate-and-fix-the-intermittent-checkout-failures-under-load";
+    const issues = Array.from({ length: 30 }, (_, i) => ({
+      identifier: `CPK-${1000 + i}`,
+      title: LONG_TITLE,
+      url: `https://linear.app/copilotkit/issue/CPK-${1000 + i}/${LONG_SLUG}`,
+      assignee: "Alexandria Chen-Okonkwo",
+      priority: "Urgent",
+      updated: "2d ago",
+    }));
+
+    const { blocks } = renderSlackMessage(
+      renderToIR(<IssueList heading="Many" issues={issues} />),
+    );
+
+    const section = blocks[1] as { text: { text: string } };
+    const text = section.text.text;
+    const lines = text.split("\n");
+
+    // Well clear of Slack's hard per-section limit — our own char-budget
+    // cutoff (with safety margin) stopped us before the channel renderer's
+    // silent `truncateText(…, 3000)` ever had to act.
+    expect(text.length).toBeLessThan(3000);
+
+    // (a) The char budget — not the raw MAX=15 — is what bound this list:
+    // strictly fewer lines made it in than the count-based cap would allow.
+    expect(lines.length).toBeLessThan(15);
+    expect(lines.length).toBeLessThan(issues.length);
+
+    // Every rendered line is COMPLETE — ends with the full meta suffix —
+    // proving no line was cut off mid-way through by a silent truncation.
+    for (const line of lines) {
+      expect(line.endsWith("Alexandria Chen-Okonkwo · Urgent · 2d ago")).toBe(
+        true,
+      );
+    }
+
+    // (b) The footer's shown-count is the count ACTUALLY rendered, never a
+    // stale MAX that would overstate what's really there.
+    expect(JSON.stringify(blocks[2])).toContain(
+      `Showing ${lines.length} of ${issues.length} issues`,
+    );
+    expect(JSON.stringify(blocks[2])).not.toContain(
+      `Showing 15 of ${issues.length} issues`,
+    );
+  });
+
   it("falls back to an emphasized identifier and 'unassigned' when fields are missing", () => {
     const { blocks, accent } = renderSlackMessage(
       renderToIR(
@@ -170,6 +231,54 @@ describe("accentForIssues", () => {
     expect(
       accentForIssues([{ priority: "Low" }, { priority: "High" }]),
     ).toBe("#F2994A");
+  });
+});
+
+describe("fitLinesToBudget", () => {
+  it("stops before the section would exceed the margin-adjusted char budget, not at a fixed line count", () => {
+    const longLine = "x".repeat(250);
+    const lines = Array.from({ length: 20 }, () => longLine);
+    const budget = SECTION_CHAR_BUDGET - SECTION_CHAR_SAFETY_MARGIN;
+    const shown = fitLinesToBudget(lines);
+
+    // 250 chars/line + 1 joining newline; the budget-bound cutoff lands
+    // well short of both the full list (20) and the MAX ceiling (15) —
+    // proving the char budget, not a count, decided the cutoff.
+    expect(shown.length).toBeLessThan(15);
+    expect(shown.length).toBeLessThan(lines.length);
+    expect(shown.join("\n").length).toBeLessThanOrEqual(budget);
+    // One more line would have crossed the budget.
+    expect(shown.concat([longLine]).join("\n").length).toBeGreaterThan(
+      budget,
+    );
+  });
+
+  it("still honors the MAX=15 ceiling when lines are short enough to all fit under budget", () => {
+    const shortLines = Array.from({ length: 20 }, (_, i) => `line ${i}`);
+    const shown = fitLinesToBudget(shortLines);
+    expect(shown).toEqual(shortLines.slice(0, 15));
+  });
+
+  it("always includes at least one line, even a single line that alone exceeds the budget", () => {
+    const oneHugeLine = "y".repeat(5000);
+    const shown = fitLinesToBudget([oneHugeLine, "second line"]);
+    expect(shown).toEqual([oneHugeLine]);
+  });
+});
+
+describe("formatIssueLine", () => {
+  it("matches the existing per-item line format (glyph, linked id, title, em-dash meta)", () => {
+    const line = formatIssueLine({
+      identifier: "CPK-1",
+      title: "Sample",
+      url: "https://linear.app/copilotkit/issue/CPK-1",
+      assignee: "Alem",
+      priority: "High",
+      updated: "2d ago",
+    });
+    expect(line).toBe(
+      "🟠 [**CPK-1**](https://linear.app/copilotkit/issue/CPK-1) Sample — Alem · High · 2d ago",
+    );
   });
 });
 

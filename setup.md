@@ -39,7 +39,7 @@ mode](#intelligence-channel-mode)). Both modes talk to the same agent backend
 
 | Concept                                                              | Where                                                              |
 | -------------------------------------------------------------------- | ------------------------------------------------------------------ |
-| `createBot({ adapters, agent, tools, context, commands })`           | [`app/index.ts`](./app/index.ts)                                   |
+| `createChannel({ adapters, agent, tools, context, commands })`       | [`app/index.ts`](./app/index.ts)                                   |
 | Multi-adapter wiring (Slack/Discord/Telegram/WhatsApp, secret-gated) | [`app/index.ts`](./app/index.ts)                                   |
 | `read_thread` — grounds the agent in the real conversation           | [`app/tools/read-thread.ts`](./app/tools/read-thread.ts)           |
 | Render-tools + JSX components (issue card/list, Notion pages)        | [`app/tools/render-tools.tsx`](./app/tools/render-tools.tsx), [`app/components/`](./app/components/) |
@@ -54,7 +54,7 @@ mode](#intelligence-channel-mode)). Both modes talk to the same agent backend
 - **`app/`** is the platform-agnostic KiteBot code. **This is the directory you copy to start your own bot.**
 - **`runtime.ts`** is the agent backend, served over AG-UI.
 - **`e2e/`** holds live test harnesses (the Slack harness is being migrated to the new
-  `createBot` API; the Telegram harness is a working manual-trigger smoke test — see
+  `createChannel` API; the Telegram harness is a working manual-trigger smoke test — see
   [`e2e/TELEGRAM-README.md`](./e2e/TELEGRAM-README.md)).
 
 It's built on:
@@ -62,7 +62,6 @@ It's built on:
 - **[`@copilotkit/channels`](https://github.com/CopilotKit/CopilotKit/tree/main/packages/channels)** — the platform-agnostic bot engine.
 - **[`@copilotkit/channels-slack`](https://github.com/CopilotKit/CopilotKit/tree/main/packages/channels-slack)** / **[`-discord`](https://github.com/CopilotKit/CopilotKit/tree/main/packages/channels-discord)** / **[`-telegram`](https://github.com/CopilotKit/CopilotKit/tree/main/packages/channels-telegram)** / **[`-whatsapp`](https://github.com/CopilotKit/CopilotKit/tree/main/packages/channels-whatsapp)** — the platform adapters.
 - **[`@copilotkit/channels-ui`](https://github.com/CopilotKit/CopilotKit/tree/main/packages/channels-ui)** — a cross-platform JSX vocabulary for rich messages (Block Kit on Slack, Components V2 on Discord, HTML on Telegram).
-- **[`@copilotkit/channels-intelligence`](https://github.com/CopilotKit/CopilotKit/tree/main/packages/channels-intelligence)** — runs the same KiteBot over the CopilotKit Intelligence Realtime Gateway (Intelligence Gateway mode, no platform tokens in this process).
 - **[`@copilotkit/runtime`](https://github.com/CopilotKit/CopilotKit/tree/main/packages/runtime)** — the AG-UI agent backend.
 
 ## Running it
@@ -123,7 +122,8 @@ Copy `agent/.env.example` to `agent/.env` and fill it in:
 **Run it:**
 
 ```bash
-pnpm agent   # cd agent && uv run python main.py (port from SERVER_PORT/PORT env, default 8123)
+pnpm agent   # cd agent && uv run python main.py (port from PORT/SERVER_PORT env, default 8123 —
+             # PORT wins if both are set: a globally-exported PORT silently outranks SERVER_PORT)
 ```
 
 Then point the bot at it instead of `runtime.ts` by setting in the root `.env`:
@@ -142,9 +142,16 @@ for the same bot; run whichever one `AGENT_URL` points at.
 `pnpm channel` (`app/managed.ts`) runs the same KiteBot over the **CopilotKit Intelligence
 Realtime Gateway** instead of a native platform adapter — this process holds **no Slack tokens**;
 Intelligence owns the Slack edge (signed ingress + Connector Outbox egress) and streams render
-frames back over `@copilotkit/channels-intelligence`. It's the Intelligence Gateway counterpart to
-the self-hosted `pnpm dev` mode described above — you still run this process yourself and bring
-your own CopilotKit Intelligence project.
+frames back. It's wired up on the `@copilotkit/runtime/v2` managed-channels runtime: a
+`createChannel({ name })` (`@copilotkit/channels`) is handed, alongside a `CopilotKitIntelligence`
+built from the API vars below, to `new CopilotRuntime({ intelligence, channels })`, then mounted
+with `createCopilotNodeListener` (`@copilotkit/runtime/v2/node`) — mounting only **constructs**
+the runtime's channel control surface (`listener.channels`); it does not open any connection.
+Activation is lazy and happens on the first `channels.ready()` call, which is why `app/managed.ts`
+awaits it during boot. There are no org/project/channel IDs to wire up; the runtime derives that
+identity from the Intelligence API credentials plus the channel's registered name. It's the Intelligence Gateway
+counterpart to the self-hosted `pnpm dev` mode described above — you still run this process
+yourself and bring your own CopilotKit Intelligence project.
 
 ```bash
 npm run runtime        # terminal 1 — the agent backend on :8200 (same as self-hosted)
@@ -155,16 +162,43 @@ Configure it with:
 
 | Variable | What it's for |
 | --- | --- |
+| `INTELLIGENCE_API_URL` | Base URL of your CopilotKit Intelligence deployment's app API. |
 | `INTELLIGENCE_GATEWAY_WS_URL` | The Intelligence Realtime Gateway websocket endpoint. |
 | `INTELLIGENCE_API_KEY` | Auth for the gateway connection. |
-| `INTELLIGENCE_ORG_ID` / `INTELLIGENCE_PROJECT_ID` / `INTELLIGENCE_CHANNEL_ID` | Scopes the connection to your Intelligence org/project/channel. |
-| `INTELLIGENCE_CHANNEL_NAME` | The registered channel name (lowercase kebab). Defaults to `kitebot`. |
+| `INTELLIGENCE_CHANNEL_NAME` | The registered channel name (lowercase kebab). Defaults to `kite-opentag`. |
+| `CHANNEL_HTTP_TOKEN` | Optional. The channel host's HTTP routes (`agent/run`, `threads/*`, `memories/*`) are **closed** (404) unless this is set; set it to open them behind `Authorization: Bearer <token>` for server-to-server or `curl` use. The managed channel activates over the gateway WebSocket and does not need them. No `cors` option is configured on this listener, so these routes are not reachable from a browser (preflight `OPTIONS` gets no `Access-Control-Allow-Origin`) — don't point a CopilotKit frontend at this runtime. |
+| `PORT` | Port the channel host's HTTP listener binds. Defaults to `8300`; Railway injects its own. |
+
+**The channel host is fail-fast, by design** — it never idles in a half-working state:
+
+- Activation has a **30s per-channel timeout**. A gateway that accepts the socket but never
+  settles the join is fatal, not a silent hang.
+- Once activation settles, the host checks the channel's actual status. Anything other than
+  `online` — most commonly `setup_required`, meaning the channel name exists in your
+  Intelligence project but **no platform connector is bound to it** — is logged and the process
+  **exits non-zero**. Finish the connector setup in the Intelligence dashboard, then restart the
+  channel host (on Railway: redeploy the `channel` service).
+- After a successful boot a watchdog re-checks channel health every **60s** and exits non-zero on
+  either of two fatal triggers: the managed session reaching the terminal `error` state (dead for
+  good and never re-activated), **or** the channel staying continuously non-`online` (e.g. wedged
+  in `reconnecting`, never actually reaching `error`) for `CHANNEL_DEGRADED_FATAL_MS` — currently
+  10 minutes — in [`app/managed.ts`](./app/managed.ts). Without that second trigger a channel
+  stuck reconnecting would log one warning and then stay quiet forever, so either way a supervisor
+  (Railway's `ON_FAILURE` restart policy, systemd, Docker `restart:`) rebuilds the host instead of
+  leaving KiteBot silently offline. On Railway, the restart budget is **finite** — see `restartPolicyMaxRetries` in
+  [`.railway/railway.ts`](./.railway/railway.ts) — so an outage long enough to exhaust the
+  retries leaves the service stopped, with no healthcheck to surface it; watch deploy status or
+  logs rather than assuming an indefinite auto-heal.
 
 The agent backend is still required in this mode — `pnpm runtime` (`runtime.ts`) — the Intelligence
 channel host points its `AGENT_URL` at it exactly like the self-hosted KiteBot does. `AGENT_URL`
 itself is required in every mode (the process exits at startup if it's unset); `.env.example` ships
-it pre-filled with the local runtime URL as a template, not as a code-level default. See
-[`.env.example`](./.env.example) for the full annotated list.
+it pre-filled with the local runtime URL as a template, not as a code-level default. `AGENT_URL`
+must also include an explicit `http://` or `https://` scheme — a bare `host:port` (the shape of a
+Railway private hostname, e.g. `agent:8123`) parses as a URL with the host folded into the
+protocol rather than a valid `http(s)` URL, and is now rejected at boot rather than failing on the
+first turn. Use e.g. `http://agent.railway.internal:8123/` for a Railway private-network target.
+See [`.env.example`](./.env.example) for the full annotated list.
 
 ## 1. Create a Slack app
 
@@ -201,8 +235,9 @@ cp .env.example .env
 | `DISCORD_BOT_TOKEN` / `DISCORD_APP_ID` | Run on Discord. |
 | `TELEGRAM_BOT_TOKEN` | Run on Telegram. |
 | `WHATSAPP_ACCESS_TOKEN` (+ siblings) | Run on WhatsApp Cloud API. |
-| `INTELLIGENCE_GATEWAY_WS_URL` / `INTELLIGENCE_API_KEY` / `INTELLIGENCE_ORG_ID` / `INTELLIGENCE_PROJECT_ID` / `INTELLIGENCE_CHANNEL_ID` / `INTELLIGENCE_CHANNEL_NAME` | Run in [Intelligence channel mode](#intelligence-channel-mode) instead of holding platform tokens directly. |
-| `AGENT_URL` | Where KiteBot POSTs. **Required** — the process exits at startup if unset; the template value points at the local runtime (`…/agent/triage/run`). |
+| `INTELLIGENCE_API_URL` / `INTELLIGENCE_GATEWAY_WS_URL` / `INTELLIGENCE_API_KEY` / `INTELLIGENCE_CHANNEL_NAME` | Run in [Intelligence channel mode](#intelligence-channel-mode) instead of holding platform tokens directly. |
+| `CHANNEL_HTTP_TOKEN` | Optional. Opens the channel host's HTTP runtime routes behind a bearer token for server-to-server or `curl` use; closed by default. Not CORS-enabled — not reachable from a browser. |
+| `AGENT_URL` | Where KiteBot POSTs. **Required** — the process exits at startup if unset; the template value points at the local runtime (`…/agent/triage/run`). Must include an `http://` or `https://` scheme — a bare `host:port` (e.g. the Railway private-hostname shape `agent:8123`) fails boot; use e.g. `http://agent.railway.internal:8123/`. |
 
 Every integration is independent — set only what you need. The full annotated list, including the
 WhatsApp webhook details, is in [`.env.example`](./.env.example).
@@ -249,7 +284,7 @@ service. Requires a Chromium binary: `npx playwright install chromium`.
 
 ## Other platforms
 
-The same `app/` code runs on every platform — `createBot` takes an array of adapters, and
+The same `app/` code runs on every platform — `createChannel` takes an array of adapters, and
 `app/index.ts` starts one for each platform whose secrets are present. Everything else (tools,
 components, the HITL gate, rendering) is shared verbatim.
 
@@ -265,7 +300,7 @@ Per-platform details are documented inline in [`.env.example`](./.env.example).
 
 ## Slash commands
 
-Four app-owned commands, registered via `createBot({ commands })`
+Four app-owned commands, registered via `createChannel({ commands })`
 ([`app/commands/index.ts`](./app/commands/index.ts)):
 
 - **`/agent <text>`** — a mention-free entry point; runs the agent with the command text.
@@ -292,10 +327,12 @@ are decoded and handed over as text. Then ask it to visualize:
 ## Tests
 
 ```bash
-npm test               # unit: read_thread, render tools, components, confirm_write, modals, commands
+npm test               # unit: read_thread, render tools, components (+ a component scan),
+                        # confirm_write, modals, commands, the channel host (app/managed.ts),
+                        # the shared headless browser, and sender-context resolution
 npm run check-types    # tsc --noEmit
 ```
 
-The live-Slack e2e harness (`npm run e2e`) is being migrated to the new `createBot` API and
+The live-Slack e2e harness (`npm run e2e`) is being migrated to the new `createChannel` API and
 doesn't run against this code as-is. The Telegram harness (`npm run e2e:telegram`) is a working
 manual-trigger smoke test — see [`e2e/TELEGRAM-README.md`](./e2e/TELEGRAM-README.md).

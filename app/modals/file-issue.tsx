@@ -72,7 +72,7 @@ export const fileIssueSubmit: ModalSubmitHandler = async ({
       context: senderContext(user, thread.platform),
     })
     .catch((err) => {
-      console.error("[bot] file-issue modal run failed", err);
+      console.error("[file-issue] file-issue modal run failed", err);
       void thread
         .post("Sorry — I couldn't file that issue. Please try again.")
         .catch((postErr: unknown) =>
@@ -120,7 +120,7 @@ export function FileIssueModal({ rich }: { rich: boolean }): ModalView {
         </RadioButtons>
       ) : null}
     </Modal>
-    // JSX expressions type as `JSX.Element` (= `BotNode`, not `ModalView`) per
+    // JSX expressions type as `JSX.Element` (= `ChannelNode`, not `ModalView`) per
     // the channels-ui jsx-runtime, so the narrower literal `type: "modal"` needs
     // an explicit assertion even though `Modal` itself returns `ModalView`.
   ) as ModalView;

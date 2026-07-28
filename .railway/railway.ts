@@ -8,9 +8,11 @@ import { defineRailway, github, preserve, project, service } from "railway/iac";
 // (see README "Deploy to Railway").
 //
 // Two topology invariants this file encodes:
-//   1. Ports are pinned as explicit service variables (NOT left to Railway's
-//      auto-injected $PORT) so each service's listen port and the ${{svc.PORT}}
-//      its peers dial always agree.
+//   1. Ports for peer-dialed services (agent, notion-mcp) are pinned as explicit
+//      service variables (NOT left to Railway's auto-injected $PORT) so each
+//      service's listen port and the ${{svc.PORT}} its peers dial always agree.
+//      The outbound-only channel host has no peer dialing it, so it uses
+//      Railway's injected $PORT (app/managed.ts defaults 8300).
 //   2. Services reached over Railway private networking must bind :: (all
 //      interfaces) — private DNS (RAILWAY_PRIVATE_DOMAIN) resolves to IPv6, and
 //      legacy environments are IPv6-only. A service bound to 127.0.0.1/0.0.0.0
@@ -37,6 +39,19 @@ export default defineRailway(() => {
     deploy: {
       restartPolicyType: "ON_FAILURE",
       restartPolicyMaxRetries: 5,
+      // Railway's SIGTERM->SIGKILL grace period defaults to 0. This launcher
+      // (scripts/start-notion-mcp.ts) DOES have a shutdown routine: its
+      // `shutdown()` forwards the signal to the whole detached process group
+      // via `killTree` (reaching npx and the underlying notion-mcp-server
+      // process), then schedules `setTimeout(() => killTree("SIGKILL"), 5000)`
+      // — a 5s escalation. At 0s draining, that group is never signalled and
+      // the escalation timer never gets a chance to fire before the platform
+      // SIGKILLs the container outright, so every redeploy hard-kills the
+      // `npx`-spawned tree instead of letting it exit cleanly. 10s gives 2x
+      // headroom over that 5s escalation (process-group signal delivery +
+      // npx/node exit overhead) without the drain window itself becoming the
+      // bottleneck.
+      drainingSeconds: 10,
     },
     env: {
       NOTION_MCP_PORT: "3001",
@@ -66,6 +81,22 @@ export default defineRailway(() => {
       healthcheckTimeout: 300,
       restartPolicyType: "ON_FAILURE",
       restartPolicyMaxRetries: 5,
+      // Railway's SIGTERM->SIGKILL grace period defaults to 0. uvicorn DOES
+      // have a shutdown routine to protect: on SIGTERM it stops accepting new
+      // connections and waits for in-flight ones to finish
+      // (`Server.shutdown()` in uvicorn's own server.py), and since main.py's
+      // `uvicorn.run(...)` call above does not set `timeout_graceful_shutdown`,
+      // that wait is UNBOUNDED on uvicorn's side — Railway's drainingSeconds is
+      // the sole ceiling on how long an in-flight AG-UI research stream gets
+      // before SIGKILL truncates it mid-turn. The channel host this agent
+      // streams to over private networking is itself only guaranteed a 15s
+      // drain window (see channel's drainingSeconds below), so giving the
+      // producer less than that would undercut the very guarantee the
+      // consumer's window exists to provide. 30s — roughly double the
+      // channel's 15s — gives an in-flight tool call/model round trip real
+      // room to finish and flush its next SSE chunk before a redeploy tears
+      // the connection down.
+      drainingSeconds: 30,
     },
     env: {
       // Pin PORT so uvicorn's bind and ${{agent.PORT}} (dialed by channel) agree.
@@ -89,31 +120,132 @@ export default defineRailway(() => {
     },
   });
 
-  // KiteBot channel host — runs the bot over the Intelligence Realtime Gateway.
+  // KiteBot channel host — runs the bot via CopilotKit Intelligence v2:
+  // createChannel() feeds a CopilotRuntime({ channels }) into
+  // createCopilotNodeListener(). There are no org/project/channel IDs to wire
+  // up: the runtime derives that identity from the API credentials plus the
+  // channel name below.
   const channel = service("channel", {
     source: github(REPO),
     start: "pnpm channel",
+    // The channel host renders inline charts/diagrams via Playwright/Chromium
+    // (app/render/browser.ts → chromium.launch). Install the browser at build
+    // time; PLAYWRIGHT_BROWSERS_PATH=0 (env below) puts it in node_modules so it
+    // persists into the deploy image, and RAILPACK_DEPLOY_APT_PACKAGES supplies
+    // the shared libs Chromium needs at runtime. Without this, render_chart /
+    // render_diagram fail on the deployed channel. Mirrors the kite reference.
+    build: {
+      // Pin the builder: RAILPACK_DEPLOY_APT_PACKAGES below is honored ONLY by
+      // Railpack, and (since --with-deps was dropped) it is now the SOLE source
+      // of the 31 packages (28 shared libs + 3 fonts) Chromium needs at runtime
+      // — see the derivation notes on that env var below. Leaving `builder`
+      // unset defaults to Railway's own choice, which could silently be a
+      // non-Railpack builder — RAILPACK_DEPLOY_APT_PACKAGES would then do
+      // nothing, and render_chart/render_diagram would die at runtime on a
+      // missing .so with no build-time signal.
+      builder: "RAILPACK",
+      // `--frozen-lockfile` so a drifted pnpm-lock.yaml fails the build instead
+      // of silently resolving different versions than the repo was tested with
+      // (overriding buildCommand replaces Railpack's own install, which sets it).
+      // Chromium is installed explicitly because pnpm 10 does not run the
+      // playwright package's postinstall by default. NOT `--with-deps`: that
+      // apt-installs into the BUILD layer, which Railpack strips — the runtime
+      // libs come from RAILPACK_DEPLOY_APT_PACKAGES below, which is the layer
+      // that actually launches the browser.
+      buildCommand:
+        "pnpm install --frozen-lockfile && npx playwright install chromium",
+    },
     deploy: {
       // Parity with agent/notion-mcp: restart the long-running channel host on
       // crash instead of leaving KiteBot silently offline.
       restartPolicyType: "ON_FAILURE",
-      restartPolicyMaxRetries: 5,
+      // Higher than agent/notion-mcp's 5: app/managed.ts runs a 60s watchdog
+      // that deliberately calls process.exit(1) when the managed session hits
+      // the terminal `error` state, exiting so the platform restarts the host.
+      // That design assumes the platform keeps restarting through a transient
+      // outage (e.g. the Intelligence gateway), so this cap is an
+      // outage-tolerance budget, not a crash-loop guard — it's raised to
+      // survive a realistic outage lasting more than a few restart cycles.
+      // Deliberately NOT ALWAYS: a genuine boot-time misconfiguration should
+      // still crash-loop visibly rather than being masked.
+      restartPolicyMaxRetries: 10,
+      // Railway's SIGTERM->SIGKILL grace period (RAILWAY_DEPLOYMENT_DRAINING_SECONDS)
+      // defaults to 0, which would give app/managed.ts's shutdown routine zero
+      // time to run: it budgets ~10s of graceful teardown (channels.stop(),
+      // bounded 5s; then closeServer()/closeBrowser() raced against a 5s
+      // timer) before calling process.exit(exitCode), and four docstrings in
+      // that file justify their bounds by reference to "the platform's grace
+      // period." 15s covers that ~10s worst case with headroom.
+      drainingSeconds: 15,
     },
     env: {
       // brain: points at the agent service over private networking. The agent
       // pins PORT=8123, so ${{agent.PORT}} resolves to the port uvicorn binds.
       AGENT_URL: "http://${{agent.RAILWAY_PRIVATE_DOMAIN}}:${{agent.PORT}}/",
+      // Chromium for inline chart/diagram rendering: install the browser into
+      // node_modules (0) so it ships with the app, and provide the shared libs
+      // in the deploy image (Railpack strips build-layer apt packages).
+      PLAYWRIGHT_BROWSERS_PATH: "0",
+      // Derived from playwright-core's OWN native-dependency table — the
+      // authoritative source, not this comment — at
+      // node_modules/playwright-core/lib/coreBundle.js (that version bundles
+      // registry/nativeDeps.js into this single minified file; search for
+      // "ubuntu22.04-x64" / "ubuntu24.04-x64" to find the `chromium: [...]`
+      // and `tools: [...]` arrays). Re-derive from there when bumping
+      // playwright-core, rather than hand-editing this string blind — that's
+      // exactly how it drifted before (see below).
+      //
+      // Naming — t64 vs. legacy: Ubuntu 24.04/Noble's 64-bit time_t transition
+      // renamed six of these packages with a "t64" suffix (libasound2,
+      // libatk-bridge2.0-0, libatk1.0-0, libatspi2.0-0, libcups2,
+      // libglib2.0-0), and Playwright's ubuntu24.04-x64 chromium list uses the
+      // new names while ubuntu22.04-x64 uses the old ones. We list ONLY the
+      // t64 names below, NOT both: apt-get install hard-fails the WHOLE
+      // command (nothing gets installed, not just that one package) if any
+      // name it's given can't be resolved, and the "t64" names don't exist at
+      // all on Jammy/22.04 — so listing both is only safe-on-Noble, not
+      // safe-on-either. We assume Railpack's deploy runtime is Ubuntu
+      // 24.04/Noble or newer (the current-generation base a build tool this
+      // recent would default to) — unverified from this repo. To check: exec
+      // into a deployed channel instance and run `cat /etc/os-release`, or
+      // `apt-cache policy <pkg>` for one of the six above to see whether the
+      // t64 or legacy name is the real package vs. a transitional/virtual one.
+      // If that shows Jammy/22.04 instead, swap these six back to the
+      // pre-t64 names (Playwright's ubuntu22.04-x64 list).
+      //
+      // Extras not in Playwright's chromium list for either distro:
+      // libfontconfig1/libfreetype6 ARE in Playwright's "tools" list for both
+      // distros (font rendering support for xvfb) — legitimate upstream deps,
+      // just filed under a different category, not actually extraneous.
+      // libx11-xcb1/libxrender1/libxshmfence1 were direct chromium deps on
+      // Playwright's now-dropped ubuntu20.04-x64 list — likely vestigial for
+      // the Chromium build this version of playwright-core bundles, but kept
+      // since an unnecessary package is harmless and a missing one breaks
+      // rendering at runtime. libexpat1 doesn't appear in the native-deps
+      // table for ANY distro there — origin unknown, kept for the same
+      // harmless-if-unused reason.
+      RAILPACK_DEPLOY_APT_PACKAGES:
+        "fonts-liberation fonts-noto-color-emoji fonts-unifont libasound2t64 libatk-bridge2.0-0t64 libatk1.0-0t64 libatspi2.0-0t64 libcairo2 libcups2t64 libdbus-1-3 libdrm2 libexpat1 libfontconfig1 libfreetype6 libgbm1 libglib2.0-0t64 libnspr4 libnss3 libpango-1.0-0 libwayland-client0 libx11-6 libx11-xcb1 libxcb1 libxcomposite1 libxdamage1 libxext6 libxfixes3 libxkbcommon0 libxrandr2 libxrender1 libxshmfence1",
       // INTELLIGENCE_CHANNEL_NAME is intentionally NOT set here: app/managed.ts
-      // already defaults it to "kitebot", and leaving it unmanaged means a
+      // already defaults it to "kite-opentag", and leaving it unmanaged means a
       // deployer can set their own channel name in the Railway UI without a
       // later `config apply` clobbering it. Set it in the channel service's
       // Variables if your Intelligence channel is named something else.
-      // secrets (set in Railway UI):
+      //
+      // All three INTELLIGENCE_* connection vars below are deployer-supplied
+      // secrets/values (from your CopilotKit Intelligence project) — declared
+      // with preserve() so they're never hardcoded here, and `railway config
+      // apply` never clobbers what you set in the Railway UI (see README
+      // "Deploy to Railway"):
+      INTELLIGENCE_API_URL: preserve(),
       INTELLIGENCE_GATEWAY_WS_URL: preserve(),
       INTELLIGENCE_API_KEY: preserve(),
-      INTELLIGENCE_ORG_ID: preserve(),
-      INTELLIGENCE_PROJECT_ID: preserve(),
-      INTELLIGENCE_CHANNEL_ID: preserve(),
+      // CHANNEL_HTTP_TOKEN is intentionally NOT set: the channel host's HTTP
+      // routes are closed unless it is, and nothing here needs them (this
+      // service has no public domain and no healthcheck, and the managed
+      // channel activates over the gateway WebSocket). preserve() so a deployer
+      // who does open the surface isn't clobbered by a later `config apply`.
+      CHANNEL_HTTP_TOKEN: preserve(),
     },
   });
 

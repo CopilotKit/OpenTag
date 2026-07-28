@@ -32,11 +32,28 @@ export interface ConfirmWriteProps {
   detail?: string;
 }
 
+/**
+ * Slack's section-text budget is ~3000 chars; an agent-supplied `detail`
+ * anywhere near that risks the confirm card failing to post — and since the
+ * blocking `awaitChoice` in confirm-write-tool.tsx can then never resolve,
+ * that would break the write GATE instead of degrading it. Cap well under
+ * the budget so the card always posts, on every channel (not just Slack's
+ * own renderer, which truncates section text but not every channel does).
+ * Same trim length as the `description` cap in issue-card.tsx, for
+ * consistency across cards.
+ */
+const MAX_DETAIL_LENGTH = 600;
+
 export function ConfirmWrite({ action, detail }: ConfirmWriteProps) {
+  const detailText = detail
+    ? detail.length > MAX_DETAIL_LENGTH
+      ? `${detail.slice(0, MAX_DETAIL_LENGTH)}…`
+      : detail
+    : undefined;
   return (
     <Message accent="#E2B340">
       <Header>{`📝 ${action}?`}</Header>
-      {detail ? <Section>{detail}</Section> : null}
+      {detailText ? <Section>{detailText}</Section> : null}
       <Context>{"🔒  Nothing is written until you click **Create**."}</Context>
       <Actions>
         <Button
