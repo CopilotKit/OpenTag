@@ -16,6 +16,7 @@ interface RailwayResource {
   build?: {
     builder?: string;
     buildCommand?: string;
+    watchPatterns?: string[];
   };
   deploy?: {
     startCommand?: string;
@@ -76,6 +77,7 @@ describe("Railway deployment graph", () => {
       build: {
         builder: "RAILPACK",
         buildCommand: "pnpm exec playwright install chromium",
+        watchPatterns: ["/**"],
       },
       deploy: {
         startCommand: "pnpm runtime",
