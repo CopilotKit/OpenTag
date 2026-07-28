@@ -12,6 +12,9 @@ import { chromium, type Browser } from "playwright";
 
 let browserPromise: Promise<Browser> | undefined;
 let closing = false;
+// Retains a failed `browser.close()` so a later `closeBrowser()` call keeps
+// reporting it instead of resolving cleanly — see the docstring below.
+let closeFailure: Error | undefined;
 
 export function getBrowser(): Promise<Browser> {
   if (closing) {
@@ -31,6 +34,16 @@ export function getBrowser(): Promise<Browser> {
       browser.on("disconnected", () => {
         if (browserPromise === launched) browserPromise = undefined;
       });
+      // `disconnected` only fires on a *transition* — a browser that died
+      // in the gap between `chromium.launch()` resolving and this `.then()`
+      // callback running (at least one microtask, possibly more under load)
+      // never emits it, so the listener above alone would leave that corpse
+      // cached forever. Check the live state directly as a fallback, guarded
+      // on identity so we never clobber a newer promise that a relaunch or
+      // closeBrowser() may have already installed by the time this runs.
+      if (!browser.isConnected() && browserPromise === launched) {
+        browserPromise = undefined;
+      }
       return browser;
     });
     // A rejected promise is still a truthy `browserPromise`, so without this
@@ -50,6 +63,19 @@ export function getBrowser(): Promise<Browser> {
   return browserPromise;
 }
 
+/**
+ * Closes the shared browser and claims shutdown for the module.
+ *
+ * Contract on repeated calls:
+ *  - never launched, or a prior call already tore down cleanly: resolves
+ *    immediately, a no-op.
+ *  - a prior `browser.close()` failed: this and every subsequent call
+ *    reject with that SAME retained error, without retrying `close()`. The
+ *    browser may still be running; we don't know its state well enough to
+ *    promise a fresh attempt will do better, and re-reporting is strictly
+ *    better than the alternative of quietly resolving as if teardown had
+ *    succeeded.
+ */
 export async function closeBrowser(): Promise<void> {
   // Claim shutdown and detach the promise BEFORE awaiting — unconditionally,
   // even when nothing was ever launched. A prior version early-returned here
@@ -60,19 +86,37 @@ export async function closeBrowser(): Promise<void> {
   // process.exit(). Claiming shutdown first makes that race impossible
   // regardless of whether a browser exists yet.
   closing = true;
+  if (closeFailure) {
+    // A previous `close()` already failed and browserPromise was detached
+    // on that same call, so without this a second closeBrowser() would find
+    // `pending` undefined and short-circuit at `if (!pending) return` below
+    // — reporting a clean close it never achieved, for a browser that may
+    // still be running. Re-throw the same error every time instead.
+    throw closeFailure;
+  }
   const pending = browserPromise;
   browserPromise = undefined;
   if (!pending) return;
-  // Let both failure modes propagate instead of swallowing them: a launch
-  // that never produced a browser, and a `close()` that fails on one that
-  // did. The caller in `managed.ts` already has a `.catch` on this call
-  // specifically to log an orphaned/wedged Chromium during shutdown — that
-  // handler was unreachable dead code while this function ate every error,
-  // leaving the operator with no signal that teardown didn't actually
-  // happen. `closeBrowser()` is still a clean no-op for the common case of
-  // "never launched" (the early return above), and still idempotent: once
-  // `browserPromise` is detached, a later call short-circuits there too,
-  // launch/close failure or not.
+  // If `pending` rejects, this propagates the *original* launch error,
+  // unwrapped and un-retained as `closeFailure` — there was no browser to
+  // close, so this is not a close failure. Distinguishing the two matters:
+  // `managed.ts` logs whatever this throws as "browser cleanup failed
+  // (continuing shutdown)", and a launch failure surfaced with that same
+  // message, unwrapped, sends the operator hunting for a wedged Chromium
+  // that never existed instead of a launch that never completed.
   const b = await pending;
-  await b.close();
+  try {
+    await b.close();
+  } catch (err) {
+    // `close()` rejected: Chromium may still be running, and the cache was
+    // already detached above, so nothing else remembers it. Retain the
+    // failure (see docstring) and wrap it with a message that reads
+    // unambiguously as a close failure, never confusable with the
+    // unwrapped launch-failure case above.
+    closeFailure =
+      err instanceof Error
+        ? new Error(`browser close() failed, Chromium may still be running: ${err.message}`, { cause: err })
+        : new Error(`browser close() failed, Chromium may still be running: ${String(err)}`);
+    throw closeFailure;
+  }
 }
