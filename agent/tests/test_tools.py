@@ -1,7 +1,8 @@
 import tools
+import pytest
 
 
-def test_do_internet_search_formats_results(monkeypatch):
+def test_search_tavily_formats_results(monkeypatch):
     class FakeClient:
         def __init__(self, api_key): pass
         def search(self, **kwargs):
@@ -10,48 +11,46 @@ def test_do_internet_search_formats_results(monkeypatch):
             ]}
     monkeypatch.setenv("TAVILY_API_KEY", "tvly-test")
     monkeypatch.setattr(tools, "TavilyClient", FakeClient)
-    out = tools._do_internet_search("q", max_results=1)
+    out = tools._search_tavily("q", max_results=1)
     assert out == [{"url": "https://x.com", "title": "X", "content": "c" * 3000}]
 
 
-def test_do_internet_search_missing_key(monkeypatch):
+def test_search_tavily_missing_key(monkeypatch):
     monkeypatch.delenv("TAVILY_API_KEY", raising=False)
-    import pytest
     with pytest.raises(RuntimeError, match="TAVILY_API_KEY"):
-        tools._do_internet_search("q")
+        tools._search_tavily("q")
 
 
-def test_do_internet_search_swallows_errors(monkeypatch):
+def test_search_tavily_raises_when_tavily_fails(monkeypatch):
     class BoomClient:
         def __init__(self, api_key): pass
         def search(self, **kwargs): raise ValueError("boom")
     monkeypatch.setenv("TAVILY_API_KEY", "tvly-test")
     monkeypatch.setattr(tools, "TavilyClient", BoomClient)
-    out = tools._do_internet_search("q")
-    assert out == [{"error": "boom"}]
+    with pytest.raises(RuntimeError, match="Tavily search failed") as error:
+        tools._search_tavily("q")
+    assert isinstance(error.value.__cause__, ValueError)
 
 
-def test_internal_source_tools_empty_without_env(monkeypatch):
-    monkeypatch.delenv("LINEAR_API_KEY", raising=False)
-    monkeypatch.delenv("NOTION_MCP_AUTH_TOKEN", raising=False)
-    assert tools.internal_source_tools() == []
+def test_web_search_returns_tavily_results_directly(monkeypatch):
+    calls = []
+    expected = [
+        {
+            "url": "https://example.com",
+            "title": "Example",
+            "content": "Current source material",
+        }
+    ]
 
+    def fake_search(query, max_results):
+        calls.append((query, max_results))
+        return expected
 
-def test_internal_source_tools_loads_when_env_set(monkeypatch):
-    class FakeMCPClient:
-        """Stub replacing MultiServerMCPClient - no real network calls."""
+    monkeypatch.setattr(tools, "_search_tavily", fake_search)
 
-        def __init__(self, connections):
-            self.connections = connections
+    result = tools.web_search.invoke(
+        {"query": "current incident guidance", "max_results": 3}
+    )
 
-        async def get_tools(self):
-            return [f"tool-for-{name}" for name in self.connections]
-
-    monkeypatch.setenv("LINEAR_API_KEY", "lin_api_test")
-    monkeypatch.setenv("NOTION_MCP_AUTH_TOKEN", "notion-test-token")
-    monkeypatch.setattr(tools, "MultiServerMCPClient", FakeMCPClient)
-
-    result = tools.internal_source_tools()
-
-    assert len(result) > 0
-    assert set(result) == {"tool-for-linear", "tool-for-notion"}
+    assert result == expected
+    assert calls == [("current incident guidance", 3)]

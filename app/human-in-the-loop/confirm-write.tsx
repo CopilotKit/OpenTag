@@ -1,11 +1,9 @@
 /**
  * `confirm_write` — the human-in-the-loop gate in front of every Linear /
- * Notion write. The agent is instructed (see the system prompt in
- * `runtime.ts`) to confirm BEFORE creating an issue or a page: a tool handler
- * calls `await thread.awaitChoice(<ConfirmWrite .../>)`, which posts this
- * interactive card and **blocks until the user clicks Create or Cancel**,
- * resolving to the clicked button's `value` (`{ confirmed: true | false }`).
- * The agent only performs the write once it resolves with `{ confirmed: true }`.
+ * Notion write. The Python MCP interceptor pauses before invoking a mutating
+ * tool. The Channel interrupt handler posts this card and returns immediately.
+ * A click updates the card, then resumes the paused graph with
+ * `{ confirmed: true | false }`.
  *
  * Each button also carries an `onClick` that updates the picker in place to a
  * resolved / declined state — so the card reflects the decision the moment it's
@@ -22,14 +20,43 @@ import {
   Context,
   Actions,
   Button,
-} from "@copilotkit/channels-ui";
-import type { InteractionContext } from "@copilotkit/channels-ui";
+} from "@copilotkit/channels";
+import type { InteractionContext } from "@copilotkit/channels";
 
-export interface ConfirmWriteProps {
+interface ConfirmWriteProps {
   /** Short imperative title of the write, e.g. 'Create Linear issue'. */
   action: string;
   /** The specifics being approved — issue title + one-line description, etc. */
   detail?: string;
+}
+
+async function resumeOrShowFailure(
+  thread: InteractionContext["thread"],
+  messageRef: InteractionContext["message"]["ref"],
+  action: string,
+  confirmed: boolean,
+): Promise<void> {
+  try {
+    await thread.resume({ confirmed });
+  } catch (error) {
+    try {
+      await thread.update(
+        messageRef,
+        <Message accent="#EB5757">
+          <Header>{`⚠️ ${action} paused`}</Header>
+          <Context>
+            {"I couldn't resume the agent. Please retry the action."}
+          </Context>
+        </Message>,
+      );
+    } catch (updateError) {
+      throw new AggregateError(
+        [error, updateError],
+        `Failed to resume "${action}" and show its retry state`,
+      );
+    }
+    throw error;
+  }
 }
 
 export function ConfirmWrite({ action, detail }: ConfirmWriteProps) {
@@ -43,17 +70,19 @@ export function ConfirmWrite({ action, detail }: ConfirmWriteProps) {
           value={{ confirmed: true }}
           style="primary"
           onClick={async ({ thread, message }: InteractionContext) => {
-            try {
-              await thread.update(
-                message.ref,
-                <Message accent="#27AE60">
-                  <Header>{`✅ ${action}`}</Header>
-                  <Context>{"✅  Approved — writing now."}</Context>
-                </Message>,
-              );
-            } catch (err) {
-              console.error("[confirm-write] onClick failed", err);
-            }
+            await thread.update(
+              message.ref,
+              <Message accent="#27AE60">
+                <Header>{`✅ ${action}`}</Header>
+                <Context>{"✅  Approved — writing now."}</Context>
+              </Message>,
+            );
+            await resumeOrShowFailure(
+              thread,
+              message.ref,
+              action,
+              true,
+            );
           }}
         >
           Create
@@ -62,17 +91,19 @@ export function ConfirmWrite({ action, detail }: ConfirmWriteProps) {
           value={{ confirmed: false }}
           style="danger"
           onClick={async ({ thread, message }: InteractionContext) => {
-            try {
-              await thread.update(
-                message.ref,
-                <Message accent="#EB5757">
-                  <Header>{`🚫 ${action}`}</Header>
-                  <Context>{"🚫  Declined — nothing was written."}</Context>
-                </Message>,
-              );
-            } catch (err) {
-              console.error("[confirm-write] onClick failed", err);
-            }
+            await thread.update(
+              message.ref,
+              <Message accent="#EB5757">
+                <Header>{`🚫 ${action}`}</Header>
+                <Context>{"🚫  Declined — nothing was written."}</Context>
+              </Message>,
+            );
+            await resumeOrShowFailure(
+              thread,
+              message.ref,
+              action,
+              false,
+            );
           }}
         >
           Cancel

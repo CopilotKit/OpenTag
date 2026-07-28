@@ -1,0 +1,16 @@
+"""OpenTag agent prompts."""
+
+from .system import SYSTEM_PROMPT, WORKFLOW_PROMPT
+from .tools import TOOLS_PROMPT
+from .web_search import (
+    NO_WEB_SEARCH_TOOL_ADDENDUM,
+    WEB_SEARCH_TOOL_ADDENDUM,
+)
+
+BASE_SYSTEM_PROMPT = SYSTEM_PROMPT + TOOLS_PROMPT + WORKFLOW_PROMPT
+
+__all__ = [
+    "BASE_SYSTEM_PROMPT",
+    "NO_WEB_SEARCH_TOOL_ADDENDUM",
+    "WEB_SEARCH_TOOL_ADDENDUM",
+]

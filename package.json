@@ -2,37 +2,22 @@
   "name": "opentag",
   "version": "0.2.0",
   "private": true,
-  "description": "OpenTag — an open-source, self-hosted alternative to Claude in Slack: run your own AI agent on your infrastructure, with your model and your tools. Built on @copilotkit/channels; also runs on Discord, Telegram & WhatsApp.",
+  "description": "OpenTag — an open-source, self-hosted AI agent for Slack and Microsoft Teams, powered by CopilotKit Channels.",
   "license": "MIT",
   "type": "module",
   "scripts": {
-    "dev": "tsx watch app/index.ts",
-    "start": "tsx app/index.ts",
-    "channel": "tsx app/managed.ts",
+    "dev": "tsx watch server.ts",
+    "start": "tsx server.ts",
+    "runtime": "tsx server.ts",
     "agent": "cd agent && uv run python main.py",
-    "runtime": "tsx runtime.ts",
-    "notion-mcp": "tsx scripts/start-notion-mcp.ts",
     "check-types": "tsc --noEmit -p tsconfig.json",
     "test": "vitest run",
-    "e2e": "tsx e2e/run.ts",
-    "e2e:restart": "tsx e2e/restart-recovery.ts",
-    "e2e:telegram": "tsx e2e/telegram-run.ts"
+    "e2e": "tsx e2e/run.ts"
   },
   "dependencies": {
-    "@copilotkit/channels": "^0.1.1",
-    "@copilotkit/channels-discord": "^0.0.3",
-    "@copilotkit/channels-intelligence": "^0.1.1",
-    "@copilotkit/channels-slack": "^0.1.2",
-    "@copilotkit/channels-telegram": "^0.0.4",
-    "@copilotkit/channels-ui": "^0.1.1",
-    "@copilotkit/channels-whatsapp": "^0.0.2",
-    "@copilotkit/runtime": "^1.62.3",
-    "@notionhq/notion-mcp-server": "^2.4.0",
-    "@slack/bolt": "^4.2.0",
-    "@slack/types": "^2.21.1",
-    "@tanstack/ai": "^0.32.0",
-    "@tanstack/ai-mcp": "^0.1.3",
-    "@tanstack/ai-openai": "^0.15.2",
+    "@ag-ui/client": "^0.0.57",
+    "@copilotkit/channels": "0.2.2-canary.rc-1",
+    "@copilotkit/runtime": "1.63.3-canary.rc-1",
     "dotenv": "^16.4.5",
     "playwright": "^1.49.0",
     "tsx": "^4.19.2",
@@ -48,5 +33,6 @@
     "overrides": {
       "rxjs": "^7.8.2"
     }
-  }
+  },
+  "packageManager": "pnpm@10.33.4+sha512.1c67b3b359b2d408119ba1ed289f34b8fc3c6873412bec6fd264fbdc82489e510fcbecb9ce9d22dae7f3b76269d8441046014bdca53b9979cd7a561ad631b800"
 }

@@ -1,7 +1,7 @@
 {
   "display_information": {
-    "name": "KiteBot",
-    "description": "On-call triage assistant \u2014 query/file Linear issues and find/write Notion pages from Slack.",
+    "name": "OpenTag",
+    "description": "OpenTag research and triage assistant for Slack.",
     "background_color": "#1a1a1a"
   },
   "features": {
@@ -11,11 +11,11 @@
       "messages_tab_read_only_enabled": false
     },
     "bot_user": {
-      "display_name": "KiteBot",
+      "display_name": "OpenTag",
       "always_online": true
     },
     "assistant_view": {
-      "assistant_description": "On-call triage assistant — query/file Linear issues and find/write Notion pages.",
+      "assistant_description": "OpenTag research and triage assistant.",
       "suggested_prompts": [
         {
           "title": "Triage my open issues",

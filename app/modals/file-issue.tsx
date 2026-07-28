@@ -2,12 +2,8 @@
  * Modal demo — a structured "file a Linear issue" form. Beats parsing free text:
  * the fields come back typed and validated by the platform.
  *
- * Per-platform honesty (the modal vocabulary degrades, it never lies):
- *  - Slack  → the rich form: text inputs + team/priority dropdowns + a type radio.
- *  - Discord→ text-only, ≤5 inputs (discord.js modals take only text inputs), so
- *             the dropdowns/radio drop out and `issueFromValues` applies defaults.
- *  - Telegram→ no modals at all; the `/file-issue` command (Task 5) detects the
- *             missing trigger and falls back to a conversational flow.
+ * Slack receives the rich form. Platforms without modal support are detected
+ * by the `/file-issue` command and fall back to the same conversational flow.
  */
 import {
   Modal,
@@ -15,10 +11,12 @@ import {
   ModalSelect,
   ModalSelectOption,
   RadioButtons,
-} from "@copilotkit/channels-ui";
-import type { ModalView } from "@copilotkit/channels-ui";
-import type { ModalSubmitHandler } from "@copilotkit/channels";
-import { senderContext } from "../sender-context.js";
+} from "@copilotkit/channels";
+import type { ModalSubmitHandler, ModalView } from "@copilotkit/channels";
+import {
+  platformRunInput,
+  reportRecoverableError,
+} from "../channel-helpers.js";
 
 export const FILE_ISSUE_CALLBACK = "file_issue";
 
@@ -30,7 +28,7 @@ export function issueFromValues(values: Record<string, unknown>) {
   return {
     title: str(values.title),
     description: str(values.description),
-    type: str(values.type, "bug"), // absent on Discord text-only → default
+    type: str(values.type, "bug"),
     priority: str(values.priority, "Medium"),
   };
 }
@@ -39,7 +37,7 @@ export function issueFromValues(values: Record<string, unknown>) {
  * Handle a `/file-issue` modal submission: validate, then file via the agent
  * (Linear MCP) so the existing confirm-before-write + filed-card flow is reused.
  * Returning `{ errors }` keeps the modal open with a field error (Slack); on
- * text-only Discord, `type`/`priority` default in.
+ * submissions without `type`/`priority` use safe defaults.
  *
  * CRITICAL — Slack's view_submission ack deadline (~3s): the adapter awaits this
  * handler before it can `ack()` the submission, and Slack expects that ack within
@@ -54,6 +52,7 @@ export const fileIssueSubmit: ModalSubmitHandler = async ({
   values,
   thread,
   user,
+  privateMetadata,
 }) => {
   const issue = issueFromValues(values);
   if (!issue.title.trim()) {
@@ -65,32 +64,57 @@ export const fileIssueSubmit: ModalSubmitHandler = async ({
   void thread
     .runAgent({
       prompt:
-        `File a Linear issue now (this was already confirmed via the form):\n` +
+        `Draft this Linear issue from the submitted form:\n` +
         `- Title: ${issue.title}\n- Type: ${issue.type}\n- Priority: ${issue.priority}\n` +
         `- Description: ${issue.description || "(none)"}\n` +
-        `After filing, show the issue card.`,
-      context: senderContext(user, thread.platform),
+        `Call the Linear create tool with these exact details. Its protected ` +
+        `MCP handler emits confirm_write and files only after approval. Then ` +
+        `show the issue card.`,
+      ...platformRunInput(privateMetadata ?? thread.platform, user),
     })
-    .catch((err) => {
-      console.error("[bot] file-issue modal run failed", err);
-      void thread
-        .post("Sorry — I couldn't file that issue. Please try again.")
-        .catch((postErr: unknown) =>
-          console.error("[file-issue] failed to post error", postErr),
+    .catch(async (error) => {
+      try {
+        await thread.post(
+          "Sorry — I couldn't file that issue. Please try again.",
         );
+      } catch (postError) {
+        throw new AggregateError(
+          [error, postError],
+          "The file-issue agent run and its error reply both failed",
+        );
+      }
+
+      reportRecoverableError(error, {
+        operation: "file_issue_modal_run_agent",
+        recovery: "posted_user_facing_error",
+      });
+    })
+    .catch((error) => {
+      // This is the terminal observer for the intentionally detached promise.
+      reportRecoverableError(error, {
+        operation: "file_issue_modal_run_agent",
+        recovery: "terminal_failure",
+      });
     });
 };
 
 /**
  * The form. `rich` controls whether the structured controls (selects/radio) are
- * present; pass `false` on text-only surfaces (Discord).
+ * present; pass `false` when a future text-only modal surface needs it.
  */
-export function FileIssueModal({ rich }: { rich: boolean }): ModalView {
+export function FileIssueModal({
+  rich,
+  sourcePlatform,
+}: {
+  rich: boolean;
+  sourcePlatform: string;
+}): ModalView {
   return (
     <Modal
       callbackId={FILE_ISSUE_CALLBACK}
       title="File an issue"
       submitLabel="File"
+      privateMetadata={sourcePlatform}
     >
       <TextInput
         id="title"
@@ -120,8 +144,8 @@ export function FileIssueModal({ rich }: { rich: boolean }): ModalView {
         </RadioButtons>
       ) : null}
     </Modal>
-    // JSX expressions type as `JSX.Element` (= `BotNode`, not `ModalView`) per
-    // the channels-ui jsx-runtime, so the narrower literal `type: "modal"` needs
+    // JSX expressions type as `JSX.Element` (= `ChannelNode`, not `ModalView`) per
+    // the Channels JSX runtime, so the narrower literal `type: "modal"` needs
     // an explicit assertion even though `Modal` itself returns `ModalView`.
   ) as ModalView;
 }

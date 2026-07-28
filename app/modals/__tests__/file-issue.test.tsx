@@ -1,19 +1,21 @@
 import { describe, it, expect, vi } from "vitest";
-import { renderToIR } from "@copilotkit/channels-ui";
+import { renderToIR, type ChannelNode } from "@copilotkit/channels";
+import {
+  defaultSlackContext,
+  defaultSlackTools,
+} from "@copilotkit/channels/slack";
 import {
   FileIssueModal,
   fileIssueSubmit,
   issueFromValues,
   FILE_ISSUE_CALLBACK,
 } from "../file-issue.js";
-import type { BotNode } from "@copilotkit/channels-ui";
-import { senderContext } from "../../sender-context.js";
 
-function tags(node: BotNode | unknown, acc: string[] = []): string[] {
+function tags(node: ChannelNode | unknown, acc: string[] = []): string[] {
   if (!node || typeof node !== "object") return acc;
-  const n = node as BotNode;
+  const n = node as ChannelNode;
   if (typeof n.type === "string") acc.push(n.type);
-  for (const c of (n.props?.children as BotNode[] | undefined) ?? []) {
+  for (const c of (n.props?.children as ChannelNode[] | undefined) ?? []) {
     tags(c, acc);
   }
   return acc;
@@ -21,18 +23,23 @@ function tags(node: BotNode | unknown, acc: string[] = []): string[] {
 
 describe("FileIssueModal", () => {
   it("rich variant (Slack) includes selects and radios", () => {
-    const ir = renderToIR(FileIssueModal({ rich: true }));
+    const ir = renderToIR(
+      FileIssueModal({ rich: true, sourcePlatform: "slack" }),
+    );
     const root = ir[0]!;
     const t = tags(root);
     expect(root.type).toBe("modal");
     expect(root.props.callbackId).toBe(FILE_ISSUE_CALLBACK);
+    expect(root.props.privateMetadata).toBe("slack");
     expect(t).toContain("modal_text_input");
     expect(t).toContain("modal_select");
     expect(t).toContain("modal_radio");
   });
 
-  it("text-only variant (Discord) drops selects/radios, ≤5 inputs", () => {
-    const ir = renderToIR(FileIssueModal({ rich: false }));
+  it("text-only variant drops selects and radios", () => {
+    const ir = renderToIR(
+      FileIssueModal({ rich: false, sourcePlatform: "teams" }),
+    );
     const root = ir[0]!;
     const t = tags(root);
     expect(t).not.toContain("modal_select");
@@ -58,7 +65,7 @@ describe("issueFromValues", () => {
     });
   });
 
-  it("applies defaults when controls were absent (Discord text-only)", () => {
+  it("applies defaults when optional controls were absent", () => {
     expect(issueFromValues({ title: "X", description: "Y" })).toEqual({
       title: "X",
       description: "Y",
@@ -115,12 +122,12 @@ describe("fileIssueSubmit", () => {
     ).resolves.toBeUndefined();
   });
 
-  it("runs the agent with the interpolated prompt and sender context on a valid submit", async () => {
+  it("uses the command's managed Slack origin for defaults and sender context on submit", async () => {
     const runAgent = vi.fn(
-      (_input?: { prompt: string; context: unknown }) =>
+      (_input?: { prompt: string; tools?: unknown; context: unknown }) =>
         new Promise<void>(() => {}),
     );
-    const thread = { runAgent, platform: "slack" };
+    const thread = { runAgent, platform: "intelligence" };
     const user = { id: "U1", name: "Ada Lovelace", email: "ada@example.com" };
     await fileIssueSubmit({
       values: {
@@ -131,6 +138,7 @@ describe("fileIssueSubmit", () => {
       },
       thread,
       user,
+      privateMetadata: "slack",
     } as never);
 
     expect(runAgent).toHaveBeenCalledTimes(1);
@@ -139,10 +147,22 @@ describe("fileIssueSubmit", () => {
     expect(call.prompt).toContain("- Type: bug");
     expect(call.prompt).toContain("- Priority: High");
     expect(call.prompt).toContain("- Description: 500 on submit");
-    expect(call.context).toEqual(senderContext(user, thread.platform));
+    expect(call.prompt).toContain("confirm_write");
+    expect(call.prompt).not.toContain("already confirmed");
+    expect(call.tools).toEqual(defaultSlackTools);
+    expect(call.context).toEqual([
+      ...defaultSlackContext,
+      {
+        description: "Requesting slack user",
+        value: "Ada Lovelace <ada@example.com> (slack id U1)",
+      },
+    ]);
   });
 
-  it("posts a failure message to the thread when runAgent rejects", async () => {
+  it("posts and reports a recoverable failure when runAgent rejects", async () => {
+    const consoleError = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => undefined);
     const post = vi.fn().mockResolvedValue({ id: "m1" });
     const thread = {
       runAgent: vi.fn(() => Promise.reject(new Error("LLM timeout"))),
@@ -158,5 +178,51 @@ describe("fileIssueSubmit", () => {
     expect(post).toHaveBeenCalledWith(
       expect.stringMatching(/couldn.t file|try again/i),
     );
+    expect(consoleError).toHaveBeenCalledWith(
+      "[channel] recoverable error",
+      expect.objectContaining({
+        error: expect.any(Error),
+        context: {
+          operation: "file_issue_modal_run_agent",
+          recovery: "posted_user_facing_error",
+        },
+        timestamp: expect.any(String),
+      }),
+    );
+    consoleError.mockRestore();
+  });
+
+  it("reports a structured terminal error when the apology also fails", async () => {
+    const consoleError = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => undefined);
+    const runError = new Error("LLM timeout");
+    const postError = new Error("Slack unavailable");
+    const thread = {
+      runAgent: vi.fn(() => Promise.reject(runError)),
+      post: vi.fn(() => Promise.reject(postError)),
+    };
+
+    await fileIssueSubmit({
+      values: { title: "T", description: "D", type: "bug", priority: "High" },
+      thread,
+      user: { id: "U1" },
+    } as never);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(consoleError).toHaveBeenCalledWith(
+      "[channel] recoverable error",
+      expect.objectContaining({
+        error: expect.objectContaining({
+          errors: [runError, postError],
+        }),
+        context: {
+          operation: "file_issue_modal_run_agent",
+          recovery: "terminal_failure",
+        },
+        timestamp: expect.any(String),
+      }),
+    );
+    consoleError.mockRestore();
   });
 });

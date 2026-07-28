@@ -5,8 +5,9 @@
  * `renderToIR` → `renderSlackMessage` yields the expected Block Kit shape.
  */
 import { describe, it, expect } from "vitest";
-import { renderToIR } from "@copilotkit/channels-ui";
-import { renderSlackMessage } from "@copilotkit/channels-slack";
+import { renderToIR } from "@copilotkit/channels";
+import { renderSlackMessage } from "@copilotkit/channels/slack";
+import { renderAdaptiveCard } from "@copilotkit/channels/teams";
 import { renderTableTool, toMonospaceTable, clamp } from "../render-table.js";
 
 type HandlerCtx = Parameters<typeof renderTableTool.handler>[1];
@@ -117,6 +118,21 @@ describe("render_table tool", () => {
       { align: "left" },
       { align: "right" },
     ]);
+  });
+
+  it("renders tabular data as a Teams Adaptive Card", async () => {
+    const { posts, ctx } = fakeThread();
+    await renderTableTool.handler(
+      { title: "Open issues", columns: COLS, rows: ROWS },
+      ctx,
+    );
+
+    const card = renderAdaptiveCard(renderToIR(posts[0] as never));
+    const json = JSON.stringify(card);
+    expect(card.type).toBe("AdaptiveCard");
+    expect(json).toContain("Open issues");
+    expect(json).toContain("CPK-1");
+    expect(json).toContain("High");
   });
 
   it("falls back to a monospace table when the native post is rejected", async () => {

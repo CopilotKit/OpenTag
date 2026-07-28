@@ -1,6 +1,6 @@
 /**
- * Showcase render-tools — three small JSX `BotTool`s that demonstrate the
- * `@copilotkit/channels-ui` vocabulary end-to-end:
+ * Showcase render-tools — three small JSX `ChannelTool`s that demonstrate the
+ * `@copilotkit/channels` vocabulary end-to-end:
  *
  *  - `show_incident` — an interactive card whose `Acknowledge`/`Escalate`
  *    buttons carry inline `onClick` handlers. These are FIRE-AND-FORGET
@@ -20,9 +20,9 @@ import {
   Field,
   Actions,
   Button,
-} from "@copilotkit/channels-ui";
-import type { InteractionContext } from "@copilotkit/channels-ui";
-import { defineBotTool } from "@copilotkit/channels";
+} from "@copilotkit/channels";
+import type { InteractionContext } from "@copilotkit/channels";
+import { defineChannelTool } from "@copilotkit/channels";
 
 // ── show_incident ──────────────────────────────────────────────────────────
 
@@ -54,17 +54,13 @@ export function IncidentCard({ id, title, severity, summary }: IncidentProps) {
           value={{ action: "ack", id }}
           style="primary"
           onClick={async ({ thread, user, message }: InteractionContext) => {
-            try {
-              await thread.update(
-                message.ref,
-                <Message accent="#27AE60">
-                  <Header>{`✅ Acknowledged · ${title}`}</Header>
-                  <Context>{`Ack'd by ${user?.name ?? user?.id ?? "someone"}`}</Context>
-                </Message>,
-              );
-            } catch (err) {
-              console.error("[showcase] onClick failed", err);
-            }
+            await thread.update(
+              message.ref,
+              <Message accent="#27AE60">
+                <Header>{`✅ Acknowledged · ${title}`}</Header>
+                <Context>{`Ack'd by ${user?.name ?? user?.id ?? "someone"}`}</Context>
+              </Message>,
+            );
           }}
         >
           Acknowledge
@@ -73,13 +69,9 @@ export function IncidentCard({ id, title, severity, summary }: IncidentProps) {
           value={{ action: "escalate", id }}
           style="danger"
           onClick={async ({ thread }: InteractionContext) => {
-            try {
-              await thread.post(
-                `🚨 Escalating *${title}* — paging the next on-call.`,
-              );
-            } catch (err) {
-              console.error("[showcase] onClick failed", err);
-            }
+            await thread.post(
+              `🚨 Escalating *${title}* — paging the next on-call.`,
+            );
           }}
         >
           Escalate
@@ -89,7 +81,7 @@ export function IncidentCard({ id, title, severity, summary }: IncidentProps) {
   );
 }
 
-export const showIncidentTool = defineBotTool({
+export const showIncidentTool = defineChannelTool({
   name: "show_incident",
   description:
     "Render an interactive incident card with Acknowledge/Escalate buttons. " +
@@ -120,7 +112,7 @@ const statusSchema = z.object({
 
 type StatusProps = z.infer<typeof statusSchema>;
 
-export function StatusCard({ heading, fields }: StatusProps) {
+function StatusCard({ heading, fields }: StatusProps) {
   return (
     <Message accent="#5E6AD2">
       <Header>{`📊 ${heading}`}</Header>
@@ -133,7 +125,7 @@ export function StatusCard({ heading, fields }: StatusProps) {
   );
 }
 
-export const showStatusTool = defineBotTool({
+export const showStatusTool = defineChannelTool({
   name: "show_status",
   description:
     "Render a status card: a heading plus a grid of label/value fields " +
@@ -163,7 +155,7 @@ const linksSchema = z.object({
 
 type LinksProps = z.infer<typeof linksSchema>;
 
-export function LinksCard({ heading, links }: LinksProps) {
+function LinksCard({ heading, links }: LinksProps) {
   // `[label](url)` is rewritten to Slack's `<url|label>` link form by
   // `markdownToMrkdwn`; authoring the raw `<url|label>` here would have its
   // inner text mangled, so we author markdown links instead.
@@ -177,7 +169,7 @@ export function LinksCard({ heading, links }: LinksProps) {
   );
 }
 
-export const showLinksTool = defineBotTool({
+export const showLinksTool = defineChannelTool({
   name: "show_links",
   description:
     "Render a card of links: a heading plus a dot-separated row of clickable " +

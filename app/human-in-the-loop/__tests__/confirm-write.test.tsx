@@ -1,35 +1,39 @@
 import { describe, it, expect, vi } from "vitest";
 import {
   renderToIR,
-  type BotNode,
+  type ChannelNode,
   type InteractionContext,
   type ClickHandler,
-} from "@copilotkit/channels-ui";
-import { renderSlackMessage } from "@copilotkit/channels-slack";
+} from "@copilotkit/channels";
+import { renderSlackMessage } from "@copilotkit/channels/slack";
+import { renderAdaptiveCard } from "@copilotkit/channels/teams";
 import { ConfirmWrite } from "../confirm-write.js";
 
 /** Children of an IR node as an array (empty if none). */
-function childNodes(node: BotNode): BotNode[] {
+function childNodes(node: ChannelNode): ChannelNode[] {
   const children = node.props?.children;
-  if (Array.isArray(children)) return children as BotNode[];
+  if (Array.isArray(children)) return children as ChannelNode[];
   if (
     children &&
     typeof children === "object" &&
     "type" in (children as object)
   ) {
-    return [children as BotNode];
+    return [children as ChannelNode];
   }
   return [];
 }
 
 /** Concatenate the text of all descendant `text` nodes (depth-first). */
-function collectText(node: BotNode): string {
+function collectText(node: ChannelNode): string {
   if (node.type === "text") return String(node.props?.value ?? "");
   return childNodes(node).map(collectText).join("");
 }
 
 /** Walk the whole tree to find the first node of a given intrinsic type. */
-function findByType(nodes: BotNode[], type: string): BotNode | undefined {
+function findByType(
+  nodes: ChannelNode[],
+  type: string,
+): ChannelNode | undefined {
   for (const n of nodes) {
     if (n.type === type) return n;
     const hit = findByType(childNodes(n), type);
@@ -39,8 +43,8 @@ function findByType(nodes: BotNode[], type: string): BotNode | undefined {
 }
 
 /** All button nodes in the tree. */
-function findButtons(nodes: BotNode[]): BotNode[] {
-  const out: BotNode[] = [];
+function findButtons(nodes: ChannelNode[]): ChannelNode[] {
+  const out: ChannelNode[] = [];
   for (const n of nodes) {
     if (n.type === "button") out.push(n);
     out.push(...findButtons(childNodes(n)));
@@ -48,7 +52,7 @@ function findButtons(nodes: BotNode[]): BotNode[] {
   return out;
 }
 
-function buttonByText(ir: BotNode[], text: string): BotNode {
+function buttonByText(ir: ChannelNode[], text: string): ChannelNode {
   const btn = findButtons(ir).find((b) => collectText(b) === text);
   if (!btn) throw new Error(`button "${text}" not found`);
   return btn;
@@ -102,24 +106,47 @@ describe("ConfirmWrite", () => {
     expect(blocks.some((b) => b.type === "section")).toBe(false);
   });
 
-  it("approve onClick updates the picker in place to the resolved (green) state", async () => {
+  it("renders Create and Cancel actions as a Teams Adaptive Card", () => {
+    const card = renderAdaptiveCard(
+      renderToIR(
+        <ConfirmWrite
+          action="Create Linear issue"
+          detail="CPK-9: Checkout 500s"
+        />,
+      ),
+    );
+    const json = JSON.stringify(card);
+
+    expect(card.type).toBe("AdaptiveCard");
+    expect(json).toContain("Create Linear issue");
+    expect(json).toContain("Create");
+    expect(json).toContain("Cancel");
+    expect(json).toContain("Action.Submit");
+  });
+
+  it("approve onClick updates the picker and resumes the interrupted agent", async () => {
     const ir = renderToIR(
       <ConfirmWrite action="Create Linear issue" detail="CPK-9: ..." />,
     );
     const create = buttonByText(ir, "Create");
 
-    // `value` survives on the button props — that's what awaitChoice resolves to.
+    // `value` survives on the button props and native interaction payload.
     expect(create.props.value).toEqual({ confirmed: true });
 
     const update = vi.fn(async () => ({ id: "m1" }));
+    const resume = vi.fn(async () => ({ id: "m2" }));
     const ctx = {
-      thread: { update },
+      thread: { update, resume },
       message: { ref: { id: "m1" } },
     } as unknown as InteractionContext;
 
     await (create.props.onClick as ClickHandler)(ctx);
 
     expect(update).toHaveBeenCalledTimes(1);
+    expect(resume).toHaveBeenCalledWith({ confirmed: true });
+    expect(update.mock.invocationCallOrder[0]).toBeLessThan(
+      resume.mock.invocationCallOrder[0]!,
+    );
     const [ref, renderable] = update.mock.calls[0] as unknown as [
       { id: string },
       Parameters<typeof renderToIR>[0],
@@ -138,7 +165,26 @@ describe("ConfirmWrite", () => {
     expect(context?.elements[0]?.text).toContain("Approved");
   });
 
-  it("cancel onClick updates the picker in place to the declined (red) state", async () => {
+  it("does not resume approval when the status update fails", async () => {
+    const ir = renderToIR(<ConfirmWrite action="Create Linear issue" />);
+    const create = buttonByText(ir, "Create");
+    const failure = new Error("status update unavailable");
+    const update = vi.fn(async () => {
+      throw failure;
+    });
+    const resume = vi.fn(async () => ({ id: "m2" }));
+    const ctx = {
+      thread: { update, resume },
+      message: { ref: { id: "m1" } },
+    } as unknown as InteractionContext;
+
+    await expect(
+      (create.props.onClick as ClickHandler)(ctx),
+    ).rejects.toBe(failure);
+    expect(resume).not.toHaveBeenCalled();
+  });
+
+  it("cancel onClick updates the picker and resumes the interrupted agent", async () => {
     const ir = renderToIR(
       <ConfirmWrite action="Create Linear issue" detail="CPK-9: ..." />,
     );
@@ -147,14 +193,19 @@ describe("ConfirmWrite", () => {
     expect(cancel.props.value).toEqual({ confirmed: false });
 
     const update = vi.fn(async () => ({ id: "m1" }));
+    const resume = vi.fn(async () => ({ id: "m2" }));
     const ctx = {
-      thread: { update },
+      thread: { update, resume },
       message: { ref: { id: "m1" } },
     } as unknown as InteractionContext;
 
     await (cancel.props.onClick as ClickHandler)(ctx);
 
     expect(update).toHaveBeenCalledTimes(1);
+    expect(resume).toHaveBeenCalledWith({ confirmed: false });
+    expect(update.mock.invocationCallOrder[0]).toBeLessThan(
+      resume.mock.invocationCallOrder[0]!,
+    );
     const [ref, renderable] = update.mock.calls[0] as unknown as [
       { id: string },
       Parameters<typeof renderToIR>[0],
@@ -171,5 +222,86 @@ describe("ConfirmWrite", () => {
       | { elements: { text: string }[] }
       | undefined;
     expect(context?.elements[0]?.text).toContain("Declined");
+  });
+
+  it("does not resume a decline when the status update fails", async () => {
+    const ir = renderToIR(<ConfirmWrite action="Create Linear issue" />);
+    const cancel = buttonByText(ir, "Cancel");
+    const failure = new Error("status update unavailable");
+    const update = vi.fn(async () => {
+      throw failure;
+    });
+    const resume = vi.fn(async () => ({ id: "m2" }));
+    const ctx = {
+      thread: { update, resume },
+      message: { ref: { id: "m1" } },
+    } as unknown as InteractionContext;
+
+    await expect(
+      (cancel.props.onClick as ClickHandler)(ctx),
+    ).rejects.toBe(failure);
+    expect(resume).not.toHaveBeenCalled();
+  });
+
+  it("replaces the optimistic card with a retry state when resume fails", async () => {
+    const ir = renderToIR(
+      <ConfirmWrite action="Create Linear issue" detail="CPK-9: ..." />,
+    );
+    const create = buttonByText(ir, "Create");
+    const failure = new Error("resume unavailable");
+    const update = vi.fn(async () => ({ id: "m1" }));
+    const resume = vi.fn(async () => {
+      throw failure;
+    });
+    const ctx = {
+      thread: { update, resume },
+      message: { ref: { id: "m1" } },
+    } as unknown as InteractionContext;
+
+    await expect((create.props.onClick as ClickHandler)(ctx)).rejects.toBe(
+      failure,
+    );
+
+    expect(update).toHaveBeenCalledTimes(2);
+    const [, failedRenderable] = update.mock.calls[1] as unknown as [
+      { id: string },
+      Parameters<typeof renderToIR>[0],
+    ];
+    const { blocks, accent } = renderSlackMessage(
+      renderToIR(failedRenderable),
+    );
+    expect(accent).toBe("#EB5757");
+    expect(JSON.stringify(blocks)).toMatch(/couldn.t resume|retry/i);
+  });
+
+  it("surfaces both resume and retry-card failures", async () => {
+    const ir = renderToIR(<ConfirmWrite action="Create Linear issue" />);
+    const create = buttonByText(ir, "Create");
+    const resumeFailure = new Error("resume unavailable");
+    const updateFailure = new Error("retry card unavailable");
+    const update = vi
+      .fn()
+      .mockResolvedValueOnce({ id: "m1" })
+      .mockRejectedValueOnce(updateFailure);
+    const resume = vi.fn(async () => {
+      throw resumeFailure;
+    });
+    const ctx = {
+      thread: { update, resume },
+      message: { ref: { id: "m1" } },
+    } as unknown as InteractionContext;
+
+    let thrown: unknown;
+    try {
+      await (create.props.onClick as ClickHandler)(ctx);
+    } catch (error) {
+      thrown = error;
+    }
+
+    expect(thrown).toBeInstanceOf(AggregateError);
+    expect((thrown as AggregateError).errors).toEqual([
+      resumeFailure,
+      updateFailure,
+    ]);
   });
 });

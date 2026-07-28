@@ -7,13 +7,14 @@
  * updates the message in place with a green "Acknowledged" card.
  */
 import { describe, it, expect, vi } from "vitest";
-import { renderToIR } from "@copilotkit/channels-ui";
+import { renderToIR } from "@copilotkit/channels";
 import type {
-  BotNode,
+  ChannelNode,
   InteractionContext,
   ClickHandler,
-} from "@copilotkit/channels-ui";
-import { renderSlackMessage } from "@copilotkit/channels-slack";
+} from "@copilotkit/channels";
+import { renderSlackMessage } from "@copilotkit/channels/slack";
+import { renderAdaptiveCard } from "@copilotkit/channels/teams";
 import {
   showIncidentTool,
   showStatusTool,
@@ -43,29 +44,29 @@ function fakeThread() {
 
 /** Depth-first: find the first IR node whose `type` matches and that has the named prop. */
 function findWithProp(
-  nodes: BotNode[],
+  nodes: ChannelNode[],
   type: string,
   prop: string,
-): BotNode | undefined {
+): ChannelNode | undefined {
   return findAllWithProp(nodes, type, prop)[0];
 }
 
 /** Depth-first: find every IR node whose `type` matches and that has the named prop. */
 function findAllWithProp(
-  nodes: BotNode[],
+  nodes: ChannelNode[],
   type: string,
   prop: string,
-): BotNode[] {
-  const matches: BotNode[] = [];
+): ChannelNode[] {
+  const matches: ChannelNode[] = [];
   for (const node of nodes) {
     if (node.type === type && node.props && prop in node.props) {
       matches.push(node);
     }
     const children = node.props?.children;
     const childArr = Array.isArray(children)
-      ? (children as BotNode[])
+      ? (children as ChannelNode[])
       : children && typeof children === "object"
-        ? [children as BotNode]
+        ? [children as ChannelNode]
         : [];
     matches.push(...findAllWithProp(childArr, type, prop));
   }
@@ -98,6 +99,27 @@ describe("show_incident render-tool", () => {
     const text = JSON.stringify(blocks);
     expect(text).toContain("Acknowledge");
     expect(text).toContain("Escalate");
+  });
+
+  it("renders the incident and its actions as a Teams Adaptive Card", async () => {
+    const { posts, thread } = fakeThread();
+    await showIncidentTool.handler(
+      {
+        id: "INC-1",
+        title: "Checkout 500s",
+        severity: "SEV1",
+        summary: "Error rate spiking on /checkout.",
+      },
+      { thread } as unknown as IncidentCtx,
+    );
+
+    const card = renderAdaptiveCard(renderToIR(posts[0] as never));
+    const json = JSON.stringify(card);
+    expect(card.type).toBe("AdaptiveCard");
+    expect(json).toContain("Checkout 500s");
+    expect(json).toContain("Acknowledge");
+    expect(json).toContain("Escalate");
+    expect(json).toContain("Action.Submit");
   });
 
   it("the Acknowledge button's onClick updates the message with a green card", async () => {
@@ -142,6 +164,41 @@ describe("show_incident render-tool", () => {
     expect(JSON.stringify(blocks)).toContain("Ack'd by Alem");
   });
 
+  it("propagates Acknowledge update failures", async () => {
+    const { posts, thread } = fakeThread();
+    await showIncidentTool.handler(
+      {
+        id: "INC-1",
+        title: "Checkout 500s",
+        severity: "SEV2",
+        summary: "Latency creeping up.",
+      },
+      { thread } as unknown as IncidentCtx,
+    );
+    const failure = new Error("message update unavailable");
+    thread.update.mockRejectedValueOnce(failure);
+
+    const ir = renderToIR(posts[0] as never);
+    const button = findWithProp(ir, "button", "onClick");
+    const onClick = button?.props.onClick as ClickHandler;
+
+    await expect(
+      onClick({
+        thread,
+        message: {
+          ref: { id: "m1" },
+          text: "",
+          user: { id: "U1" },
+          platform: "slack",
+        },
+        user: { id: "U1", name: "Alem" },
+        action: { id: "a1" },
+        values: {},
+        platform: "slack",
+      } as unknown as InteractionContext),
+    ).rejects.toBe(failure);
+  });
+
   it("the Escalate button's onClick posts a paging notice", async () => {
     const { posts, thread } = fakeThread();
     await showIncidentTool.handler(
@@ -182,6 +239,44 @@ describe("show_incident render-tool", () => {
     expect(thread.post).toHaveBeenCalledWith(
       "🚨 Escalating *Checkout 500s* — paging the next on-call.",
     );
+  });
+
+  it("propagates Escalate post failures", async () => {
+    const { posts, thread } = fakeThread();
+    await showIncidentTool.handler(
+      {
+        id: "INC-1",
+        title: "Checkout 500s",
+        severity: "SEV1",
+        summary: "Error rate spiking on /checkout.",
+      },
+      { thread } as unknown as IncidentCtx,
+    );
+    const failure = new Error("message post unavailable");
+    thread.post.mockRejectedValueOnce(failure);
+
+    const ir = renderToIR(posts[0] as never);
+    const escalateButton = findAllWithProp(ir, "button", "onClick").find(
+      (button) =>
+        (button.props?.value as { action?: string })?.action === "escalate",
+    );
+    const onClick = escalateButton?.props.onClick as ClickHandler;
+
+    await expect(
+      onClick({
+        thread,
+        message: {
+          ref: { id: "m1" },
+          text: "",
+          user: { id: "U1" },
+          platform: "slack",
+        },
+        user: { id: "U1", name: "Alem" },
+        action: { id: "a1" },
+        values: {},
+        platform: "slack",
+      } as unknown as InteractionContext),
+    ).rejects.toBe(failure);
   });
 
   it("uses the SEV2 accent (#F2994A)", async () => {
@@ -242,6 +337,22 @@ describe("show_status render-tool", () => {
     expect(text).toContain("*Queue depth*");
     expect(text).toContain("operational");
   });
+
+  it("renders status fields as a Teams Adaptive Card", async () => {
+    const { posts, thread } = fakeThread();
+    await showStatusTool.handler(
+      {
+        heading: "Service health",
+        fields: [{ label: "API", value: "operational" }],
+      },
+      { thread } as unknown as StatusCtx,
+    );
+
+    const card = renderAdaptiveCard(renderToIR(posts[0] as never));
+    expect(card.type).toBe("AdaptiveCard");
+    expect(JSON.stringify(card)).toContain("Service health");
+    expect(JSON.stringify(card)).toContain("operational");
+  });
 });
 
 describe("show_links render-tool", () => {
@@ -265,5 +376,23 @@ describe("show_links render-tool", () => {
     expect(text).toContain("<https://example.com/dash|Dashboard>");
     // No leftover markdown link syntax.
     expect(text).not.toContain("](http");
+  });
+
+  it("renders links as a Teams Adaptive Card", async () => {
+    const { posts, thread } = fakeThread();
+    await showLinksTool.handler(
+      {
+        heading: "Runbooks",
+        links: [
+          { label: "Auth outage", url: "https://example.com/auth" },
+        ],
+      },
+      { thread } as unknown as LinksCtx,
+    );
+
+    const card = renderAdaptiveCard(renderToIR(posts[0] as never));
+    expect(card.type).toBe("AdaptiveCard");
+    expect(JSON.stringify(card)).toContain("Runbooks");
+    expect(JSON.stringify(card)).toContain("https://example.com/auth");
   });
 });

@@ -13,11 +13,16 @@
  * it wants shown; the Slack formatting lives here. For a single issue (or
  * right after creating one) prefer `issue_card`, which shows a full grid.
  *
- * Authored with the `@copilotkit/channels-ui` JSX vocabulary.
+ * Authored with the `@copilotkit/channels` JSX vocabulary.
  */
 import { z } from "zod";
-import { Context, Header, Message, Section } from "@copilotkit/channels-ui";
-import type { BotNode } from "@copilotkit/channels-ui";
+import {
+  Context,
+  Header,
+  Message,
+  Section,
+  type ChannelNode,
+} from "@copilotkit/channels";
 import { accentForIssues, stateGlyph } from "./_status.js";
 
 const issueSchema = z.object({
@@ -50,7 +55,7 @@ export const issueListSchema = z.object({
   issues: z.array(issueSchema).min(1).describe("The issues to render."),
 });
 
-export type IssueListProps = z.infer<typeof issueListSchema>;
+type IssueListProps = z.infer<typeof issueListSchema>;
 type Issue = z.infer<typeof issueSchema>;
 
 /** Max issues rendered inline; the rest are summarized in the footer. */
@@ -59,7 +64,7 @@ const MAX = 15;
 const TITLE_MAX = 70;
 
 /** Render a list of Linear issues as a compact, fixed-size Block Kit card. */
-export function IssueList({ heading, issues }: IssueListProps): BotNode {
+export function IssueList({ heading, issues }: IssueListProps): ChannelNode {
   const lines = issues.slice(0, MAX).map((issue: Issue) => {
     const idLink = issue.url
       ? `[**${issue.identifier}**](${issue.url})`
