@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import type { AgentContentPart } from "@copilotkit/channels-ui";
 import {
   createKiteChannel,
+  normalizeChannelName,
   promptFromMessage,
   buildAgentHeaders,
   httpAuthGate,
@@ -20,6 +21,7 @@ import {
   requireNonBlank,
   requireUrl,
   fatalText,
+  parsePort,
   type ChannelHealth,
 } from "./managed.js";
 
@@ -60,6 +62,27 @@ describe("createKiteChannel", () => {
     // createChannel normalizes slash-command names (hyphens -> underscores):
     // app/commands declares "file-issue"; commandNames reports "file_issue".
     expect(ch.commandNames).toContain("file_issue");
+  });
+});
+
+describe("normalizeChannelName", () => {
+  // The single source of truth `createKiteChannel` and `main()` both call,
+  // instead of `main()` re-deriving the same default from `channel.name`
+  // after construction (Finding 2).
+  it("defaults an undefined name", () => {
+    expect(normalizeChannelName(undefined)).toBe("kite-opentag");
+  });
+
+  it("defaults an empty name", () => {
+    expect(normalizeChannelName("")).toBe("kite-opentag");
+  });
+
+  it("defaults a whitespace-only name", () => {
+    expect(normalizeChannelName("   ")).toBe("kite-opentag");
+  });
+
+  it("trims and returns a custom name", () => {
+    expect(normalizeChannelName("  kite-staging  ")).toBe("kite-staging");
   });
 });
 
@@ -107,6 +130,23 @@ describe("promptFromMessage", () => {
     expect(promptFromMessage({ contentParts: parts, text: "   " })).toBe(
       parts,
     );
+  });
+
+  it("emits the trimmed text, not the raw padded value", () => {
+    // THE REGRESSION: the guard checks message.text.trim() but the emitted
+    // part used the raw value, so "  chart this\n\n  " shipped its padding to
+    // the model — the one place in this file where the trim-check and the
+    // trim-use were split.
+    const csv: AgentContentPart = {
+      type: "document",
+      source: { type: "data", value: "YQ==", mimeType: "text/csv" },
+    };
+    expect(
+      promptFromMessage({
+        contentParts: [csv],
+        text: "  chart this\n\n  ",
+      }),
+    ).toEqual([{ type: "text", text: "chart this" }, csv]);
   });
 });
 
@@ -192,6 +232,26 @@ describe("httpAuthGate", () => {
   it("allows the matching bearer", () => {
     expect(run("s3cret", "Bearer s3cret")).toBeNull();
   });
+
+  it("allows a lowercase auth-scheme token (RFC 7235: auth-scheme is case-insensitive)", () => {
+    // THE REGRESSION: comparing against the literal `Bearer ${expected}`
+    // rejects a client sending `authorization: bearer <token>` with a 401
+    // that looks exactly like a wrong secret.
+    expect(run("s3cret", "bearer s3cret")).toBeNull();
+  });
+
+  it("allows an uppercase or mixed-case auth-scheme token", () => {
+    expect(run("s3cret", "BEARER s3cret")).toBeNull();
+    expect(run("s3cret", "BeArEr s3cret")).toBeNull();
+  });
+
+  it("still rejects a different auth scheme entirely", () => {
+    expect(run("s3cret", "Basic s3cret")?.status).toBe(401);
+  });
+
+  it("still rejects a case-correct scheme with the wrong credential", () => {
+    expect(run("s3cret", "bearer wrong")?.status).toBe(401);
+  });
 });
 
 describe("requireNonBlank", () => {
@@ -273,6 +333,56 @@ describe("requireUrl", () => {
     it("accepts http:// and https://", () => {
       expect(requireUrl("AGENT_URL", "http://x")).toBe("http://x");
       expect(requireUrl("AGENT_URL", "https://x")).toBe("https://x");
+    });
+  });
+
+  describe("empty-hostname shapes (reachability table)", () => {
+    // For WHATWG "special" schemes (http/https), an empty host is not a value
+    // that reaches a `hostname` check — `new URL()` itself THROWS while
+    // parsing every one of these. Verified with node's own URL parser before
+    // writing this table; each of these must fail at the `new URL()` step,
+    // not at a later hostname-emptiness check.
+    it.each([
+      "http://",
+      "http:///",
+      "http://:8080",
+      "http://?q=1",
+      "http://#f",
+      "http://user@",
+    ])("rejects %s as an unparsable URL", (value) => {
+      expect(() => requireUrl("AGENT_URL", value)).toThrow(
+        `AGENT_URL is not a valid URL: "${value}"`,
+      );
+    });
+
+    it("accepts https:///path — a non-empty hostname folded from the empty-authority slash, not an empty one", () => {
+      // new URL("https:///path").hostname === "path": this is further proof
+      // the `!url.hostname` branch was unreachable, not a case that itself
+      // needs rejecting.
+      expect(requireUrl("AGENT_URL", "https:///path")).toBe("https:///path");
+    });
+  });
+
+  describe("unresolved template references (the actual Railway failure mode)", () => {
+    // This host's AGENT_URL on Railway is built entirely from reference
+    // variables: `"http://${{agent.RAILWAY_PRIVATE_DOMAIN}}:${{agent.PORT}}/"`.
+    // An UNRESOLVED reference parses cleanly — new URL(...).hostname ===
+    // "${{agent.railway_private_domain}}" — so it used to boot green and fail
+    // every turn deep inside SanitizingHttpAgent. That is exactly the failure
+    // this validator's docstring says it exists to prevent.
+    it("rejects an unresolved Railway reference-variable hostname", () => {
+      expect(() =>
+        requireUrl(
+          "AGENT_URL",
+          "http://${{agent.RAILWAY_PRIVATE_DOMAIN}}:8123/",
+        ),
+      ).toThrow(/unresolved/i);
+    });
+
+    it("rejects a hostname containing template braces without the dollar sign", () => {
+      expect(() =>
+        requireUrl("AGENT_URL", "http://{agent.PORT}:8123/"),
+      ).toThrow(/unresolved/i);
     });
   });
 });
@@ -1245,5 +1355,61 @@ describe("module import safety", () => {
       uncaught: process.listenerCount("uncaughtException"),
     };
     expect(after).toEqual(before);
+  });
+});
+
+describe("parsePort", () => {
+  it("falls back to the default 8300 when PORT is undefined", () => {
+    expect(parsePort(undefined)).toBe(8300);
+  });
+
+  it("falls back to the default 8300 when PORT is blank", () => {
+    expect(parsePort("")).toBe(8300);
+  });
+
+  it("falls back to the default 8300 when PORT is whitespace-only", () => {
+    expect(parsePort("   ")).toBe(8300);
+  });
+
+  it("parses a plain decimal PORT", () => {
+    expect(parsePort("3000")).toBe(3000);
+    expect(parsePort("  3000  ")).toBe(3000);
+    expect(parsePort("1")).toBe(1);
+    expect(parsePort("65535")).toBe(65535);
+  });
+
+  it("rejects hex notation instead of silently binding the decoded value", () => {
+    // THE REGRESSION: bare Number("0x1f") === 31, so PORT=0x1f used to bind
+    // port 31 while the error message claims PORT "must be an integer".
+    expect(() => parsePort("0x1f")).toThrow(/integer between 1 and 65535/);
+  });
+
+  it("rejects exponential notation instead of silently binding the expanded value", () => {
+    // THE REGRESSION: bare Number("1e4") === 10000.
+    expect(() => parsePort("1e4")).toThrow(/integer between 1 and 65535/);
+  });
+
+  it("rejects a trailing-decimal value instead of silently truncating it", () => {
+    // THE REGRESSION: bare Number("8300.0") === 8300 (Number.isInteger passes
+    // because 8300.0 === 8300 in JS), so this used to bind cleanly despite
+    // not being written as a plain integer.
+    expect(() => parsePort("8300.0")).toThrow(/integer between 1 and 65535/);
+  });
+
+  it("rejects a negative number", () => {
+    expect(() => parsePort("-1")).toThrow(/integer between 1 and 65535/);
+  });
+
+  it("rejects out-of-range values", () => {
+    expect(() => parsePort("0")).toThrow(/integer between 1 and 65535/);
+    expect(() => parsePort("65536")).toThrow(/integer between 1 and 65535/);
+  });
+
+  it("rejects a non-numeric value", () => {
+    expect(() => parsePort("not-a-port")).toThrow(/integer between 1 and 65535/);
+  });
+
+  it("names the offending raw value in the error", () => {
+    expect(() => parsePort("0x1f")).toThrow('"0x1f"');
   });
 });

@@ -73,7 +73,8 @@ export function requireNonBlank(name: string, value: string | undefined): string
 
 /**
  * Validate that a required URL-shaped env var actually parses as an
- * `http:`/`https:` URL with a non-empty host.
+ * `http:`/`https:` URL, with a hostname that isn't an unresolved deployment
+ * template reference.
  *
  * AGENT_URL is otherwise never validated as a URL, so `AGENT_URL=not-a-url`
  * boots exactly as green as a correct value — the failure only surfaces later,
@@ -89,6 +90,33 @@ export function requireNonBlank(name: string, value: string | undefined): string
  * non-HTTP scheme like `ftp://x`. Both are the exact failure this validator
  * exists to catch at boot, not deep inside the first live turn.
  *
+ * There is intentionally NO separate `!url.hostname` check after the
+ * protocol has been narrowed to `http:`/`https:`. For those WHATWG "special"
+ * schemes, an empty host makes `new URL()` THROW during parsing, not produce
+ * an empty `hostname` — verified across `http://`, `http:///`, `http://:8080`,
+ * `http://?q=1`, `http://#f`, `http://user@` (all throw), and `https:///path`
+ * (parses, with hostname folded to `"path"`, never `""`). A hostname check
+ * placed after the protocol narrowing is therefore dead code: mutation-testing
+ * it (replacing the condition with `if (false)`) leaves the whole suite green.
+ * See the "empty-hostname shapes" describe block in managed.test.ts for the
+ * reachability table this claim is checked against.
+ *
+ * What IS reachable, and was previously unguarded, is an UNRESOLVED Railway
+ * reference variable. This host's real AGENT_URL is built entirely from
+ * references (`"http://${{agent.RAILWAY_PRIVATE_DOMAIN}}:${{agent.PORT}}/"`),
+ * and an unresolved one parses cleanly —
+ * `new URL("http://${{agent.RAILWAY_PRIVATE_DOMAIN}}:8123/").hostname` is
+ * `"${{agent.railway_private_domain}}"`, a syntactically valid (if unusual)
+ * hostname — so it used to boot green and fail every turn deep inside
+ * `SanitizingHttpAgent`. That is the single most likely Railway-specific
+ * misconfiguration, and exactly the failure this validator's docstring
+ * promises to catch at boot. Reject a hostname containing template syntax
+ * (`$`, `{`, `}`) or whitespace — none of those are legal in a resolved
+ * hostname, and whitespace is checked too even though the WHATWG parser
+ * already rejects literal whitespace in the authority (verified: `http://a b`
+ * throws) — defense in depth against a decoded/lenient future parser change,
+ * costs nothing here.
+ *
  * Pure: throws rather than exiting, for the same reason as `requireNonBlank`.
  */
 export function requireUrl(name: string, value: string): string {
@@ -103,8 +131,12 @@ export function requireUrl(name: string, value: string): string {
       `${name} must be an http:// or https:// URL — got "${value}" (did you forget the scheme? a bare "host:port" parses as a URL with the host folded into the protocol)`,
     );
   }
-  if (!url.hostname) {
-    throw new Error(`${name} is not a valid URL: "${value}"`);
+  if (/[${}\s]/.test(url.hostname)) {
+    throw new Error(
+      `${name} contains an unresolved template reference: "${value}" (hostname ` +
+        `"${url.hostname}" looks like an unresolved deployment variable, e.g. ` +
+        `\${{service.VAR}} — check that the referenced variable exists and is spelled correctly)`,
+    );
   }
   return value;
 }
@@ -288,6 +320,16 @@ export interface CreateKiteChannelOptions {
  * otherwise let it through (`requireNonBlank`, `buildAgentHeaders`,
  * `httpAuthGate`, `channelName` in `createKiteChannel`) — this was the one
  * un-trimmed path.
+ *
+ * The emitted text part uses the TRIMMED value, not the raw one: the guard
+ * above already computes `.trim()` to decide whether to emit a leading text
+ * part at all, but used to emit `message.text` verbatim once that decision
+ * was made — the one place in this file where the trim-check and the
+ * trim-use were split, so `"  chart this\n\n  "` shipped its padding to the
+ * model. The no-attachments fallback below (`return message.text`) is
+ * intentionally NOT trimmed: it is the plain single-string prompt path, and
+ * trimming it would be an unrelated behavior change to a value nothing here
+ * claimed was ever blank-checked.
  */
 export function promptFromMessage(message: {
   contentParts?: AgentContentPart[];
@@ -295,9 +337,8 @@ export function promptFromMessage(message: {
 }): string | AgentContentPart[] {
   const parts = message.contentParts;
   if (!parts?.length) return message.text;
-  return message.text.trim()
-    ? [{ type: "text" as const, text: message.text }, ...parts]
-    : parts;
+  const trimmed = message.text.trim();
+  return trimmed ? [{ type: "text" as const, text: trimmed }, ...parts] : parts;
 }
 
 /**
@@ -336,6 +377,16 @@ function secretEquals(a: string, b: string): boolean {
  * the Railway topology gives this service no public domain and no healthcheck.
  * So the surface is CLOSED by default; set CHANNEL_HTTP_TOKEN to open it behind
  * a bearer token (e.g. to point a local CopilotKit frontend at this runtime).
+ *
+ * The auth-scheme token (`Bearer`) is compared case-INsensitively, per RFC
+ * 7235 (`auth-scheme = token`, and `token` matching for schemes is
+ * case-insensitive by the spec's own convention, as every real HTTP client
+ * relies on). The old check compared the whole header against the literal
+ * `` `Bearer ${expected}` ``, so a client sending `authorization: bearer
+ * <token>` got a 401 indistinguishable from a wrong secret. Splitting on the
+ * first space and lower-casing only the scheme half keeps the credential
+ * comparison exactly as strict (and still constant-time) as before — only the
+ * scheme's case is now forgiving, matching the spec.
  */
 export function httpAuthGate(
   token: string | undefined,
@@ -346,7 +397,14 @@ export function httpAuthGate(
     // shouldn't confirm that it exists.
     if (!expected) throw new Response("Not Found", { status: 404 });
     const provided = request.headers.get("authorization") ?? "";
-    if (!secretEquals(provided, `Bearer ${expected}`)) {
+    const spaceIndex = provided.indexOf(" ");
+    const scheme = spaceIndex === -1 ? provided : provided.slice(0, spaceIndex);
+    const credential = spaceIndex === -1 ? "" : provided.slice(spaceIndex + 1);
+    // `timingSafeEqual` (inside `secretEquals`) throws on length mismatch,
+    // which is why `secretEquals` hashes both sides to a fixed-length digest
+    // first — see its own comment. Do not remove that: it's what makes the
+    // credential comparison below safe to call unconditionally.
+    if (scheme.toLowerCase() !== "bearer" || !secretEquals(credential, expected)) {
       throw new Response("Unauthorized", { status: 401 });
     }
   };
@@ -855,6 +913,37 @@ export function unhandledRejectionAction(
 }
 
 /**
+ * Normalize a possibly-blank channel-name override to the default
+ * `"kite-opentag"`. The ONE place this normalization is decided —
+ * `createKiteChannel` and `main()` both call this instead of each rolling
+ * their own `?.trim() || "kite-opentag"`.
+ *
+ * `main()` used to re-derive the effective channel name AFTER construction,
+ * from `channel.name ?? "kite-opentag"` — reading it back off the `Channel`
+ * the SDK returned rather than reusing the value already computed here.
+ * `channel.name` is typed `string | undefined` upstream only because the
+ * SDK's general `Channel` shape allows an unnamed channel; the installed
+ * `createChannel` (`create-channel.js`) sets `name: opts.name` verbatim with
+ * no further normalization of its own, so today `channel.name` always equals
+ * this function's output for a channel this host built — but that equality
+ * is an implementation detail of the current SDK version, not a contract.
+ * `createChannel` DOES normalize other things unprompted (slash-command
+ * names: `file-issue` -> `file_issue`, via `normalizeCommandName`); if a
+ * future SDK version normalized channel names the same way, re-deriving from
+ * `channel.name` would silently diverge from the key `unhealthyChannels`/
+ * `isChannelLive`/the watchdog look up by, and this host would report its own
+ * declared channel absent. Threading the single normalized value through
+ * (computed once here, passed into `createKiteChannel`'s opts, and reused
+ * for every liveness check and the boot log) removes that risk instead of
+ * relying on today's coincidental equality.
+ *
+ * Pure: no env read, no I/O.
+ */
+export function normalizeChannelName(name: string | undefined): string {
+  return name?.trim() || "kite-opentag";
+}
+
+/**
  * Build the KiteBot channel: same tools/context/commands/handlers as the native
  * bot, minus any platform adapter (the managed transport is attached at
  * activation — NOT when the runtime's node listener is mounted, but lazily on
@@ -866,8 +955,12 @@ export function createKiteChannel(opts: CreateKiteChannelOptions): Channel {
   // Normalize blank/whitespace-only names to the default. `main()` passes
   // process.env.INTELLIGENCE_CHANNEL_NAME straight through, so an env var set to
   // "" (or "   ") would otherwise reach createChannel({ name: "" }) — `??` only
-  // guards nullish, not empty strings.
-  const channelName = opts.channelName?.trim() || "kite-opentag";
+  // guards nullish, not empty strings. `main()` also pre-normalizes via the
+  // same `normalizeChannelName` before calling this, so re-normalizing an
+  // already-normalized value here is a harmless no-op for that caller, and
+  // this function stays correct when called directly (as the tests do) with
+  // a raw, un-normalized override.
+  const channelName = normalizeChannelName(opts.channelName);
   const agentHeaders = buildAgentHeaders(opts.agentAuthHeader);
 
   const channel = createChannel({
@@ -958,21 +1051,87 @@ const CHANNEL_READY_TIMEOUT_MS = 30_000;
 /** How often to re-check managed-channel health after a successful boot. */
 const CHANNEL_WATCHDOG_INTERVAL_MS = 60_000;
 
+/** The port this host binds when PORT is unset or blank. */
+const DEFAULT_PORT = 8300;
+
+/**
+ * Parse the PORT env var's raw value into a valid TCP port, or throw.
+ *
+ * Every other decision in this file is a pure exported helper with tests
+ * (`requireNonBlank`, `requireUrl`, `fatalText`, `unhealthyChannels`,
+ * `isChannelLive`, `channelWatchdogTick`, `nextDegradedSince`, `closeServer`,
+ * `onceShutdown`, `uncaughtExceptionAction`, `unhandledRejectionAction`) —
+ * PORT parsing used to be the one exception, inlined in `main()` as bare
+ * `Number(rawPort)`.
+ *
+ * Bare `Number()` accepts far more than "an integer between 1 and 65535",
+ * which is exactly what the old inline error message claimed:
+ *   - `Number("0x1f")` === 31 — hex notation binds a port that shares no
+ *     digits with what was configured.
+ *   - `Number("1e4")` === 10000 — exponential notation silently expands.
+ *   - `Number("8300.0")` === 8300 — `Number.isInteger(8300.0)` is `true` (it's
+ *     the same float as `8300`), so a value that isn't written as a plain
+ *     integer used to bind anyway.
+ * Requiring the raw (trimmed) string to match `/^\d+$/` before converting
+ * rejects all three instead of silently accepting them.
+ *
+ * A blank/whitespace-only/undefined value is NOT an error — it falls back to
+ * `DEFAULT_PORT`, the same default `main()` used inline before this was
+ * extracted. An unset PORT is normal in local dev; Railway always sets one.
+ *
+ * Pure: no env read (the caller passes the raw value), no `process.exit` —
+ * throws, same as `requireNonBlank`/`requireUrl`, so `main()` (via the
+ * `requiredPort` wrapper below) remains the only place that owns the exit.
+ */
+export function parsePort(raw: string | undefined): number {
+  const trimmed = raw?.trim();
+  if (!trimmed) return DEFAULT_PORT;
+  if (!/^\d+$/.test(trimmed)) {
+    throw new Error(
+      `Invalid PORT: "${raw}" is not a valid port number (must be an integer between 1 and 65535)`,
+    );
+  }
+  const port = Number(trimmed);
+  if (port < 1 || port > 65535) {
+    throw new Error(
+      `Invalid PORT: "${raw}" is not a valid port number (must be an integer between 1 and 65535)`,
+    );
+  }
+  return port;
+}
+
+/**
+ * `parsePort` plus `process.exit` on failure, mirroring `required`/
+ * `requiredUrl` above: the pure validation lives in the exported function,
+ * this wrapper is the one place that reads `process.env` and calls
+ * `process.exit` (via `fatal`) for PORT specifically.
+ */
+const requiredPort = (): number => {
+  try {
+    return parsePort(process.env["PORT"]);
+  } catch (err) {
+    fatal(err instanceof Error ? err.message : String(err));
+  }
+};
+
 async function main() {
   const agentUrl = requiredUrl("AGENT_URL");
   const agentAuthHeader = process.env.AGENT_AUTH_HEADER;
 
+  // Compute the normalized channel name ONCE, up front, via the same
+  // `normalizeChannelName` that `createKiteChannel` uses internally — and
+  // reuse THIS value everywhere below (the boot log, `unhealthyChannels`,
+  // `isChannelLive`, the watchdog), rather than reading it back off
+  // `channel.name` after construction. See `normalizeChannelName`'s docstring
+  // for why re-deriving from `channel.name` is a latent hazard even though
+  // the two happen to agree today.
+  const channelName = normalizeChannelName(process.env.INTELLIGENCE_CHANNEL_NAME);
+
   const channel = createKiteChannel({
     agentUrl,
     agentAuthHeader,
-    channelName: process.env.INTELLIGENCE_CHANNEL_NAME,
+    channelName,
   });
-  // `channel.name` is typed `string | undefined` upstream (the SDK's general
-  // `Channel` shape allows an unnamed channel), but `createKiteChannel` above
-  // always normalizes and passes an explicit non-blank name, so it is always
-  // set in practice for a channel THIS host built. The fallback documents
-  // that guarantee for the type checker rather than asserting past it.
-  const channelName = channel.name ?? "kite-opentag";
 
   const intelligence = new CopilotKitIntelligence({
     apiUrl: required("INTELLIGENCE_API_URL"),
@@ -1005,13 +1164,7 @@ async function main() {
     channels: [channel],
   });
 
-  const rawPort = process.env["PORT"];
-  const port = rawPort && rawPort.trim() !== "" ? Number(rawPort) : 8300;
-  if (!Number.isInteger(port) || port < 1 || port > 65535) {
-    fatal(
-      `Invalid PORT: "${rawPort}" is not a valid port number (must be an integer between 1 and 65535)`,
-    );
-  }
+  const port = requiredPort();
 
   const httpToken = process.env.CHANNEL_HTTP_TOKEN?.trim();
   const listener = createCopilotNodeListener({
@@ -1302,8 +1455,16 @@ async function main() {
         runShutdown("boot-not-live", 1);
         return;
       }
+      // `channelName`, not `channel.name`: the latter is typed
+      // `string | undefined` upstream (the SDK's general `Channel` shape
+      // allows an unnamed channel), and reading it here reverted to exactly
+      // the raw-fallback pattern the rest of this boot path was hardened
+      // against — a mismatch (or a future SDK version that normalizes
+      // `channel.name` differently, see `normalizeChannelName`'s docstring)
+      // would print "kite-opentag" mounted while `undefined` gets checked for
+      // liveness above, or print "undefined" outright.
       console.log(
-        `[channel] KiteBot channel "${channel.name}" mounted on :${port} → Intelligence gateway (channel live)`,
+        `[channel] KiteBot channel "${channelName}" mounted on :${port} → Intelligence gateway (channel live)`,
       );
       // Confirmed live by the boot gate just above (isChannelLive === true),
       // so the watchdog's dedup key starts in agreement with that.
