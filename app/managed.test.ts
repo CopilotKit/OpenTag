@@ -15,6 +15,8 @@ import {
   closeServer,
   onceShutdown,
   uncaughtExceptionAction,
+  unhandledRejectionAction,
+  guardedWrite,
   requireNonBlank,
   requireUrl,
   fatalText,
@@ -1120,6 +1122,84 @@ describe("uncaughtExceptionAction (defers to an in-flight graceful shutdown)", (
     // leaving the process alive in an undefined state with its socket still
     // bound, so the platform's restart policy never fired.
     expect(uncaughtExceptionAction(false)).toEqual({ kind: "fatal" });
+  });
+});
+
+describe("unhandledRejectionAction (Finding 4: proportionate, not blanket-fatal)", () => {
+  it("treats a rejection during an in-flight graceful shutdown as non-preempting", () => {
+    expect(
+      unhandledRejectionAction(true, new Error("boom"), "managed.ts"),
+    ).toEqual({ kind: "continue-shutdown" });
+  });
+
+  it("escalates to fatal when the rejected Error's stack names this host's own module", () => {
+    // Simulates a rejection actually thrown from inside managed.ts itself —
+    // the stack trace names where the Error was CONSTRUCTED, so a genuine
+    // in-repo bug still fails loud exactly as before.
+    const err = new Error("boom");
+    err.stack = "Error: boom\n    at main (file:///app/managed.ts:900:1)";
+    expect(unhandledRejectionAction(false, err, "managed.ts")).toEqual({
+      kind: "fatal",
+    });
+  });
+
+  it("logs without exiting when the rejected Error's stack does NOT name this host's own module", () => {
+    // THE REGRESSION THIS GUARDS: every unhandled rejection anywhere in the
+    // process — including one from the Slack SDK, Playwright, the Phoenix WS
+    // transport, or an aborted fetch inside SanitizingHttpAgent — used to be
+    // treated exactly like a bug in this repo's own boot/teardown code:
+    // blanket fatal(). Combined with ON_FAILURE and a finite
+    // restartPolicyMaxRetries, a RECURRING library-level stray rejection
+    // would burn the whole restart budget in ~10 restarts and leave the
+    // service permanently stopped, with no healthcheck to surface it.
+    const err = new Error("ECONNRESET");
+    err.stack =
+      "Error: ECONNRESET\n    at TLSSocket.onerror (node:internal/tls:1:1)\n    at node_modules/@copilotkit/channels-slack/dist/index.js:42:7";
+    expect(unhandledRejectionAction(false, err, "managed.ts")).toEqual({
+      kind: "log",
+    });
+  });
+
+  it("logs without exiting when the rejection reason is not an Error at all (no stack to confirm origin)", () => {
+    // A bare string/plain-object rejection is legal and carries no stack, so
+    // origin can never be confirmed — the conservative choice is to log
+    // rather than let an unconfirmable reason keep escalating to a fatal
+    // exit on every occurrence.
+    expect(
+      unhandledRejectionAction(false, "a plain string reason", "managed.ts"),
+    ).toEqual({ kind: "log" });
+    expect(
+      unhandledRejectionAction(false, { some: "object" }, "managed.ts"),
+    ).toEqual({ kind: "log" });
+    expect(unhandledRejectionAction(false, undefined, "managed.ts")).toEqual({
+      kind: "log",
+    });
+  });
+});
+
+describe("guardedWrite (Findings 1 and 6: a failed diagnostic write must never suppress what follows it)", () => {
+  it("calls the write function", () => {
+    let called = false;
+    guardedWrite(() => {
+      called = true;
+    });
+    expect(called).toBe(true);
+  });
+
+  it("swallows a throw from the write function instead of letting it escape", () => {
+    // THE REGRESSION: fatal() used to call fs.writeSync(2, ...) directly and
+    // unguarded. Node marks a pipe-backed fd 2 non-blocking, and fs.writeSync
+    // does not retry on EAGAIN — with a full 64 KB pipe buffer (a stalled log
+    // shipper, a large AggregateError from ready()), writeSync throws, and
+    // the unguarded throw would escape past process.exit(code) entirely —
+    // if it escaped into main().catch(err => fatal(...)), fatal would throw
+    // AGAIN there, so a fail-fast path could survive with no listener bound.
+    const eagain = Object.assign(new Error("EAGAIN"), { code: "EAGAIN" });
+    expect(() =>
+      guardedWrite(() => {
+        throw eagain;
+      }),
+    ).not.toThrow();
   });
 });
 

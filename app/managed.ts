@@ -26,7 +26,7 @@
  * Run: `pnpm channel` with INTELLIGENCE_* + AGENT_URL set (see .env.example).
  */
 import { createHash, timingSafeEqual } from "node:crypto";
-import { writeSync } from "node:fs";
+import { realpathSync, writeSync } from "node:fs";
 import { createServer } from "node:http";
 import { pathToFileURL } from "node:url";
 import { format } from "node:util";
@@ -120,19 +120,53 @@ export function fatalText(message: string, err?: unknown): string {
 }
 
 /**
+ * Call `write` and swallow anything it throws.
+ *
+ * `fatal()` below and `shutdown()`'s last-gasp browser-cleanup diagnostic
+ * (Finding 6) both need to write a synchronous fd-2 line and then IMMEDIATELY
+ * do the thing that write was reporting on (exit, or continue racing the
+ * platform's grace period) — this is the one guard both route through instead
+ * of duplicating it.
+ *
+ * The write itself is usually `fs.writeSync(2, ...)`, a raw synchronous
+ * `write(2)` syscall that normally blocks until it completes, sidestepping
+ * `console.error`'s asynchronous stream buffering (which Node applies to
+ * `process.stderr` when fd 2 is a pipe on POSIX — exactly what Railway hands
+ * the container, and exactly what would otherwise let `process.exit()`
+ * truncate the message explaining why the host died). "Normally" is doing
+ * work in that sentence, though: Node also sets a pipe-backed fd 2
+ * NON-BLOCKING, and `fs.writeSync` does not retry on `EAGAIN` — with a full
+ * 64 KB pipe buffer (a stalled log shipper, a large `AggregateError` from
+ * `ready()`), `writeSync` THROWS instead of blocking. An unguarded call would
+ * let that throw escape past whatever the caller does next: for `fatal()`,
+ * past `process.exit(code)` entirely (and if that escaped into
+ * `main().catch(err => fatal(...))`, `fatal` would throw again there too — a
+ * fail-fast path surviving with no listener bound, the opposite of this
+ * file's whole thesis).
+ *
+ * The empty catch is intentionally correct, not an oversight: the caller's
+ * next step — `fatal`'s exit, or `shutdown`'s continued teardown — IS the
+ * signal, and a failed *diagnostic* write must never suppress it. Do not add
+ * handling here that could itself throw or delay reaching that next step;
+ * that would just move this exact hazard one frame up.
+ *
+ * `write` is injected rather than this function calling `fs.writeSync`
+ * itself, so it stays pure and unit-testable (including the throwing case)
+ * without doing real I/O — every call site below passes a closure over
+ * `writeSync`.
+ */
+export function guardedWrite(write: () => void): void {
+  try {
+    write();
+  } catch {
+    // Intentionally empty — see docstring above.
+  }
+}
+
+/**
  * Log a fatal diagnostic and exit. The one place every fail-fast path in this
  * file should route through, instead of its own `console.error(...)`
  * immediately followed by `process.exit()`.
- *
- * `console.error` writes through `process.stderr`, which Node buffers
- * ASYNCHRONOUSLY when it's a pipe on POSIX — exactly what Railway hands the
- * container. `process.exit()` does not wait for pending writes, so the
- * message explaining why the host died can be silently truncated in exactly
- * the deployment this file targets, undercutting the whole fail-loud design
- * this file otherwise commits to. `fs.writeSync` to fd 2 issues a raw,
- * synchronous `write(2)` syscall that blocks until it completes, sidestepping
- * the stream's buffering entirely — regardless of whether the fd is a pipe,
- * file, or TTY.
  *
  * Setting `process.exitCode` and letting the event loop drain naturally is
  * NOT an alternative: several call sites below must exit while a bound HTTP
@@ -144,10 +178,11 @@ export function fatalText(message: string, err?: unknown): string {
  * `closeServer`/`onceShutdown` stay clear of it. Not itself unit-tested: a
  * test can't call it without actually exiting the test process. `fatalText`
  * above carries the part of this that CAN be tested without that
- * restructuring.
+ * restructuring, and `guardedWrite` above carries the write-failure-tolerance
+ * part.
  */
 function fatal(message: string, err?: unknown, code = 1): never {
-  writeSync(2, `${fatalText(message, err)}\n`);
+  guardedWrite(() => writeSync(2, `${fatalText(message, err)}\n`));
   process.exit(code);
 }
 
@@ -756,6 +791,70 @@ export function uncaughtExceptionAction(
 }
 
 /**
+ * What to do about an unhandled promise rejection — a DIFFERENT, more
+ * permissive policy than `uncaughtExceptionAction`'s blanket fatal, and the
+ * reason this gets its own type and function instead of reusing that one.
+ *
+ * This used to be exactly `uncaughtExceptionAction`'s policy (fatal unless a
+ * shutdown is already in flight), justified on the grounds that the
+ * `server.listen` callback's own async IIFE was unobserved, so a throw
+ * anywhere in it would otherwise surface only as a silent, still-bound-socket
+ * rejection. That justification is now OBSOLETE: the IIFE has its own
+ * terminal `.catch` (see `main()`, right after the boot-completion IIFE), so
+ * it no longer needs `unhandledRejection` as a backstop.
+ *
+ * With that gone, this file has NO remaining unguarded async path of its
+ * own — `onMention`, `onThreadStarted`, `thread.post`, and `closeBrowser` are
+ * all individually try/caught or `.catch`-handled. So an unhandled rejection
+ * that reaches here is now overwhelmingly likely to originate from a
+ * DEPENDENCY this host doesn't control: the Slack SDK, Playwright, the
+ * Phoenix WS transport underneath Intelligence, an aborted `fetch` inside
+ * `SanitizingHttpAgent`. Treating every one of those as fatal — combined with
+ * `ON_FAILURE` and a finite `restartPolicyMaxRetries` — means a *recurring*
+ * library-level stray rejection (not a bug in this repo) burns the whole
+ * outage-tolerance budget in roughly one restart per occurrence and leaves
+ * the service permanently STOPPED, with no healthcheck to surface it. That is
+ * a worse outcome than the noisy rejection itself.
+ *
+ * The fix: only escalate to `fatal` when the rejection is recognizably from
+ * THIS host's own code — approximated by checking whether the rejected
+ * `Error`'s `.stack` mentions this running module (by name, via `moduleMarker`
+ * — the caller derives it from its own `import.meta.url` rather than a
+ * hardcoded literal, so it stays correct across a rename or a compiled build,
+ * same reasoning as the entry-point guard's `import.meta.url` comparison). A
+ * stack trace names where an `Error` was CONSTRUCTED, not where it went
+ * unhandled, so a rejection genuinely thrown from inside this file's own
+ * boot/teardown code carries this module's frame; a rejection constructed
+ * deep inside a dependency's own file does not, regardless of how the call
+ * chain reached it.
+ *
+ * A `reason` that is not an `Error` at all (a bare string, a plain object —
+ * both legal rejection values) carries no stack and so can never be
+ * confirmed as "ours" — it logs rather than exits, the conservative choice:
+ * an unrecognizable reason must not silently keep escalating to a fatal exit
+ * on every occurrence, and logging still leaves a trail in the deploy logs.
+ *
+ * Pure and exported for the same reason as `uncaughtExceptionAction`: unit
+ * testable without registering a real listener or exiting the test process.
+ */
+export type UnhandledRejectionAction =
+  | { kind: "continue-shutdown" }
+  | { kind: "fatal" }
+  | { kind: "log" };
+
+export function unhandledRejectionAction(
+  stopping: boolean,
+  reason: unknown,
+  moduleMarker: string,
+): UnhandledRejectionAction {
+  if (stopping) return { kind: "continue-shutdown" };
+  const ownStack = reason instanceof Error ? reason.stack : undefined;
+  return ownStack?.includes(moduleMarker)
+    ? { kind: "fatal" }
+    : { kind: "log" };
+}
+
+/**
  * Build the KiteBot channel: same tools/context/commands/handlers as the native
  * bot, minus any platform adapter (the managed transport is attached at
  * activation — NOT when the runtime's node listener is mounted, but lazily on
@@ -944,6 +1043,97 @@ async function main() {
   // deliberate stop from a real failure. Without it a signal that lands inside
   // the activation window turns a graceful shutdown into `process.exit(1)`.
   let stopping = false;
+
+  // `shutdown`/`runShutdown` are defined HERE — before the `server.on("error",
+  // ...)` handler and the watchdog interval below, both of which call
+  // `runShutdown` — rather than at the bottom of `main()` where they used to
+  // live (Finding 3).
+  //
+  // THE HAZARD this avoids: `const`-declared bindings are in the temporal
+  // dead zone from the top of their enclosing block until the declaration's
+  // own line executes. The old bottom-of-`main()` placement was safe only by
+  // accident of timing: `server.on("error", ...)` and the watchdog's
+  // `setInterval` callback both reference `runShutdown`, but neither can
+  // actually FIRE until an event loop turn after `server.listen(...)` returns
+  // — and with no `await` anywhere between `server.listen(...)` and the old
+  // `const runShutdown = ...` line, the synchronous remainder of `main()`
+  // always finished initializing that binding before any queued event
+  // (Node defers a listen error to `process.nextTick`) could ever be
+  // dispatched. That is a fact about CURRENT control flow, not an invariant
+  // the type system enforces — insert any `await` in that window (a future
+  // env lookup, an extra validation step) and an EADDRINUSE during boot would
+  // throw `ReferenceError: Cannot access 'runShutdown' before initialization`
+  // from inside an error handler, instead of tearing down cleanly. Declaring
+  // both here, before anything that can reference them is even registered,
+  // makes that failure mode structurally impossible rather than
+  // timing-dependent. Do NOT move this back down "to keep shutdown logic near
+  // the signal handlers" — that reintroduces exactly this hazard.
+  const shutdown = async (signal: string, exitCode = 0) => {
+    // FIRST, before any await and before the first log: from here on this
+    // process is stopping, and the boot path's `process.exit(1)`/`fatal(...)`
+    // calls must stand down. Anything that lands between here and
+    // `process.exit(exitCode)` — a late `ready()` settlement, a server
+    // 'error' emitted by `closeAllConnections`, an uncaught exception — would
+    // otherwise preempt this function mid-await.
+    stopping = true;
+    console.log(`\n[channel] received ${signal}, stopping…`);
+    // Also before the first await: a watchdog tick that fires mid-shutdown
+    // would see `overall: "stopped"` and could exit non-zero on its own.
+    if (watchdog) clearInterval(watchdog);
+    // Tear down managed channel activation first. Bounded: `ChannelManager.stop`
+    // caps each handle's teardown at 5s. No try/catch here: the installed
+    // `ChannelManager.stop()` wraps every per-handle teardown in
+    // `withTimeout(...).catch((err) => this.log?.(...))` and awaits them all
+    // via `Promise.allSettled`, so `stop()` itself cannot reject — a catch
+    // here would be dead code that can never run, silently implying a
+    // failure mode that doesn't exist. A per-handle teardown failure is
+    // swallowed by CONTRACT inside `ChannelManager` (it logs via its own
+    // `log` option, which this host does not wire up) — that is where an
+    // operator should look for a stuck handle, not here.
+    await channels.stop();
+    // Bounded by `closeAllConnections` — see the `closeServer` docstring.
+    await closeServer(server);
+    // Tear down the shared headless browser used for chart/diagram rendering,
+    // under a deadline. `browser.close()` has none of its own: a wedged or
+    // unresponsive Chromium would hang here indefinitely and reproduce exactly
+    // the failure `closeServer` was hardened against — shutdown outliving the
+    // platform's grace period, SIGKILL, and `process.exit(exitCode)` never
+    // reached, so a clean stop is recorded as a kill. Every other step above is
+    // already bounded; this was the last unbounded await. `.unref()` is
+    // load-bearing: a ref'd timer would itself hold the event loop open for the
+    // full 5s even when the browser closes immediately.
+    await Promise.race([
+      closeBrowser().catch((err: unknown) =>
+        // Finding 6: this is the EXACT hazard `fatal()`/`guardedWrite` exist to
+        // avoid, reproduced one microtask before `process.exit(exitCode)`
+        // below — on a pipe-backed stderr, a plain `console.error` here is the
+        // single most likely line in this file to be truncated, and it is the
+        // ONLY signal an operator gets that Chromium was orphaned. Route it
+        // through the same guarded synchronous write `fatal()` uses instead of
+        // duplicating that logic, so it survives even a full pipe buffer.
+        guardedWrite(() =>
+          writeSync(
+            2,
+            `${fatalText("[channel] browser cleanup failed (continuing shutdown)", err)}\n`,
+          ),
+        ),
+      ),
+      new Promise<void>((resolve) => setTimeout(resolve, 5_000).unref()),
+    ]);
+    process.exit(exitCode);
+  };
+  const runShutdown = onceShutdown(shutdown, (signal, err) => {
+    fatal(`[channel] fatal during ${signal} shutdown`, err);
+  });
+
+  // Basename of this running module — derived from `import.meta.url` rather
+  // than hardcoded, so it stays correct across a rename or a compiled .js/.mjs
+  // build, the same reasoning the entry-point guard below already applies to
+  // comparing `import.meta.url` instead of a filename literal. Used only to
+  // recognize an unhandled rejection's stack as originating in THIS file —
+  // see `unhandledRejectionAction`'s docstring.
+  const selfModuleMarker = import.meta.url.split("/").pop() ?? "managed";
+
   // Fail loud on a bind failure. Without an 'error' handler an EADDRINUSE/EACCES
   // during listen() surfaces only as a logged-but-swallowed uncaughtException
   // while the process keeps running with no listener — Railway's ON_FAILURE
@@ -1005,27 +1195,39 @@ async function main() {
     );
   });
 
-  // Same policy as `uncaughtException` above, via the SAME `uncaughtExceptionAction`
-  // decision — not a separate, softer one. An unhandled rejection is just as
-  // capable of leaving this process in the exact undefined, still-bound-socket
-  // state that motivated making `uncaughtException` fatal: the `server.listen`
-  // callback below is `async`, and nothing awaits or attaches to its returned
-  // promise, so a throw from anything in it AFTER the try/catch around
-  // `channels.ready()` (the status check, the `channel.name` getter in the
-  // success log, `setInterval`, `watchdog.unref()`) would otherwise surface only
-  // here — as a logged-but-survived rejection — with the socket bound, no
-  // watchdog armed, no "(channel live)" line, and no exit. That is the exact
-  // false-alive state the boot gate, the status fold, the `channels` presence
-  // check, and the watchdog were all written to eliminate, so this handler must
-  // not treat it any differently than `uncaughtException` does. Registered
-  // here (inside `main()`, not at module scope, and not in the entry-point
-  // guard below where it used to live) for the same reason as
+  // Registered here (inside `main()`, not at module scope, and not in the
+  // entry-point guard below where it used to live) for the same reason as
   // `uncaughtException`: it needs to consult `main()`'s local `stopping` flag.
+  //
+  // Finding 4: this used to share `uncaughtExceptionAction`'s blanket fatal
+  // policy outright, justified on the grounds that the `server.listen`
+  // callback below is `async` with nothing awaiting or attaching to its
+  // returned promise — so a throw anywhere in it AFTER the try/catch around
+  // `channels.ready()` would otherwise surface only here, as a
+  // logged-but-survived rejection, with the socket bound and no exit. That
+  // justification is now OBSOLETE: the boot-completion IIFE below has its own
+  // terminal `.catch` (see its closing `})().catch(...)`), so it no longer
+  // needs this handler as a backstop. With that gone, this file has no
+  // remaining unguarded async path of its own, so a rejection reaching here
+  // now is overwhelmingly likely to be library-level noise (the Slack SDK,
+  // Playwright, the Phoenix WS transport, an aborted `fetch` inside
+  // `SanitizingHttpAgent`) rather than a bug in this repo — see
+  // `unhandledRejectionAction`'s docstring for why treating every one of
+  // those as fatal would burn this host's entire restart budget on a single
+  // recurring stray rejection and leave the service permanently stopped.
   process.on("unhandledRejection", (reason) => {
-    const action = uncaughtExceptionAction(stopping);
+    const action = unhandledRejectionAction(stopping, reason, selfModuleMarker);
     if (action.kind === "continue-shutdown") {
       console.error(
         "[channel] unhandledRejection during shutdown (continuing shutdown)",
+        reason,
+      );
+      return;
+    }
+    if (action.kind === "log") {
+      console.error(
+        "[channel] unhandledRejection — not recognizably from this host's own " +
+          "code, logging without exiting (see unhandledRejectionAction's docstring)",
         reason,
       );
       return;
@@ -1060,7 +1262,18 @@ async function main() {
         // leaving Chromium alive — and report 1 for a deliberate stop. Do NOT
         // "simplify" this guard away.
         if (stopping) return;
-        fatal("[channel] Intelligence channel activation failed", err);
+        // Finding 5: `channels.ready()` has already run `activate()` by the
+        // time it settles at all — resolve OR reject — so a session may
+        // exist on the gateway regardless of which branch of this try/catch
+        // runs. Calling `fatal()` directly here (the old behavior) would skip
+        // `channels.stop()`, so Intelligence has to time out this runtime's
+        // lease instead of getting a clean disconnect — the identical hazard
+        // that already justifies routing the watchdog's fatal path and the
+        // post-bind server `error` handler through `runShutdown` instead of
+        // exiting straight away. This path gets the same treatment.
+        console.error("[channel] Intelligence channel activation failed", err);
+        runShutdown("boot-ready-rejected", 1);
+        return;
       }
       // Same window, the resolve side. `channels.stop()` marks entries `stopped`
       // but does NOT settle in-flight activations, so a signal arriving inside
@@ -1078,7 +1291,16 @@ async function main() {
       // status map before claiming success.
       const bootHealth = channels.status();
       if (unhealthyChannels(bootHealth, channelName).length > 0) {
-        fatal(`[channel] ${notLiveMessage(bootHealth, channelName)}`);
+        // Finding 5: same lease hazard as the `ready()`-rejection catch just
+        // above — `activate()` has already run by this point (`ready()` just
+        // resolved), so exiting directly here would skip `channels.stop()`
+        // and leave Intelligence to time out the lease instead of getting a
+        // clean disconnect. Route through `runShutdown` like every other
+        // post-activation fatal path in this file, instead of being the odd
+        // one out.
+        console.error(`[channel] ${notLiveMessage(bootHealth, channelName)}`);
+        runShutdown("boot-not-live", 1);
+        return;
       }
       console.log(
         `[channel] KiteBot channel "${channel.name}" mounted on :${port} → Intelligence gateway (channel live)`,
@@ -1149,61 +1371,26 @@ async function main() {
       // already be awaiting `channels.stop()`/`closeServer`/`closeBrowser()`,
       // and racing a second exit against it would only truncate that teardown.
       if (stopping) return;
-      fatal(
+      // Finding 5, extended for consistency: everything this catch can
+      // plausibly observe runs AFTER the `channels.ready()` try/catch above
+      // already returned (both of its own exit paths `return` before falling
+      // through to here) — so by the time anything reaches this catch,
+      // activation has already succeeded and a session may exist. Route
+      // through `runShutdown` for the same lease reason as the two guards
+      // above, rather than exiting directly and leaving a THIRD, differently
+      // reasoned answer to the identical question. `channels.stop()` is safe
+      // to call even in the vanishingly unlikely case this fires before
+      // `ready()` was ever reached (e.g. `listening = true` itself somehow
+      // threw): `ChannelManager.stop()` tolerates an activation that never
+      // started, per `shutdown()`'s own docstring above.
+      console.error(
         "[channel] fatal error after HTTP listener bound — the boot sequence threw past the activation guard",
         err,
       );
+      runShutdown("boot-post-ready-throw", 1);
     });
   });
 
-  const shutdown = async (signal: string, exitCode = 0) => {
-    // FIRST, before any await and before the first log: from here on this
-    // process is stopping, and the boot path's `process.exit(1)`/`fatal(...)`
-    // calls must stand down. Anything that lands between here and
-    // `process.exit(exitCode)` — a late `ready()` settlement, a server
-    // 'error' emitted by `closeAllConnections`, an uncaught exception — would
-    // otherwise preempt this function mid-await.
-    stopping = true;
-    console.log(`\n[channel] received ${signal}, stopping…`);
-    // Also before the first await: a watchdog tick that fires mid-shutdown
-    // would see `overall: "stopped"` and could exit non-zero on its own.
-    if (watchdog) clearInterval(watchdog);
-    // Tear down managed channel activation first. Bounded: `ChannelManager.stop`
-    // caps each handle's teardown at 5s. No try/catch here: the installed
-    // `ChannelManager.stop()` wraps every per-handle teardown in
-    // `withTimeout(...).catch((err) => this.log?.(...))` and awaits them all
-    // via `Promise.allSettled`, so `stop()` itself cannot reject — a catch
-    // here would be dead code that can never run, silently implying a
-    // failure mode that doesn't exist. A per-handle teardown failure is
-    // swallowed by CONTRACT inside `ChannelManager` (it logs via its own
-    // `log` option, which this host does not wire up) — that is where an
-    // operator should look for a stuck handle, not here.
-    await channels.stop();
-    // Bounded by `closeAllConnections` — see the `closeServer` docstring.
-    await closeServer(server);
-    // Tear down the shared headless browser used for chart/diagram rendering,
-    // under a deadline. `browser.close()` has none of its own: a wedged or
-    // unresponsive Chromium would hang here indefinitely and reproduce exactly
-    // the failure `closeServer` was hardened against — shutdown outliving the
-    // platform's grace period, SIGKILL, and `process.exit(exitCode)` never
-    // reached, so a clean stop is recorded as a kill. Every other step above is
-    // already bounded; this was the last unbounded await. `.unref()` is
-    // load-bearing: a ref'd timer would itself hold the event loop open for the
-    // full 5s even when the browser closes immediately.
-    await Promise.race([
-      closeBrowser().catch((err: unknown) =>
-        console.error(
-          "[channel] browser cleanup failed (continuing shutdown)",
-          err,
-        ),
-      ),
-      new Promise<void>((resolve) => setTimeout(resolve, 5_000).unref()),
-    ]);
-    process.exit(exitCode);
-  };
-  const runShutdown = onceShutdown(shutdown, (signal, err) => {
-    fatal(`[channel] fatal during ${signal} shutdown`, err);
-  });
   process.on("SIGINT", () => runShutdown("SIGINT"));
   process.on("SIGTERM", () => runShutdown("SIGTERM"));
 }
@@ -1216,6 +1403,18 @@ async function main() {
 // import.meta.url is this module while process.argv[1] is the test runner, so
 // they differ and main() does not run.
 //
+// `process.argv[1]` is resolved through `realpathSync` before the comparison
+// (Finding 2). Node's module loader realpath-resolves `import.meta.url` itself
+// (it always reports the canonical path of the file that was actually
+// loaded), but `process.argv[1]` is whatever the shell invoked verbatim — so
+// running this file via a symlink (`tsx ./bin/managed -> ../app/managed.ts`,
+// or any process manager that execs through one) used to compare a resolved
+// URL against an unresolved one: they'd never match, the guard would silently
+// fail closed, `main()` would never run, and the process would exit 0 with no
+// output whatsoever — in the one file whose entire point is failing loudly.
+// `realpathSync` follows the same symlink the loader already followed, so
+// both sides of `===` are canonical.
+//
 // This same guard is where dotenv's load belongs, for the identical reason
 // `main()` itself is gated here: a plain module-scope `import "dotenv/config"`
 // call fires on IMPORT, not on execution as the entry point. Without this,
@@ -1225,17 +1424,24 @@ async function main() {
 //
 // Both `uncaughtException` and `unhandledRejection` are registered separately,
 // INSIDE `main()` (not here), because their handling needs to consult
-// `main()`'s local `stopping` flag via `uncaughtExceptionAction` — see the
-// registrations next to the server `error` handler for why. (Earlier,
-// `unhandledRejection` was registered here instead, on the reasoning that
-// nothing demonstrated an unhandled rejection could leave the process in the
-// same undefined, still-bound-socket state that motivated making
-// `uncaughtException` fatal. That reasoning was wrong: the `server.listen`
-// callback's own unobserved promise (see its `.catch` below) is exactly that
-// demonstration, so both handlers now share one policy.)
+// `main()`'s local `stopping` flag — via `uncaughtExceptionAction` and
+// `unhandledRejectionAction` respectively — see the registrations next to the
+// server `error` handler for why. (Earlier, `unhandledRejection` was
+// registered here instead, on the reasoning that nothing demonstrated an
+// unhandled rejection could leave the process in the same undefined,
+// still-bound-socket state that motivated making `uncaughtException` fatal.
+// That reasoning was wrong: the `server.listen` callback's own unobserved
+// promise, back when it had no terminal `.catch` of its own, was exactly that
+// demonstration. It has one now, and the two handlers' policies have since
+// diverged again anyway — Finding 4 made `unhandledRejectionAction`
+// proportionate (log unless the rejection is recognizably from this host's
+// own code) precisely because `uncaughtExceptionAction`'s blanket fatal is
+// too broad for a promise rejection, which is far more often a dependency's
+// noise than a synchronous throw is. See `unhandledRejectionAction`'s
+// docstring for the full reasoning.)
 if (
   process.argv[1] &&
-  import.meta.url === pathToFileURL(process.argv[1]).href
+  import.meta.url === pathToFileURL(realpathSync(process.argv[1])).href
 ) {
   // Load .env BEFORE anything reads `process.env` — `main()` (via `required`/
   // `requiredUrl`) is the first thing to do so, and a dynamic import's promise
