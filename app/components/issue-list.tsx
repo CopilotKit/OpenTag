@@ -55,7 +55,7 @@ export const issueListSchema = z.object({
   issues: z.array(issueSchema).min(1).describe("The issues to render."),
 });
 
-export type IssueListProps = z.infer<typeof issueListSchema>;
+type IssueListProps = z.infer<typeof issueListSchema>;
 type Issue = z.infer<typeof issueSchema>;
 
 /** Max issues rendered inline; the rest are summarized in the footer. */

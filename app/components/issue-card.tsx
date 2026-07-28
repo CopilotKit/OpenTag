@@ -48,7 +48,7 @@ export const issueCardSchema = z.object({
     ),
 });
 
-export type IssueCardProps = z.infer<typeof issueCardSchema>;
+type IssueCardProps = z.infer<typeof issueCardSchema>;
 
 /** Render ONE Linear issue as a rich Block Kit card. */
 export function IssueCard(issue: IssueCardProps): ChannelNode {

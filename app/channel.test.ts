@@ -82,6 +82,26 @@ function findButton(
   return undefined;
 }
 
+function findIncidentButton(
+  nodes: ChannelNode[],
+  action: "ack" | "escalate",
+): ChannelNode | undefined {
+  for (const node of nodes) {
+    if (
+      node.type === "button" &&
+      (node.props.value as { action?: string } | undefined)?.action === action
+    ) {
+      return node;
+    }
+    const children = node.props.children;
+    if (Array.isArray(children)) {
+      const found = findIncidentButton(children as ChannelNode[], action);
+      if (found) return found;
+    }
+  }
+  return undefined;
+}
+
 afterEach(async () => {
   await Promise.all(channels.splice(0).map((channel) => channel.ɵruntime.stop()));
   vi.restoreAllMocks();
@@ -109,6 +129,18 @@ describe("createOpenTagChannel", () => {
       "file_issue",
       "preview",
       "triage",
+    ]);
+    expect(appTools.map(({ name }) => name).sort()).toEqual([
+      "issue_card",
+      "issue_list",
+      "page_list",
+      "read_thread",
+      "render_chart",
+      "render_diagram",
+      "render_table",
+      "show_incident",
+      "show_links",
+      "show_status",
     ]);
     expect(appTools.map(({ name }) => name)).not.toContain("confirm_write");
   });
@@ -394,5 +426,67 @@ describe("createOpenTagChannel", () => {
     expect(secondAdapter.updated).toHaveLength(1);
     expect(JSON.stringify(secondAdapter.updated)).toContain("Approved");
     expect(secondAgent.runAgentCalls).toBe(1);
+  });
+
+  it("re-registers incident actions when a new Channel uses the same store", async () => {
+    const sharedState = new MemoryStore();
+    const firstAdapter = new FakeAdapter({ platform: "intelligence" });
+    firstAdapter.stateStore = sharedState;
+    const firstAgent = new FakeAgent([
+      (subscriber) => {
+        subscriber.onToolCallEndEvent?.({
+          event: { toolCallId: "show-incident-1" },
+          toolCallName: "show_incident",
+          toolCallArgs: {
+            id: "INC-42",
+            title: "Checkout unavailable",
+            severity: "SEV1",
+            summary: "Requests are returning 500.",
+          },
+        } as never);
+        subscriber.onRunFinishedEvent?.({ event: {} } as never);
+      },
+      (subscriber) =>
+        subscriber.onRunFinishedEvent?.({ event: {} } as never),
+    ]);
+    const firstChannel = createOpenTagChannel("opentag", firstAgent);
+    firstChannel.ɵruntime.addAdapter(firstAdapter);
+    channels.push(firstChannel);
+    await firstChannel.ɵruntime.start();
+    await firstAdapter.getSink().onTurn({
+      conversationKey: "incident-thread",
+      replyTarget: {},
+      userText: "show the incident",
+      platform: "slack",
+      user: { id: "U1" },
+    });
+
+    const acknowledge = findIncidentButton(firstAdapter.posted[0]!, "ack");
+    const actionId = (
+      acknowledge?.props.onClick as { id?: string } | undefined
+    )?.id;
+    expect(actionId).toMatch(/^ck:/);
+    await firstChannel.ɵruntime.stop();
+
+    const secondAdapter = new FakeAdapter({ platform: "intelligence" });
+    secondAdapter.stateStore = sharedState;
+    const secondChannel = createOpenTagChannel("opentag", new FakeAgent());
+    secondChannel.ɵruntime.addAdapter(secondAdapter);
+    channels.push(secondChannel);
+    await secondChannel.ɵruntime.start();
+    await secondAdapter.getSink().onInteraction({
+      id: actionId!,
+      conversationKey: "incident-thread",
+      replyTarget: {},
+      messageRef: { id: "incident-message" },
+      user: { id: "U2", name: "Ada" },
+      value: { action: "ack", id: "INC-42" },
+    });
+
+    expect(secondAdapter.updated).toHaveLength(1);
+    expect(JSON.stringify(secondAdapter.updated)).toContain(
+      "Acknowledged · Checkout unavailable",
+    );
+    expect(JSON.stringify(secondAdapter.updated)).toContain("Ack'd by Ada");
   });
 });

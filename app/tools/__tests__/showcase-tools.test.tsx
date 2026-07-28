@@ -14,6 +14,7 @@ import type {
   ClickHandler,
 } from "@copilotkit/channels";
 import { renderSlackMessage } from "@copilotkit/channels/slack";
+import { renderAdaptiveCard } from "@copilotkit/channels/teams";
 import {
   showIncidentTool,
   showStatusTool,
@@ -98,6 +99,27 @@ describe("show_incident render-tool", () => {
     const text = JSON.stringify(blocks);
     expect(text).toContain("Acknowledge");
     expect(text).toContain("Escalate");
+  });
+
+  it("renders the incident and its actions as a Teams Adaptive Card", async () => {
+    const { posts, thread } = fakeThread();
+    await showIncidentTool.handler(
+      {
+        id: "INC-1",
+        title: "Checkout 500s",
+        severity: "SEV1",
+        summary: "Error rate spiking on /checkout.",
+      },
+      { thread } as unknown as IncidentCtx,
+    );
+
+    const card = renderAdaptiveCard(renderToIR(posts[0] as never));
+    const json = JSON.stringify(card);
+    expect(card.type).toBe("AdaptiveCard");
+    expect(json).toContain("Checkout 500s");
+    expect(json).toContain("Acknowledge");
+    expect(json).toContain("Escalate");
+    expect(json).toContain("Action.Submit");
   });
 
   it("the Acknowledge button's onClick updates the message with a green card", async () => {
@@ -315,6 +337,22 @@ describe("show_status render-tool", () => {
     expect(text).toContain("*Queue depth*");
     expect(text).toContain("operational");
   });
+
+  it("renders status fields as a Teams Adaptive Card", async () => {
+    const { posts, thread } = fakeThread();
+    await showStatusTool.handler(
+      {
+        heading: "Service health",
+        fields: [{ label: "API", value: "operational" }],
+      },
+      { thread } as unknown as StatusCtx,
+    );
+
+    const card = renderAdaptiveCard(renderToIR(posts[0] as never));
+    expect(card.type).toBe("AdaptiveCard");
+    expect(JSON.stringify(card)).toContain("Service health");
+    expect(JSON.stringify(card)).toContain("operational");
+  });
 });
 
 describe("show_links render-tool", () => {
@@ -338,5 +376,23 @@ describe("show_links render-tool", () => {
     expect(text).toContain("<https://example.com/dash|Dashboard>");
     // No leftover markdown link syntax.
     expect(text).not.toContain("](http");
+  });
+
+  it("renders links as a Teams Adaptive Card", async () => {
+    const { posts, thread } = fakeThread();
+    await showLinksTool.handler(
+      {
+        heading: "Runbooks",
+        links: [
+          { label: "Auth outage", url: "https://example.com/auth" },
+        ],
+      },
+      { thread } as unknown as LinksCtx,
+    );
+
+    const card = renderAdaptiveCard(renderToIR(posts[0] as never));
+    expect(card.type).toBe("AdaptiveCard");
+    expect(JSON.stringify(card)).toContain("Runbooks");
+    expect(JSON.stringify(card)).toContain("https://example.com/auth");
   });
 });

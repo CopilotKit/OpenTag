@@ -6,6 +6,7 @@ import {
   type ClickHandler,
 } from "@copilotkit/channels";
 import { renderSlackMessage } from "@copilotkit/channels/slack";
+import { renderAdaptiveCard } from "@copilotkit/channels/teams";
 import { ConfirmWrite } from "../confirm-write.js";
 
 /** Children of an IR node as an array (empty if none). */
@@ -103,6 +104,24 @@ describe("ConfirmWrite", () => {
     const ir = renderToIR(<ConfirmWrite action="Create Linear issue" />);
     const { blocks } = renderSlackMessage(ir);
     expect(blocks.some((b) => b.type === "section")).toBe(false);
+  });
+
+  it("renders Create and Cancel actions as a Teams Adaptive Card", () => {
+    const card = renderAdaptiveCard(
+      renderToIR(
+        <ConfirmWrite
+          action="Create Linear issue"
+          detail="CPK-9: Checkout 500s"
+        />,
+      ),
+    );
+    const json = JSON.stringify(card);
+
+    expect(card.type).toBe("AdaptiveCard");
+    expect(json).toContain("Create Linear issue");
+    expect(json).toContain("Create");
+    expect(json).toContain("Cancel");
+    expect(json).toContain("Action.Submit");
   });
 
   it("approve onClick updates the picker and resumes the interrupted agent", async () => {

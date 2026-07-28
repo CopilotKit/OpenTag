@@ -1,12 +1,12 @@
 [project]
-name = "opentag-research-agent"
+name = "opentag-agent"
 version = "0.1.0"
-description = "OpenTag Deep Research Agent — CopilotKit Deep Agents (LangGraph) over AG-UI"
+description = "OpenTag on-call triage agent — CopilotKit Deep Agents (LangGraph) over AG-UI"
 requires-python = ">=3.12"
 dependencies = [
   "ag-ui-langgraph>=0.0.23",
   "copilotkit>=0.1.76",
-  "deepagents>=0.3.5",
+  "deepagents>=0.6.12",
   "fastapi>=0.115.14",
   "langchain>=1.2.4",
   "langchain-mcp-adapters>=0.3.0",

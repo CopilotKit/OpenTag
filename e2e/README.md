@@ -28,6 +28,10 @@ These are test-harness credentials, not Channel-runtime configuration;
 Intelligence still owns the deployed Slack attachment. The harness never
 provisions or reinstalls an app.
 
+Obtain the user token through your approved Slack app-management flow and add
+it to `.env` yourself. The repository intentionally contains no browser
+automation that edits the manifest, reinstalls the app, or extracts tokens.
+
 ## Run
 
 Start or deploy the OpenTag agent and Channel, then:

@@ -27,6 +27,8 @@ export default defineRailway(() => {
       OPENAI_API_KEY: preserve(),
       TAVILY_API_KEY: preserve(),
       LINEAR_API_KEY: preserve(),
+      NOTION_MCP_URL: preserve(),
+      NOTION_MCP_AUTH_TOKEN: preserve(),
     },
   });
 

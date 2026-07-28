@@ -112,7 +112,7 @@ const statusSchema = z.object({
 
 type StatusProps = z.infer<typeof statusSchema>;
 
-export function StatusCard({ heading, fields }: StatusProps) {
+function StatusCard({ heading, fields }: StatusProps) {
   return (
     <Message accent="#5E6AD2">
       <Header>{`📊 ${heading}`}</Header>
@@ -155,7 +155,7 @@ const linksSchema = z.object({
 
 type LinksProps = z.infer<typeof linksSchema>;
 
-export function LinksCard({ heading, links }: LinksProps) {
+function LinksCard({ heading, links }: LinksProps) {
   // `[label](url)` is rewritten to Slack's `<url|label>` link form by
   // `markdownToMrkdwn`; authoring the raw `<url|label>` here would have its
   // inner text mangled, so we author markdown links instead.

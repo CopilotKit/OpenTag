@@ -1,7 +1,7 @@
 # OpenTag setup
 
-This guide covers the canonical OpenTag deployment: one Python deep-agent
-service and one Node CopilotRuntime service with Channels embedded.
+This guide covers the canonical OpenTag deployment: one Python agent service
+and one Node CopilotRuntime service with Channels embedded.
 
 Slack and Microsoft Teams are supported for this launch. Discord, Telegram,
 and WhatsApp are coming soon.
@@ -58,19 +58,22 @@ cp .env.example .env
 | --- | --- | --- |
 | `OPENAI_API_KEY` | Yes | Model access |
 | `OPENAI_MODEL` | No | Defaults to `gpt-5.5` |
+| `OPENAI_REASONING_EFFORT` | No | Defaults to `low` |
+| `OPENAI_VERBOSITY` | No | Defaults to `low` |
 | `TAVILY_API_KEY` | No | Enables live web research |
 | `LINEAR_API_KEY` | No | Enables the hosted Linear MCP |
 | `LINEAR_MCP_URL` | No | Overrides the hosted Linear MCP URL |
-| `NOTION_MCP_AUTH_TOKEN` | No | Authenticates to the Notion MCP sidecar |
-| `NOTION_MCP_URL` | No | Defaults to `http://127.0.0.1:3001/mcp` |
+| `NOTION_MCP_AUTH_TOKEN` | No | Bearer token for a remote Notion MCP; requires `NOTION_MCP_URL` |
+| `NOTION_MCP_URL` | No | Remote Notion MCP endpoint; requires `NOTION_MCP_AUTH_TOKEN` |
 | `SERVER_HOST` | No | Local bind host; defaults to `0.0.0.0` |
 | `SERVER_PORT` / `PORT` | No | Local port; defaults to `8123` |
 
 Only `OPENAI_API_KEY` is required. Without Tavily or internal-source
-credentials, the agent still chats, plans, writes virtual files, and renders
-supported UI components. The Python agent explicitly loads this root `.env`
-for local development; Railway service variables work normally without a
-checked-in environment file.
+credentials, the agent still chats, triages, and renders supported UI
+components. Planning and virtual files remain available for explicitly
+substantial work. The Python agent explicitly loads this root `.env` for local
+development; Railway service variables work normally without a checked-in
+environment file.
 
 Run it:
 
@@ -79,7 +82,7 @@ pnpm agent
 ```
 
 The AG-UI endpoint is `http://localhost:8123/`; `/health` reports the
-`opentag-research-agent` service.
+`opentag-agent` service.
 
 ## Configure Intelligence
 
@@ -172,7 +175,7 @@ Reads and UI rendering are never gated.
 ### Tavily
 
 Set `TAVILY_API_KEY` in the root `.env` to enable live web research. The
-`research` tool is not registered when the key is absent.
+`web_search` tool is not registered when the key is absent.
 
 ### Linear
 
@@ -181,13 +184,10 @@ MCP by default. Railway preserves this optional secret on the `agent` service.
 
 ### Notion
 
-Notion is optional and is not a production Railway service. Its hosted MCP
-requires interactive OAuth and token storage, so the included bearer-token
-server is only a local development option:
-
-1. Put `NOTION_TOKEN` and a strong `NOTION_MCP_AUTH_TOKEN` in the root `.env`.
-2. Run `pnpm notion-mcp`.
-3. Restart `pnpm agent` so it discovers the Notion tools.
+Notion is optional and is not a separate Railway service. Configure an existing
+remote MCP endpoint by setting both `NOTION_MCP_URL` and
+`NOTION_MCP_AUTH_TOKEN`, then restart `pnpm agent` so it discovers the tools.
+If either value is absent, OpenTag skips Notion without blocking startup.
 
 ## Railway
 
@@ -201,7 +201,8 @@ The IaC file declares exactly:
 `runtime.AGENT_URL` references the agent's Railway private domain and port.
 Production Intelligence URLs are literal configuration, the API key is
 preserved, and the Channel name is `open-tag`. `OPENAI_API_KEY` is required on
-`agent`; Tavily and Linear are optional preserved secrets.
+`agent`; Tavily, Linear, and the paired remote Notion variables are optional
+preserved settings.
 
 Evaluate the configuration locally without applying it:
 

@@ -2,8 +2,8 @@
  * App-specific frontend tools. Provider defaults are added per turn by
  * `app/channel-helpers.ts`.
  *
- * Add new tools here and re-export them through `appTools`. Wire the
- * array into `createChannel({ tools })`.
+ * Add new tools here and include them in `appTools`. Wire the array into
+ * `createChannel({ tools })`.
  */
 import { readThreadTool } from "./read-thread.js";
 import { renderChartTool } from "./render-chart.js";
@@ -37,16 +37,3 @@ export const appTools: ChannelTool[] = [
   showStatusTool,
   showLinksTool,
 ];
-
-export {
-  readThreadTool,
-  renderChartTool,
-  renderDiagramTool,
-  renderTableTool,
-  issueCardTool,
-  issueListTool,
-  pageListTool,
-  showIncidentTool,
-  showStatusTool,
-  showLinksTool,
-};
