@@ -8,7 +8,7 @@
   "scripts": {
     "dev": "tsx watch server.ts",
     "start": "tsx server.ts",
-    "channel": "tsx server.ts",
+    "runtime": "tsx server.ts",
     "agent": "cd agent && uv run python main.py",
     "notion-mcp": "tsx scripts/start-notion-mcp.ts",
     "check-types": "tsc --noEmit -p tsconfig.json",

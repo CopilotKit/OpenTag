@@ -20,7 +20,7 @@ Slack / Microsoft Teams
 CopilotKit Intelligence
           │ realtime
           ▼
-channel (Node + CopilotRuntime + Channels)
+runtime (Node + CopilotRuntime with embedded Channels)
           │ AG-UI
           ▼
 agent (Python + LangGraph deepagents)
@@ -30,7 +30,7 @@ agent (Python + LangGraph deepagents)
           └── Notion MCP (optional local sidecar)
 ```
 
-There is one canonical Channel host: [`server.ts`](./server.ts).
+There is one canonical runtime host: [`server.ts`](./server.ts).
 [`app/index.ts`](./app/index.ts) composes one `CopilotKitIntelligence`, one
 `CopilotRuntime`, and two adapter-free managed Channels: the configured base
 name for Slack and `<base>-teams` for Microsoft Teams. Intelligence owns all
@@ -82,10 +82,10 @@ Prerequisites: Node.js 22+, pnpm, Python 3.12, and
 
    ```bash
    pnpm agent
-   pnpm channel
+   pnpm runtime
    ```
 
-The Channel waits for its Intelligence connection to become ready before its
+The runtime waits for its Intelligence connection to become ready before its
 HTTP listener accepts traffic.
 
 ## What OpenTag includes
@@ -113,7 +113,7 @@ Use the normal Intelligence flow for both launch platforms:
 2. Create the base Channel for Slack and `<base>-teams` for Microsoft Teams.
 3. Issue a runtime API key.
 4. Configure each platform attachment on its matching Channel.
-5. Run one `pnpm channel` process with the base Channel name and key.
+5. Run one `pnpm runtime` process with the base Channel name and key.
 
 No organization, project, Channel ID, or runtime-instance ID environment
 variables—or Slack/Teams credentials—are required by the runtime.
@@ -134,9 +134,8 @@ Slack app**. Reusing it preserves the bot user, workspace installation, and
 - `TAVILY_API_KEY` enables live web research. Without it, OpenTag still chats,
   plans, uses its virtual filesystem, and renders UI from model knowledge.
 - `LINEAR_API_KEY` enables the hosted Linear MCP.
-- Notion runs through the `notion-mcp` sidecar in Railway. For local
-  development, put its token and shared `NOTION_MCP_AUTH_TOKEN` in the root
-  `.env` and run `pnpm notion-mcp`.
+- Notion is optional for local development: put its token and shared
+  `NOTION_MCP_AUTH_TOKEN` in the root `.env` and run `pnpm notion-mcp`.
 
 Every Linear and Notion mutation is intercepted in code before the MCP request
 runs. The interceptor emits `confirm_write` and proceeds only after approval;
@@ -144,22 +143,20 @@ reads and rendering do not pause.
 
 ## Railway
 
-[`.railway/railway.ts`](./.railway/railway.ts) defines exactly three services,
+[`.railway/railway.ts`](./.railway/railway.ts) defines exactly two services,
 all sourced from `CopilotKit/OpenTag` on `main`:
 
 | Service | Root | Start | Health |
 | --- | --- | --- | --- |
-| `notion-mcp` | repository root | `pnpm notion-mcp` | process restart policy |
 | `agent` | `agent` | `uvicorn main:app --host "" --port ${PORT:-8123}` | `/health` |
-| `channel` | repository root | `pnpm channel` | Channels readiness before listen |
+| `runtime` | repository root | `pnpm runtime` | `/api/copilotkit/info` |
 
-The Channel reaches the agent, and the agent reaches the Notion sidecar, over
-Railway private networking. Railway sets `INTELLIGENCE_CHANNEL_NAME=kite`, so
-the runtime declares the managed `kite` Slack Channel and `kite-teams` Teams
-Channel. It preserves the runtime API key. OpenAI is required on `agent`;
-Tavily and Linear secrets are optional. `NOTION_TOKEN` and
-`NOTION_MCP_AUTH_TOKEN` must be set on `notion-mcp`. Connecting all three
-services to `main` enables GitHub-triggered deployments after merges.
+The runtime reaches the agent over Railway private networking and embeds both
+managed Channels. Railway sets `INTELLIGENCE_CHANNEL_NAME=kite`, so the runtime
+declares `kite` for Slack and `kite-teams` for Teams. It preserves the runtime
+API key. OpenAI is required on `agent`; Tavily and Linear secrets are optional.
+Connecting both services to `main` enables GitHub-triggered deployments after
+merges.
 
 The repository configuration does not mutate the existing production Railway
 project. Inventory and cutover should happen after Railway authentication.

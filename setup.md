@@ -1,8 +1,7 @@
 # OpenTag setup
 
 This guide covers the canonical OpenTag deployment: one Python deep-agent
-service, one Notion MCP sidecar, and one Node Channel service connected to
-CopilotKit Intelligence.
+service and one Node CopilotRuntime service with Channels embedded.
 
 Slack and Microsoft Teams are supported for this launch. Discord, Telegram,
 and WhatsApp are coming soon.
@@ -11,12 +10,12 @@ and WhatsApp are coming soon.
 
 | Component | Location | Responsibility |
 | --- | --- | --- |
-| Channel entrypoint | [`server.ts`](./server.ts) | Environment, readiness, HTTP lifecycle, and shutdown |
+| Runtime entrypoint | [`server.ts`](./server.ts) | Environment, Channels readiness, HTTP lifecycle, and shutdown |
 | Application composition | [`app/index.ts`](./app/index.ts) | SDK agent factory, managed Slack/Teams Channels, and runtime |
 | Channel definition | [`app/channel.tsx`](./app/channel.tsx) | Mentions, commands, components, modals, and interrupts |
 | Intelligence runtime | [`app/runtime-host.ts`](./app/runtime-host.ts) | One `CopilotKitIntelligence` and one `CopilotRuntime` |
 | Python agent | [`agent/`](./agent) | LangGraph deep agent served over AG-UI |
-| Railway topology | [`.railway/railway.ts`](./.railway/railway.ts) | Three services sourced from OpenTag `main` |
+| Railway topology | [`.railway/railway.ts`](./.railway/railway.ts) | Two services sourced from OpenTag `main` |
 
 The host always uses the Intelligence-owned runtime. It declares an
 adapter-free Slack Channel using the configured base name and an adapter-free
@@ -108,13 +107,13 @@ Legacy organization, project, Channel ID, and runtime-instance ID variables are
 not used. Slack and Teams credentials also do not belong in this environment;
 Intelligence owns them.
 
-Start the Channel:
+Start the runtime:
 
 ```bash
-pnpm channel
+pnpm runtime
 ```
 
-Use `pnpm dev` for watch mode. `pnpm start` and `pnpm channel` both run the
+Use `pnpm dev` for watch mode. `pnpm start` and `pnpm runtime` both run the
 same canonical entrypoint. Startup waits for `listener.channels.ready()` before
 opening HTTP. SIGINT and SIGTERM stop Channels, HTTP, and the rendering browser
 once, even if shutdown is requested more than once.
@@ -131,7 +130,7 @@ For cutover:
 1. Stop the old Kite Socket Mode runtime so there is only one consumer.
 2. Enter the existing `xapp` and `xoxb` tokens directly into the Slack
    attachment in Intelligence. Do not put them in source control or chat.
-3. Start the OpenTag `channel` service with
+3. Start the OpenTag `runtime` service with
    `INTELLIGENCE_CHANNEL_NAME=kite`.
 4. Send one `@kite` mention and verify the reply uses the OpenTag persona and
    Python deep agent.
@@ -186,38 +185,28 @@ MCP by default. Railway preserves this optional secret on the `agent` service.
 
 ### Notion
 
-Railway deploys the Notion MCP sidecar and connects it to the agent over the
-private network. Set `NOTION_TOKEN` and `NOTION_MCP_AUTH_TOKEN` on the
-`notion-mcp` Railway service. The shared auth token is referenced by the agent
-automatically.
-
-For local development:
+Notion is optional and is not a production Railway service. Its hosted MCP
+requires interactive OAuth and token storage, so the included bearer-token
+server is only a local development option:
 
 1. Put `NOTION_TOKEN` and a strong `NOTION_MCP_AUTH_TOKEN` in the root `.env`.
 2. Run `pnpm notion-mcp`.
 3. Restart `pnpm agent` so it discovers the Notion tools.
 
-The agent can run without Notion, but both secrets are required when the
-`notion-mcp` service is deployed.
-
 ## Railway
 
 The IaC file declares exactly:
 
-- `notion-mcp`: `CopilotKit/OpenTag`, branch `main`, repository root,
-  `pnpm notion-mcp`, port `3001`.
-- `agent`: `CopilotKit/OpenTag`, branch `main`, root `agent`, Nixpacks,
+- `agent`: `CopilotKit/OpenTag`, branch `main`, root `agent`, Railpack,
   `/health`, port `8123`.
-- `channel`: `CopilotKit/OpenTag`, branch `main`, repository root,
-  `pnpm channel`, port `3000`.
+- `runtime`: `CopilotKit/OpenTag`, branch `main`, repository root,
+  `pnpm runtime`, `/api/copilotkit/info`, port `3000`.
 
-`channel.AGENT_URL` references the agent's Railway private domain and port.
-The agent's Notion URL and shared bearer reference `notion-mcp` over the same
-private network. Production Intelligence URLs are literal configuration, the
-API key is preserved, and the base Channel name is `kite` (with `kite-teams`
-derived by the application). `OPENAI_API_KEY` is required on `agent`; Tavily
-and Linear are optional preserved secrets. `NOTION_TOKEN` and
-`NOTION_MCP_AUTH_TOKEN` are required on `notion-mcp`.
+`runtime.AGENT_URL` references the agent's Railway private domain and port.
+Production Intelligence URLs are literal configuration, the API key is
+preserved, and the base Channel name is `kite` (with `kite-teams` derived by
+the application). `OPENAI_API_KEY` is required on `agent`; Tavily and Linear
+are optional preserved secrets.
 
 Evaluate the configuration locally without applying it:
 
@@ -225,10 +214,8 @@ Evaluate the configuration locally without applying it:
 node node_modules/railway/dist/iac/bin.js
 ```
 
-The live Railway migration still requires authenticated access: inventory the
-existing project, reuse its current Kite service as `channel`, add `agent` and
-`notion-mcp`, connect all three sources to OpenTag `main`, and enable GitHub
-autodeploys.
+The live Railway migration reuses the existing Kite `runtime` service, adds the
+`agent`, connects both to OpenTag, and enables GitHub autodeploys.
 
 ## Coming soon
 

@@ -44,13 +44,9 @@ function evaluateRailwayGraph(): RailwayResource[] {
 }
 
 describe("Railway deployment graph", () => {
-  it("ships the Python agent, Notion MCP, and Chromium-capable channel services", () => {
+  it("ships the Python agent and Chromium-capable runtime services", () => {
     const resources = evaluateRailwayGraph();
-    expect(resources.map(({ name }) => name).sort()).toEqual([
-      "agent",
-      "channel",
-      "notion-mcp",
-    ]);
+    expect(resources.map(({ name }) => name).sort()).toEqual(["agent", "runtime"]);
 
     const agent = resources.find(({ name }) => name === "agent");
     expect(agent).toMatchObject({
@@ -67,44 +63,12 @@ describe("Railway deployment graph", () => {
           'uvicorn main:app --host "" --port ${PORT:-8123}',
         healthcheckPath: "/health",
       },
-      variables: {
-        NOTION_MCP_URL: {
-          type: "literal",
-          value:
-            "http://${{notion-mcp.RAILWAY_PRIVATE_DOMAIN}}:${{notion-mcp.NOTION_MCP_PORT}}/mcp",
-        },
-        NOTION_MCP_AUTH_TOKEN: {
-          type: "literal",
-          value: "${{notion-mcp.NOTION_MCP_AUTH_TOKEN}}",
-        },
-      },
     });
+    expect(agent?.variables).not.toHaveProperty("NOTION_MCP_URL");
+    expect(agent?.variables).not.toHaveProperty("NOTION_MCP_AUTH_TOKEN");
 
-    const notionMcp = resources.find(({ name }) => name === "notion-mcp");
-    expect(notionMcp).toMatchObject({
-      source: {
-        repo: "CopilotKit/OpenTag",
-        branch: "main",
-      },
-      deploy: {
-        startCommand: "pnpm notion-mcp",
-      },
-      variables: {
-        NOTION_MCP_PORT: {
-          type: "literal",
-          value: "3001",
-        },
-        NOTION_MCP_HOST: {
-          type: "literal",
-          value: "::",
-        },
-        NOTION_TOKEN: { type: "preserve" },
-        NOTION_MCP_AUTH_TOKEN: { type: "preserve" },
-      },
-    });
-
-    const channel = resources.find(({ name }) => name === "channel");
-    expect(channel).toMatchObject({
+    const runtime = resources.find(({ name }) => name === "runtime");
+    expect(runtime).toMatchObject({
       source: {
         repo: "CopilotKit/OpenTag",
         branch: "main",
@@ -114,7 +78,8 @@ describe("Railway deployment graph", () => {
         buildCommand: "pnpm exec playwright install chromium",
       },
       deploy: {
-        startCommand: "pnpm channel",
+        startCommand: "pnpm runtime",
+        healthcheckPath: "/api/copilotkit/info",
       },
       variables: {
         AGENT_URL: {
