@@ -137,7 +137,8 @@ export default defineRailway(() => {
     build: {
       // Pin the builder: RAILPACK_DEPLOY_APT_PACKAGES below is honored ONLY by
       // Railpack, and (since --with-deps was dropped) it is now the SOLE source
-      // of the ~28 shared libs Chromium needs at runtime. Leaving `builder`
+      // of the 31 packages (28 shared libs + 3 fonts) Chromium needs at runtime
+      // — see the derivation notes on that env var below. Leaving `builder`
       // unset defaults to Railway's own choice, which could silently be a
       // non-Railpack builder — RAILPACK_DEPLOY_APT_PACKAGES would then do
       // nothing, and render_chart/render_diagram would die at runtime on a
@@ -185,8 +186,46 @@ export default defineRailway(() => {
       // node_modules (0) so it ships with the app, and provide the shared libs
       // in the deploy image (Railpack strips build-layer apt packages).
       PLAYWRIGHT_BROWSERS_PATH: "0",
+      // Derived from playwright-core's OWN native-dependency table — the
+      // authoritative source, not this comment — at
+      // node_modules/playwright-core/lib/coreBundle.js (that version bundles
+      // registry/nativeDeps.js into this single minified file; search for
+      // "ubuntu22.04-x64" / "ubuntu24.04-x64" to find the `chromium: [...]`
+      // and `tools: [...]` arrays). Re-derive from there when bumping
+      // playwright-core, rather than hand-editing this string blind — that's
+      // exactly how it drifted before (see below).
+      //
+      // Naming — t64 vs. legacy: Ubuntu 24.04/Noble's 64-bit time_t transition
+      // renamed six of these packages with a "t64" suffix (libasound2,
+      // libatk-bridge2.0-0, libatk1.0-0, libatspi2.0-0, libcups2,
+      // libglib2.0-0), and Playwright's ubuntu24.04-x64 chromium list uses the
+      // new names while ubuntu22.04-x64 uses the old ones. We list ONLY the
+      // t64 names below, NOT both: apt-get install hard-fails the WHOLE
+      // command (nothing gets installed, not just that one package) if any
+      // name it's given can't be resolved, and the "t64" names don't exist at
+      // all on Jammy/22.04 — so listing both is only safe-on-Noble, not
+      // safe-on-either. We assume Railpack's deploy runtime is Ubuntu
+      // 24.04/Noble or newer (the current-generation base a build tool this
+      // recent would default to) — unverified from this repo. To check: exec
+      // into a deployed channel instance and run `cat /etc/os-release`, or
+      // `apt-cache policy <pkg>` for one of the six above to see whether the
+      // t64 or legacy name is the real package vs. a transitional/virtual one.
+      // If that shows Jammy/22.04 instead, swap these six back to the
+      // pre-t64 names (Playwright's ubuntu22.04-x64 list).
+      //
+      // Extras not in Playwright's chromium list for either distro:
+      // libfontconfig1/libfreetype6 ARE in Playwright's "tools" list for both
+      // distros (font rendering support for xvfb) — legitimate upstream deps,
+      // just filed under a different category, not actually extraneous.
+      // libx11-xcb1/libxrender1/libxshmfence1 were direct chromium deps on
+      // Playwright's now-dropped ubuntu20.04-x64 list — likely vestigial for
+      // the Chromium build this version of playwright-core bundles, but kept
+      // since an unnecessary package is harmless and a missing one breaks
+      // rendering at runtime. libexpat1 doesn't appear in the native-deps
+      // table for ANY distro there — origin unknown, kept for the same
+      // harmless-if-unused reason.
       RAILPACK_DEPLOY_APT_PACKAGES:
-        "fonts-liberation fonts-noto-color-emoji fonts-unifont libasound2 libatk-bridge2.0-0 libatk1.0-0 libatspi2.0-0 libcairo2 libcups2 libdbus-1-3 libdrm2 libexpat1 libfontconfig1 libfreetype6 libgbm1 libglib2.0-0 libnspr4 libnss3 libpango-1.0-0 libx11-6 libx11-xcb1 libxcb1 libxcomposite1 libxdamage1 libxext6 libxfixes3 libxkbcommon0 libxrandr2 libxrender1 libxshmfence1",
+        "fonts-liberation fonts-noto-color-emoji fonts-unifont libasound2t64 libatk-bridge2.0-0t64 libatk1.0-0t64 libatspi2.0-0t64 libcairo2 libcups2t64 libdbus-1-3 libdrm2 libexpat1 libfontconfig1 libfreetype6 libgbm1 libglib2.0-0t64 libnspr4 libnss3 libpango-1.0-0 libwayland-client0 libx11-6 libx11-xcb1 libxcb1 libxcomposite1 libxdamage1 libxext6 libxfixes3 libxkbcommon0 libxrandr2 libxrender1 libxshmfence1",
       // INTELLIGENCE_CHANNEL_NAME is intentionally NOT set here: app/managed.ts
       // already defaults it to "kite-opentag", and leaving it unmanaged means a
       // deployer can set their own channel name in the Railway UI without a
