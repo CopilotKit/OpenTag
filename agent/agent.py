@@ -78,6 +78,7 @@ def build_agent():
         api_key=api_key,
         reasoning_effort=reasoning_effort,
         verbosity=verbosity,
+        use_responses_api=True,
     )
 
     internal_tools = internal_source_tools()
