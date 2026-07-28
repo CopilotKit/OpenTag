@@ -6,9 +6,20 @@
  */
 import { getBrowser } from "./browser.js";
 
-const CHART_JS_CDN =
-  process.env["CHART_JS_URL"] ??
+const CHART_JS_CDN_DEFAULT =
   "https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.js";
+
+// Read lazily, at render time, rather than captured in a module-scope const:
+// under `pnpm channel` (app/managed.ts), `import("dotenv/config")` runs
+// inside the entry-point guard so it stays clear of test imports — but that
+// means it runs *after* the static import chain (managed.ts → tools/index.js
+// → render-chart.tsx → this module) has already evaluated. A module-scope
+// read would freeze this to the default before `.env` ever loads, silently
+// dropping the CHART_JS_URL override for every `pnpm channel` run. Reading
+// inside the function keeps it correct regardless of dotenv timing.
+function chartJsCdn(): string {
+  return process.env["CHART_JS_URL"] ?? CHART_JS_CDN_DEFAULT;
+}
 
 export async function renderChart(
   spec: Record<string, unknown>,
@@ -26,7 +37,7 @@ export async function renderChart(
       `<!doctype html><html><body style="margin:0;background:#ffffff">` +
         `<canvas id="c" width="${width}" height="${height}"></canvas></body></html>`,
     );
-    await page.addScriptTag({ url: CHART_JS_CDN });
+    await page.addScriptTag({ url: chartJsCdn() });
     const err = await page.evaluate((spec) => {
       const el = document.getElementById("c") as HTMLCanvasElement | null;
       if (!el) return "no canvas";
