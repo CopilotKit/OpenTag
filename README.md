@@ -46,11 +46,10 @@ The launch pins the requested canaries:
 Prerequisites: Node.js 22+, pnpm, Python 3.12, and
 [`uv`](https://docs.astral.sh/uv/).
 
-1. Install dependencies.
+1. Install the Node dependencies.
 
    ```bash
-   pnpm install --frozen-lockfile
-   cd agent && uv sync && cd ..
+   pnpm install
    ```
 
 2. Configure both services from the shared root environment.
@@ -74,15 +73,23 @@ Prerequisites: Node.js 22+, pnpm, Python 3.12, and
    production Intelligence endpoints. `INTELLIGENCE_CHANNEL_NAME` defaults to
    `open-tag`.
 
-3. In Intelligence, create one managed Channel named `open-tag` and configure
-   its Slack and Microsoft Teams adapters.
+   The Intelligence API key selects a project, and the Channel name selects a
+   Channel inside that project. Use a non-production project and API key
+   locally; Railway keeps its existing production key and `open-tag` Channel.
 
-4. Run both services.
+3. In the project selected by your local Intelligence API key, create one
+   managed Channel named `open-tag` and configure its Slack and Microsoft
+   Teams adapters.
+
+4. Run the complete local stack.
 
    ```bash
-   pnpm agent
-   pnpm runtime
+   pnpm dev
    ```
+
+   The `predev` hook syncs the locked Python environment and installs
+   Playwright's Chromium browser. `pnpm dev` then runs the Python agent with
+   reload enabled and the Node runtime in watch mode.
 
 The runtime waits for its Intelligence connection to become ready before its
 HTTP listener accepts traffic.
@@ -164,6 +171,7 @@ project. Inventory and cutover should happen after Railway authentication.
 
 ```bash
 pnpm install --frozen-lockfile
+pnpm setup:dev
 pnpm check-types
 pnpm test
 (cd agent && uv run pytest)
