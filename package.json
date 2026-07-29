@@ -6,7 +6,11 @@
   "license": "MIT",
   "type": "module",
   "scripts": {
-    "dev": "tsx watch server.ts",
+    "setup:dev": "uv sync --project agent --locked && pnpm exec playwright install chromium",
+    "predev": "pnpm setup:dev",
+    "dev": "concurrently --kill-others --names agent,runtime --prefix-colors magenta,cyan \"pnpm dev:agent\" \"pnpm dev:runtime\"",
+    "dev:agent": "cd agent && AGENT_RELOAD=1 uv run python main.py",
+    "dev:runtime": "tsx watch server.ts",
     "start": "tsx server.ts",
     "runtime": "tsx server.ts",
     "agent": "cd agent && uv run python main.py",
@@ -25,6 +29,7 @@
   },
   "devDependencies": {
     "@types/node": "^22.10.0",
+    "concurrently": "^10.0.4",
     "railway": "^3.5.7",
     "typescript": "^5.6.3",
     "vitest": "^4.1.3"
