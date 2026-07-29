@@ -15,11 +15,11 @@ importers:
         specifier: ^0.0.57
         version: 0.0.57
       '@copilotkit/channels':
-        specifier: 0.2.2-canary.rc-1
-        version: 0.2.2-canary.rc-1(@ag-ui/core@0.0.57)(@opentelemetry/api@1.9.1)(@types/express@5.0.6)(vitest@4.1.10(@opentelemetry/api@1.9.1)(@types/node@22.20.1)(vite@8.1.4(@types/node@22.20.1)(esbuild@0.28.1)(tsx@4.23.1)))(zod@3.25.76)
+        specifier: 0.4.0
+        version: 0.4.0(@ag-ui/core@0.0.57)(@opentelemetry/api@1.9.1)(@types/express@5.0.6)(vitest@4.1.10(@opentelemetry/api@1.9.1)(@types/node@22.20.1)(vite@8.1.4(@types/node@22.20.1)(esbuild@0.28.1)(tsx@4.23.1)))(zod@3.25.76)
       '@copilotkit/runtime':
-        specifier: 1.63.3-canary.rc-1
-        version: 1.63.3-canary.rc-1(@cfworker/json-schema@4.1.1)(@langchain/core@1.2.3(@opentelemetry/api@1.9.1)(openai@6.47.0(ws@8.21.1)(zod@3.25.76))(ws@8.21.1))(@langchain/langgraph-sdk@1.9.27(@langchain/core@1.2.3(@opentelemetry/api@1.9.1)(openai@6.47.0(ws@8.21.1)(zod@3.25.76))(ws@8.21.1)))(@opentelemetry/api@1.9.1)(langchain@1.5.3(@langchain/core@1.2.3(@opentelemetry/api@1.9.1)(openai@6.47.0(ws@8.21.1)(zod@3.25.76))(ws@8.21.1))(@opentelemetry/api@1.9.1)(openai@6.47.0(ws@8.21.1)(zod@3.25.76))(ws@8.21.1))(openai@6.47.0(ws@8.21.1)(zod@3.25.76))(vitest@4.1.10(@opentelemetry/api@1.9.1)(@types/node@22.20.1)(vite@8.1.4(@types/node@22.20.1)(esbuild@0.28.1)(tsx@4.23.1)))
+        specifier: 1.64.1
+        version: 1.64.1(@cfworker/json-schema@4.1.1)(@langchain/core@1.2.3(@opentelemetry/api@1.9.1)(openai@6.47.0(ws@8.21.1)(zod@3.25.76))(ws@8.21.1))(@langchain/langgraph-sdk@1.9.27(@langchain/core@1.2.3(@opentelemetry/api@1.9.1)(openai@6.47.0(ws@8.21.1)(zod@3.25.76))(ws@8.21.1)))(@opentelemetry/api@1.9.1)(langchain@1.5.3(@langchain/core@1.2.3(@opentelemetry/api@1.9.1)(openai@6.47.0(ws@8.21.1)(zod@3.25.76))(ws@8.21.1))(@opentelemetry/api@1.9.1)(openai@6.47.0(ws@8.21.1)(zod@3.25.76))(ws@8.21.1))(openai@6.47.0(ws@8.21.1)(zod@3.25.76))(vitest@4.1.10(@opentelemetry/api@1.9.1)(@types/node@22.20.1)(vite@8.1.4(@types/node@22.20.1)(esbuild@0.28.1)(tsx@4.23.1)))
       dotenv:
         specifier: ^16.4.5
         version: 16.6.1
@@ -200,52 +200,52 @@ packages:
   '@cfworker/json-schema@4.1.1':
     resolution: {integrity: sha512-gAmrUZSGtKc3AiBL71iNWxDsyUC5uMaKKGdvzYsBoTW/xi42JQHl7eKV2OYzCUqvc+D2RCcf7EXY2iCyFIk6og==}
 
-  '@copilotkit/channels-core@0.2.2-canary.rc-1':
-    resolution: {integrity: sha512-e1o6AGi67ylOHIFS/GgKWwv879sD4fe4Fuy42PhEDjj83/wQ8Ya5Tdv/X3A3g7elnJDa9nX1UVJvJMbztN3O5Q==}
+  '@copilotkit/channels-core@0.4.0':
+    resolution: {integrity: sha512-GpnSMN9xnS8GmBDEX/gCHvhcmbNeOJxDjGABDc1c5NgeWHSlGn218MwD6yAc+sHkToQAWBQsGKWhA1r6zKXziA==}
     peerDependencies:
       vitest: ^4.0.0
     peerDependenciesMeta:
       vitest:
         optional: true
 
-  '@copilotkit/channels-discord@0.2.2-canary.rc-1':
-    resolution: {integrity: sha512-fqjWRhSjRMdh0Ghlisk0gnT8tTyrPR47RpywDUoMxKQfkvObNx+GmgEqc/0c3LmT7yz3+W1z7Lab4AahrAFm8w==}
+  '@copilotkit/channels-discord@0.4.0':
+    resolution: {integrity: sha512-+5xHmGoRj1tR51WfbKPZQLaovhBJVtsLpPOiq/13QV/aKAVoTJ777mFnfNqnJtSqzuPDIwkWaf/eogIBcjJa1Q==}
 
-  '@copilotkit/channels-intelligence@0.2.2-canary.rc-1':
-    resolution: {integrity: sha512-LmjgGB/yuwqvDIiEXK3ZJ4xbaafxT0xuRPMyA7ChrR53y1R1Jta134n+oD4DauI7iHKI5mJ9Bbc0sPPQ9gp+yQ==}
+  '@copilotkit/channels-intelligence@0.4.0':
+    resolution: {integrity: sha512-tdrTMgTHVlG2O6qep4dT5LZl2WWZ3amIhIwIjRZTzL979sIXQV3qyO6bff6tVtzIHj5lHWmK7EcLIxlH5Wv8Lw==}
 
-  '@copilotkit/channels-slack@0.2.2-canary.rc-1':
-    resolution: {integrity: sha512-9Du0gAtoMBEpg0EgCVsM+RZrF+LzIrc7R0m430f5njZ4bIncdFzUNcQ9SPfn64OuIQUl1+WfeTHT4qpZpN4m0g==}
+  '@copilotkit/channels-slack@0.4.0':
+    resolution: {integrity: sha512-X2YYQ996aJg2AvfnpP4G1To2rWKnqE85PJHmyOrP9VTLlVuBEoqekRfIArYRBJ70cau8H7aFtIyz9Q2dXoL2Nw==}
 
-  '@copilotkit/channels-teams@0.2.2-canary.rc-1':
-    resolution: {integrity: sha512-bsswD71VQHh48x03hNEYEq1CFjTb9BSDA7F1bRBkF8LLCEcL4BslYwOL23H+Nn6vvDhz8OSSa+7Tih/jYO7svQ==}
+  '@copilotkit/channels-teams@0.4.0':
+    resolution: {integrity: sha512-5dT7W3Td/ZuQceI54xBkqP42BhLjMsXwrMnuXMb46mx5EGNxc8XiVxf0IrPqK7MOcT3yFaBvWvNZtu3MTGpdBg==}
 
-  '@copilotkit/channels-telegram@0.2.2-canary.rc-1':
-    resolution: {integrity: sha512-w98CTf53pIAEZ5z+lEZSLWceO3gjVjNCbTaghFuXf45WSx4FAdZeY4eINbOm/OHbWhrXMhWhExYDfQD3vNaawg==}
+  '@copilotkit/channels-telegram@0.4.0':
+    resolution: {integrity: sha512-Krm+9UYkpsm7njGM3v1VnDygyJrvEpn794gl0w2bsmOUIcOnP2jniJsAJ1aavyIYsTJS29/rk7QgU/juABtWuQ==}
 
-  '@copilotkit/channels-ui@0.2.2-canary.rc-1':
-    resolution: {integrity: sha512-S6z5OzXfrQs5XsQOUF5cGF3qMjzHdcb+rcqvOnruDLqLWdr3PQjHuPpqgjMxELxN1ru+bZsraFBTVROm0zcY9Q==}
+  '@copilotkit/channels-ui@0.4.0':
+    resolution: {integrity: sha512-T6kjwGzTOfH6wqEDENJ5GNr+9vOV+RctFtxTj+wU3GdRH/GnKv5rntq3+vNM20e3Q43Y9GJ+neXFDdMS1tJuAA==}
 
-  '@copilotkit/channels-whatsapp@0.2.2-canary.rc-1':
-    resolution: {integrity: sha512-aKPxgR3EJ7RI7Mr4Pey+LZp0s7S8If9n1S8/Y1RRqJCqhRFkLcvXAeDCVp79k4p/HzFxzKzLpHhaLSGkOOOwAQ==}
+  '@copilotkit/channels-whatsapp@0.4.0':
+    resolution: {integrity: sha512-+I9Fh8+rzz62IG15qVXjdHzWx1QWlML9bwAGEEm3eDB3BYE4v7s84W2XQUXlQdHseJMUHVpTMv5N+D/ScUx9fQ==}
 
-  '@copilotkit/channels@0.2.2-canary.rc-1':
-    resolution: {integrity: sha512-hSc9Cvpak9M4UYLRcDTe2IkypKa87XytBhoMTBc/YLSXWudTtZMuLqlNnw2Ig+v4KYL7zo1h06pAlhGM4HLqXQ==}
+  '@copilotkit/channels@0.4.0':
+    resolution: {integrity: sha512-LPYOvrRjQV3IrNwL8Z4AdIhJ/ZWm8w0lAjRagzJzQ4uwkHeJwliWyHy1QajLKloqP8lE7k+O5L5utPQ3CT0w3A==}
     peerDependencies:
       vitest: ^4.0.0
     peerDependenciesMeta:
       vitest:
         optional: true
 
-  '@copilotkit/core@1.63.3-canary.rc-1':
-    resolution: {integrity: sha512-0jjmGj0WqkAui6l9SjjXeV9Kx8womeLtdGeMsjSfQKiuEPi+JE2fG4I08pd7D/H7ijEXlL10u5DSbLO+hYeuaQ==}
+  '@copilotkit/core@1.64.1':
+    resolution: {integrity: sha512-C6YGtMY0K867wOpQbdi6sw1ajjes75EezmV8lc2aZJzxHE6RzGCvwzTnE4T8Zd93oJZ++OKr45gys4+KGrhh/w==}
     engines: {node: '>=18'}
 
   '@copilotkit/license-verifier@0.5.0':
     resolution: {integrity: sha512-vrwKtIpYwF0FT9ZoYASH8owa2cGV0dhDvJGaCRaRMStwDxpc6DRdydKkhx8cWZXyBRxEYcq/Vygv4JvevhQQdQ==}
 
-  '@copilotkit/runtime@1.63.3-canary.rc-1':
-    resolution: {integrity: sha512-j8jATXoqM8P3EmhMyWm4D6l3DUQSDWZwTeR0c3SgnljMgc3TAHD40m4c7pQ7xJ0XMXSvZqHDQYyAJjmltzYbXA==}
+  '@copilotkit/runtime@1.64.1':
+    resolution: {integrity: sha512-cJOstGBu0ya/LEyFpcBioAsl8urkPuEBx9dEsOk2mHkyo/gNkBt/L8pW6jkmrZ25EFXNPQjZFUNTEQkbjZMXvg==}
     peerDependencies:
       '@anthropic-ai/sdk': '>=0.57.0'
       '@langchain/aws': '>=0.1.9'
@@ -277,8 +277,8 @@ packages:
       openai:
         optional: true
 
-  '@copilotkit/shared@1.63.3-canary.rc-1':
-    resolution: {integrity: sha512-IGriuU7Z7jKQLLfqezo2L1DrJXWSUw33H65PLf4M0AfESaUhlsfcHom8YmA+E1v+PuXCr3MiWKH66fI1em42Dw==}
+  '@copilotkit/shared@1.64.1':
+    resolution: {integrity: sha512-fSdSf4XuMM5xc8CJdNG0dhlhIo4ZsCEr360IO/l283xR388hGKmmKUZcx3teeRQOzA9h3PpsSfbdwYEZs7Im5Q==}
     peerDependencies:
       '@ag-ui/core': '>=0.0.48'
 
@@ -2594,13 +2594,13 @@ snapshots:
 
   '@cfworker/json-schema@4.1.1': {}
 
-  '@copilotkit/channels-core@0.2.2-canary.rc-1(vitest@4.1.10(@opentelemetry/api@1.9.1)(@types/node@22.20.1)(vite@8.1.4(@types/node@22.20.1)(esbuild@0.28.1)(tsx@4.23.1)))(zod@3.25.76)':
+  '@copilotkit/channels-core@0.4.0(vitest@4.1.10(@opentelemetry/api@1.9.1)(@types/node@22.20.1)(vite@8.1.4(@types/node@22.20.1)(esbuild@0.28.1)(tsx@4.23.1)))(zod@3.25.76)':
     dependencies:
       '@ag-ui/client': 0.0.57
       '@ag-ui/core': 0.0.57
-      '@copilotkit/channels-ui': 0.2.2-canary.rc-1(@ag-ui/core@0.0.57)
-      '@copilotkit/core': 1.63.3-canary.rc-1(@ag-ui/core@0.0.57)(zod@3.25.76)
-      '@copilotkit/shared': 1.63.3-canary.rc-1(@ag-ui/core@0.0.57)
+      '@copilotkit/channels-ui': 0.4.0(@ag-ui/core@0.0.57)
+      '@copilotkit/core': 1.64.1(@ag-ui/core@0.0.57)(zod@3.25.76)
+      '@copilotkit/shared': 1.64.1(@ag-ui/core@0.0.57)
       zod-to-json-schema: 3.25.2(zod@3.25.76)
     optionalDependencies:
       vitest: 4.1.10(@opentelemetry/api@1.9.1)(@types/node@22.20.1)(vite@8.1.4(@types/node@22.20.1)(esbuild@0.28.1)(tsx@4.23.1))
@@ -2608,11 +2608,11 @@ snapshots:
       - encoding
       - zod
 
-  '@copilotkit/channels-discord@0.2.2-canary.rc-1(@ag-ui/core@0.0.57)(vitest@4.1.10(@opentelemetry/api@1.9.1)(@types/node@22.20.1)(vite@8.1.4(@types/node@22.20.1)(esbuild@0.28.1)(tsx@4.23.1)))':
+  '@copilotkit/channels-discord@0.4.0(@ag-ui/core@0.0.57)(vitest@4.1.10(@opentelemetry/api@1.9.1)(@types/node@22.20.1)(vite@8.1.4(@types/node@22.20.1)(esbuild@0.28.1)(tsx@4.23.1)))':
     dependencies:
       '@ag-ui/client': 0.0.57
-      '@copilotkit/channels-core': 0.2.2-canary.rc-1(vitest@4.1.10(@opentelemetry/api@1.9.1)(@types/node@22.20.1)(vite@8.1.4(@types/node@22.20.1)(esbuild@0.28.1)(tsx@4.23.1)))(zod@3.25.76)
-      '@copilotkit/channels-ui': 0.2.2-canary.rc-1(@ag-ui/core@0.0.57)
+      '@copilotkit/channels-core': 0.4.0(vitest@4.1.10(@opentelemetry/api@1.9.1)(@types/node@22.20.1)(vite@8.1.4(@types/node@22.20.1)(esbuild@0.28.1)(tsx@4.23.1)))(zod@3.25.76)
+      '@copilotkit/channels-ui': 0.4.0(@ag-ui/core@0.0.57)
       discord.js: 14.27.0
       zod: 3.25.76
     transitivePeerDependencies:
@@ -2622,11 +2622,11 @@ snapshots:
       - utf-8-validate
       - vitest
 
-  '@copilotkit/channels-intelligence@0.2.2-canary.rc-1(@ag-ui/core@0.0.57)(vitest@4.1.10(@opentelemetry/api@1.9.1)(@types/node@22.20.1)(vite@8.1.4(@types/node@22.20.1)(esbuild@0.28.1)(tsx@4.23.1)))(zod@3.25.76)':
+  '@copilotkit/channels-intelligence@0.4.0(@ag-ui/core@0.0.57)(vitest@4.1.10(@opentelemetry/api@1.9.1)(@types/node@22.20.1)(vite@8.1.4(@types/node@22.20.1)(esbuild@0.28.1)(tsx@4.23.1)))(zod@3.25.76)':
     dependencies:
       '@ag-ui/client': 0.0.57
-      '@copilotkit/channels-core': 0.2.2-canary.rc-1(vitest@4.1.10(@opentelemetry/api@1.9.1)(@types/node@22.20.1)(vite@8.1.4(@types/node@22.20.1)(esbuild@0.28.1)(tsx@4.23.1)))(zod@3.25.76)
-      '@copilotkit/channels-ui': 0.2.2-canary.rc-1(@ag-ui/core@0.0.57)
+      '@copilotkit/channels-core': 0.4.0(vitest@4.1.10(@opentelemetry/api@1.9.1)(@types/node@22.20.1)(vite@8.1.4(@types/node@22.20.1)(esbuild@0.28.1)(tsx@4.23.1)))(zod@3.25.76)
+      '@copilotkit/channels-ui': 0.4.0(@ag-ui/core@0.0.57)
       phoenix: 1.8.9
     transitivePeerDependencies:
       - '@ag-ui/core'
@@ -2634,14 +2634,14 @@ snapshots:
       - vitest
       - zod
 
-  '@copilotkit/channels-slack@0.2.2-canary.rc-1(@types/express@5.0.6)(vitest@4.1.10(@opentelemetry/api@1.9.1)(@types/node@22.20.1)(vite@8.1.4(@types/node@22.20.1)(esbuild@0.28.1)(tsx@4.23.1)))':
+  '@copilotkit/channels-slack@0.4.0(@types/express@5.0.6)(vitest@4.1.10(@opentelemetry/api@1.9.1)(@types/node@22.20.1)(vite@8.1.4(@types/node@22.20.1)(esbuild@0.28.1)(tsx@4.23.1)))':
     dependencies:
       '@ag-ui/client': 0.0.57
       '@ag-ui/core': 0.0.57
-      '@copilotkit/channels-core': 0.2.2-canary.rc-1(vitest@4.1.10(@opentelemetry/api@1.9.1)(@types/node@22.20.1)(vite@8.1.4(@types/node@22.20.1)(esbuild@0.28.1)(tsx@4.23.1)))(zod@3.25.76)
-      '@copilotkit/channels-ui': 0.2.2-canary.rc-1(@ag-ui/core@0.0.57)
-      '@copilotkit/core': 1.63.3-canary.rc-1(@ag-ui/core@0.0.57)(zod@3.25.76)
-      '@copilotkit/shared': 1.63.3-canary.rc-1(@ag-ui/core@0.0.57)
+      '@copilotkit/channels-core': 0.4.0(vitest@4.1.10(@opentelemetry/api@1.9.1)(@types/node@22.20.1)(vite@8.1.4(@types/node@22.20.1)(esbuild@0.28.1)(tsx@4.23.1)))(zod@3.25.76)
+      '@copilotkit/channels-ui': 0.4.0(@ag-ui/core@0.0.57)
+      '@copilotkit/core': 1.64.1(@ag-ui/core@0.0.57)(zod@3.25.76)
+      '@copilotkit/shared': 1.64.1(@ag-ui/core@0.0.57)
       '@slack/bolt': 4.7.3(@types/express@5.0.6)
       '@slack/types': 2.22.0
       '@slack/web-api': 7.19.0
@@ -2657,14 +2657,14 @@ snapshots:
       - utf-8-validate
       - vitest
 
-  '@copilotkit/channels-teams@0.2.2-canary.rc-1(@opentelemetry/api@1.9.1)(vitest@4.1.10(@opentelemetry/api@1.9.1)(@types/node@22.20.1)(vite@8.1.4(@types/node@22.20.1)(esbuild@0.28.1)(tsx@4.23.1)))':
+  '@copilotkit/channels-teams@0.4.0(@opentelemetry/api@1.9.1)(vitest@4.1.10(@opentelemetry/api@1.9.1)(@types/node@22.20.1)(vite@8.1.4(@types/node@22.20.1)(esbuild@0.28.1)(tsx@4.23.1)))':
     dependencies:
       '@ag-ui/client': 0.0.57
       '@ag-ui/core': 0.0.57
-      '@copilotkit/channels-core': 0.2.2-canary.rc-1(vitest@4.1.10(@opentelemetry/api@1.9.1)(@types/node@22.20.1)(vite@8.1.4(@types/node@22.20.1)(esbuild@0.28.1)(tsx@4.23.1)))(zod@3.25.76)
-      '@copilotkit/channels-ui': 0.2.2-canary.rc-1(@ag-ui/core@0.0.57)
-      '@copilotkit/core': 1.63.3-canary.rc-1(@ag-ui/core@0.0.57)(zod@3.25.76)
-      '@copilotkit/shared': 1.63.3-canary.rc-1(@ag-ui/core@0.0.57)
+      '@copilotkit/channels-core': 0.4.0(vitest@4.1.10(@opentelemetry/api@1.9.1)(@types/node@22.20.1)(vite@8.1.4(@types/node@22.20.1)(esbuild@0.28.1)(tsx@4.23.1)))(zod@3.25.76)
+      '@copilotkit/channels-ui': 0.4.0(@ag-ui/core@0.0.57)
+      '@copilotkit/core': 1.64.1(@ag-ui/core@0.0.57)(zod@3.25.76)
+      '@copilotkit/shared': 1.64.1(@ag-ui/core@0.0.57)
       '@microsoft/agents-activity': 1.7.1
       '@microsoft/agents-hosting': 1.7.1(@opentelemetry/api@1.9.1)
       express: 4.22.2
@@ -2678,11 +2678,11 @@ snapshots:
       - supports-color
       - vitest
 
-  '@copilotkit/channels-telegram@0.2.2-canary.rc-1(@ag-ui/core@0.0.57)(vitest@4.1.10(@opentelemetry/api@1.9.1)(@types/node@22.20.1)(vite@8.1.4(@types/node@22.20.1)(esbuild@0.28.1)(tsx@4.23.1)))':
+  '@copilotkit/channels-telegram@0.4.0(@ag-ui/core@0.0.57)(vitest@4.1.10(@opentelemetry/api@1.9.1)(@types/node@22.20.1)(vite@8.1.4(@types/node@22.20.1)(esbuild@0.28.1)(tsx@4.23.1)))':
     dependencies:
       '@ag-ui/client': 0.0.57
-      '@copilotkit/channels-core': 0.2.2-canary.rc-1(vitest@4.1.10(@opentelemetry/api@1.9.1)(@types/node@22.20.1)(vite@8.1.4(@types/node@22.20.1)(esbuild@0.28.1)(tsx@4.23.1)))(zod@3.25.76)
-      '@copilotkit/channels-ui': 0.2.2-canary.rc-1(@ag-ui/core@0.0.57)
+      '@copilotkit/channels-core': 0.4.0(vitest@4.1.10(@opentelemetry/api@1.9.1)(@types/node@22.20.1)(vite@8.1.4(@types/node@22.20.1)(esbuild@0.28.1)(tsx@4.23.1)))(zod@3.25.76)
+      '@copilotkit/channels-ui': 0.4.0(@ag-ui/core@0.0.57)
       grammy: 1.44.0
       zod: 3.25.76
     transitivePeerDependencies:
@@ -2691,34 +2691,34 @@ snapshots:
       - supports-color
       - vitest
 
-  '@copilotkit/channels-ui@0.2.2-canary.rc-1(@ag-ui/core@0.0.57)':
+  '@copilotkit/channels-ui@0.4.0(@ag-ui/core@0.0.57)':
     dependencies:
-      '@copilotkit/shared': 1.63.3-canary.rc-1(@ag-ui/core@0.0.57)
+      '@copilotkit/shared': 1.64.1(@ag-ui/core@0.0.57)
     transitivePeerDependencies:
       - '@ag-ui/core'
       - encoding
 
-  '@copilotkit/channels-whatsapp@0.2.2-canary.rc-1(@ag-ui/core@0.0.57)(vitest@4.1.10(@opentelemetry/api@1.9.1)(@types/node@22.20.1)(vite@8.1.4(@types/node@22.20.1)(esbuild@0.28.1)(tsx@4.23.1)))(zod@3.25.76)':
+  '@copilotkit/channels-whatsapp@0.4.0(@ag-ui/core@0.0.57)(vitest@4.1.10(@opentelemetry/api@1.9.1)(@types/node@22.20.1)(vite@8.1.4(@types/node@22.20.1)(esbuild@0.28.1)(tsx@4.23.1)))(zod@3.25.76)':
     dependencies:
       '@ag-ui/client': 0.0.57
-      '@copilotkit/channels-core': 0.2.2-canary.rc-1(vitest@4.1.10(@opentelemetry/api@1.9.1)(@types/node@22.20.1)(vite@8.1.4(@types/node@22.20.1)(esbuild@0.28.1)(tsx@4.23.1)))(zod@3.25.76)
-      '@copilotkit/channels-ui': 0.2.2-canary.rc-1(@ag-ui/core@0.0.57)
+      '@copilotkit/channels-core': 0.4.0(vitest@4.1.10(@opentelemetry/api@1.9.1)(@types/node@22.20.1)(vite@8.1.4(@types/node@22.20.1)(esbuild@0.28.1)(tsx@4.23.1)))(zod@3.25.76)
+      '@copilotkit/channels-ui': 0.4.0(@ag-ui/core@0.0.57)
     transitivePeerDependencies:
       - '@ag-ui/core'
       - encoding
       - vitest
       - zod
 
-  '@copilotkit/channels@0.2.2-canary.rc-1(@ag-ui/core@0.0.57)(@opentelemetry/api@1.9.1)(@types/express@5.0.6)(vitest@4.1.10(@opentelemetry/api@1.9.1)(@types/node@22.20.1)(vite@8.1.4(@types/node@22.20.1)(esbuild@0.28.1)(tsx@4.23.1)))(zod@3.25.76)':
+  '@copilotkit/channels@0.4.0(@ag-ui/core@0.0.57)(@opentelemetry/api@1.9.1)(@types/express@5.0.6)(vitest@4.1.10(@opentelemetry/api@1.9.1)(@types/node@22.20.1)(vite@8.1.4(@types/node@22.20.1)(esbuild@0.28.1)(tsx@4.23.1)))(zod@3.25.76)':
     dependencies:
-      '@copilotkit/channels-core': 0.2.2-canary.rc-1(vitest@4.1.10(@opentelemetry/api@1.9.1)(@types/node@22.20.1)(vite@8.1.4(@types/node@22.20.1)(esbuild@0.28.1)(tsx@4.23.1)))(zod@3.25.76)
-      '@copilotkit/channels-discord': 0.2.2-canary.rc-1(@ag-ui/core@0.0.57)(vitest@4.1.10(@opentelemetry/api@1.9.1)(@types/node@22.20.1)(vite@8.1.4(@types/node@22.20.1)(esbuild@0.28.1)(tsx@4.23.1)))
-      '@copilotkit/channels-intelligence': 0.2.2-canary.rc-1(@ag-ui/core@0.0.57)(vitest@4.1.10(@opentelemetry/api@1.9.1)(@types/node@22.20.1)(vite@8.1.4(@types/node@22.20.1)(esbuild@0.28.1)(tsx@4.23.1)))(zod@3.25.76)
-      '@copilotkit/channels-slack': 0.2.2-canary.rc-1(@types/express@5.0.6)(vitest@4.1.10(@opentelemetry/api@1.9.1)(@types/node@22.20.1)(vite@8.1.4(@types/node@22.20.1)(esbuild@0.28.1)(tsx@4.23.1)))
-      '@copilotkit/channels-teams': 0.2.2-canary.rc-1(@opentelemetry/api@1.9.1)(vitest@4.1.10(@opentelemetry/api@1.9.1)(@types/node@22.20.1)(vite@8.1.4(@types/node@22.20.1)(esbuild@0.28.1)(tsx@4.23.1)))
-      '@copilotkit/channels-telegram': 0.2.2-canary.rc-1(@ag-ui/core@0.0.57)(vitest@4.1.10(@opentelemetry/api@1.9.1)(@types/node@22.20.1)(vite@8.1.4(@types/node@22.20.1)(esbuild@0.28.1)(tsx@4.23.1)))
-      '@copilotkit/channels-ui': 0.2.2-canary.rc-1(@ag-ui/core@0.0.57)
-      '@copilotkit/channels-whatsapp': 0.2.2-canary.rc-1(@ag-ui/core@0.0.57)(vitest@4.1.10(@opentelemetry/api@1.9.1)(@types/node@22.20.1)(vite@8.1.4(@types/node@22.20.1)(esbuild@0.28.1)(tsx@4.23.1)))(zod@3.25.76)
+      '@copilotkit/channels-core': 0.4.0(vitest@4.1.10(@opentelemetry/api@1.9.1)(@types/node@22.20.1)(vite@8.1.4(@types/node@22.20.1)(esbuild@0.28.1)(tsx@4.23.1)))(zod@3.25.76)
+      '@copilotkit/channels-discord': 0.4.0(@ag-ui/core@0.0.57)(vitest@4.1.10(@opentelemetry/api@1.9.1)(@types/node@22.20.1)(vite@8.1.4(@types/node@22.20.1)(esbuild@0.28.1)(tsx@4.23.1)))
+      '@copilotkit/channels-intelligence': 0.4.0(@ag-ui/core@0.0.57)(vitest@4.1.10(@opentelemetry/api@1.9.1)(@types/node@22.20.1)(vite@8.1.4(@types/node@22.20.1)(esbuild@0.28.1)(tsx@4.23.1)))(zod@3.25.76)
+      '@copilotkit/channels-slack': 0.4.0(@types/express@5.0.6)(vitest@4.1.10(@opentelemetry/api@1.9.1)(@types/node@22.20.1)(vite@8.1.4(@types/node@22.20.1)(esbuild@0.28.1)(tsx@4.23.1)))
+      '@copilotkit/channels-teams': 0.4.0(@opentelemetry/api@1.9.1)(vitest@4.1.10(@opentelemetry/api@1.9.1)(@types/node@22.20.1)(vite@8.1.4(@types/node@22.20.1)(esbuild@0.28.1)(tsx@4.23.1)))
+      '@copilotkit/channels-telegram': 0.4.0(@ag-ui/core@0.0.57)(vitest@4.1.10(@opentelemetry/api@1.9.1)(@types/node@22.20.1)(vite@8.1.4(@types/node@22.20.1)(esbuild@0.28.1)(tsx@4.23.1)))
+      '@copilotkit/channels-ui': 0.4.0(@ag-ui/core@0.0.57)
+      '@copilotkit/channels-whatsapp': 0.4.0(@ag-ui/core@0.0.57)(vitest@4.1.10(@opentelemetry/api@1.9.1)(@types/node@22.20.1)(vite@8.1.4(@types/node@22.20.1)(esbuild@0.28.1)(tsx@4.23.1)))(zod@3.25.76)
     optionalDependencies:
       vitest: 4.1.10(@opentelemetry/api@1.9.1)(@types/node@22.20.1)(vite@8.1.4(@types/node@22.20.1)(esbuild@0.28.1)(tsx@4.23.1))
     transitivePeerDependencies:
@@ -2733,10 +2733,10 @@ snapshots:
       - utf-8-validate
       - zod
 
-  '@copilotkit/core@1.63.3-canary.rc-1(@ag-ui/core@0.0.57)(zod@3.25.76)':
+  '@copilotkit/core@1.64.1(@ag-ui/core@0.0.57)(zod@3.25.76)':
     dependencies:
       '@ag-ui/client': 0.0.57
-      '@copilotkit/shared': 1.63.3-canary.rc-1(@ag-ui/core@0.0.57)
+      '@copilotkit/shared': 1.64.1(@ag-ui/core@0.0.57)
       '@tanstack/pacer': 0.20.1
       phoenix: 1.8.9
       rxjs: 7.8.2
@@ -2748,7 +2748,7 @@ snapshots:
 
   '@copilotkit/license-verifier@0.5.0': {}
 
-  '@copilotkit/runtime@1.63.3-canary.rc-1(@cfworker/json-schema@4.1.1)(@langchain/core@1.2.3(@opentelemetry/api@1.9.1)(openai@6.47.0(ws@8.21.1)(zod@3.25.76))(ws@8.21.1))(@langchain/langgraph-sdk@1.9.27(@langchain/core@1.2.3(@opentelemetry/api@1.9.1)(openai@6.47.0(ws@8.21.1)(zod@3.25.76))(ws@8.21.1)))(@opentelemetry/api@1.9.1)(langchain@1.5.3(@langchain/core@1.2.3(@opentelemetry/api@1.9.1)(openai@6.47.0(ws@8.21.1)(zod@3.25.76))(ws@8.21.1))(@opentelemetry/api@1.9.1)(openai@6.47.0(ws@8.21.1)(zod@3.25.76))(ws@8.21.1))(openai@6.47.0(ws@8.21.1)(zod@3.25.76))(vitest@4.1.10(@opentelemetry/api@1.9.1)(@types/node@22.20.1)(vite@8.1.4(@types/node@22.20.1)(esbuild@0.28.1)(tsx@4.23.1)))':
+  '@copilotkit/runtime@1.64.1(@cfworker/json-schema@4.1.1)(@langchain/core@1.2.3(@opentelemetry/api@1.9.1)(openai@6.47.0(ws@8.21.1)(zod@3.25.76))(ws@8.21.1))(@langchain/langgraph-sdk@1.9.27(@langchain/core@1.2.3(@opentelemetry/api@1.9.1)(openai@6.47.0(ws@8.21.1)(zod@3.25.76))(ws@8.21.1)))(@opentelemetry/api@1.9.1)(langchain@1.5.3(@langchain/core@1.2.3(@opentelemetry/api@1.9.1)(openai@6.47.0(ws@8.21.1)(zod@3.25.76))(ws@8.21.1))(@opentelemetry/api@1.9.1)(openai@6.47.0(ws@8.21.1)(zod@3.25.76))(ws@8.21.1))(openai@6.47.0(ws@8.21.1)(zod@3.25.76))(vitest@4.1.10(@opentelemetry/api@1.9.1)(@types/node@22.20.1)(vite@8.1.4(@types/node@22.20.1)(esbuild@0.28.1)(tsx@4.23.1)))':
     dependencies:
       '@ag-ui/a2ui-middleware': 0.0.10(@ag-ui/client@0.0.57)(rxjs@7.8.2)
       '@ag-ui/client': 0.0.57
@@ -2762,10 +2762,10 @@ snapshots:
       '@ai-sdk/google-vertex': 3.0.150(zod@3.25.76)
       '@ai-sdk/mcp': 1.0.62(zod@3.25.76)
       '@ai-sdk/openai': 3.0.85(zod@3.25.76)
-      '@copilotkit/channels-core': 0.2.2-canary.rc-1(vitest@4.1.10(@opentelemetry/api@1.9.1)(@types/node@22.20.1)(vite@8.1.4(@types/node@22.20.1)(esbuild@0.28.1)(tsx@4.23.1)))(zod@3.25.76)
-      '@copilotkit/channels-intelligence': 0.2.2-canary.rc-1(@ag-ui/core@0.0.57)(vitest@4.1.10(@opentelemetry/api@1.9.1)(@types/node@22.20.1)(vite@8.1.4(@types/node@22.20.1)(esbuild@0.28.1)(tsx@4.23.1)))(zod@3.25.76)
+      '@copilotkit/channels-core': 0.4.0(vitest@4.1.10(@opentelemetry/api@1.9.1)(@types/node@22.20.1)(vite@8.1.4(@types/node@22.20.1)(esbuild@0.28.1)(tsx@4.23.1)))(zod@3.25.76)
+      '@copilotkit/channels-intelligence': 0.4.0(@ag-ui/core@0.0.57)(vitest@4.1.10(@opentelemetry/api@1.9.1)(@types/node@22.20.1)(vite@8.1.4(@types/node@22.20.1)(esbuild@0.28.1)(tsx@4.23.1)))(zod@3.25.76)
       '@copilotkit/license-verifier': 0.5.0
-      '@copilotkit/shared': 1.63.3-canary.rc-1(@ag-ui/core@0.0.57)
+      '@copilotkit/shared': 1.64.1(@ag-ui/core@0.0.57)
       '@graphql-yoga/plugin-defer-stream': 3.21.2(graphql-yoga@5.21.2(graphql@16.14.2))(graphql@16.14.2)
       '@hono/node-server': 1.19.14(hono@4.12.30)
       '@langchain/core': 1.2.3(@opentelemetry/api@1.9.1)(openai@6.47.0(ws@8.21.1)(zod@3.25.76))(ws@8.21.1)
@@ -2812,7 +2812,7 @@ snapshots:
       - vitest
       - vue
 
-  '@copilotkit/shared@1.63.3-canary.rc-1(@ag-ui/core@0.0.57)':
+  '@copilotkit/shared@1.64.1(@ag-ui/core@0.0.57)':
     dependencies:
       '@ag-ui/client': 0.0.57
       '@ag-ui/core': 0.0.57
