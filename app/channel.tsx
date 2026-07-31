@@ -13,6 +13,7 @@ import { appContext } from "./context/app-context.js";
 import { ConfirmWrite } from "./human-in-the-loop/index.js";
 import { parseConfirmWriteInterrupt } from "./interrupt.js";
 import { FILE_ISSUE_CALLBACK, fileIssueSubmit } from "./modals/file-issue.js";
+import { readSessionLinkConfig, sessionFooter } from "./session-link.js";
 import { IncidentCard } from "./tools/showcase-tools.js";
 import { appTools } from "./tools/index.js";
 
@@ -32,9 +33,28 @@ export function createOpenTagChannel(
     components: [IssueCard, IssueList, PageList, IncidentCard, ConfirmWrite],
   });
 
+  const sessionLink = readSessionLinkConfig();
+
   channel.onMention(async ({ thread, message }) => {
     try {
       await thread.runAgent(managedRunInput(message));
+
+      const footer = sessionFooter({
+        config: sessionLink,
+        conversationKey: thread.conversationKey,
+      });
+      if (footer) {
+        try {
+          await thread.post(footer);
+        } catch (error) {
+          // The answer already landed. A missing footer is cosmetic, so it must
+          // never turn a delivered turn into a user-facing failure.
+          reportRecoverableError(error, {
+            operation: "post_session_footer",
+            recovery: "continue_without_session_footer",
+          });
+        }
+      }
     } catch (error) {
       try {
         await thread.post(

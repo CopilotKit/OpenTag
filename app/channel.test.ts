@@ -11,6 +11,7 @@ import {
   MemoryStore,
   type Channel,
   type ChannelNode,
+  type MessageOperation,
 } from "@copilotkit/channels";
 import {
   defaultSlackContext,
@@ -21,19 +22,62 @@ import { appContext } from "./context/app-context.js";
 import { appTools } from "./tools/index.js";
 import { createOpenTagChannel } from "./channel.js";
 
+/**
+ * Run inputs observed by whichever agent instance actually executed.
+ *
+ * The Channel isolates the agent per turn (`isolateAgentInstance`), so a turn
+ * runs on a clone and any state recorded on an instance field is invisible to
+ * the original object the test holds. Recording outside the instance keeps the
+ * assertions about what OpenTag *sent*, independent of clone semantics.
+ */
+interface RecordedRun {
+  parameters?: RunAgentParameters;
+  /** Snapshot at call time — the executing clone owns its own message log. */
+  messages: FakeAgent["messages"];
+}
+
+const agentRuns: RecordedRun[] = [];
+
 class CapturingAgent extends FakeAgent {
-  readonly calls: Array<RunAgentParameters | undefined> = [];
+  /**
+   * `FakeAgent.clone()` builds `new FakeAgent(...)`, which drops subclass
+   * overrides — and the Channel runs every turn on a clone. Re-apply this
+   * prototype so the recorder survives per-turn isolation.
+   */
+  override clone(): this {
+    const cloned = super.clone();
+    Object.setPrototypeOf(cloned, Object.getPrototypeOf(this));
+    return cloned as this;
+  }
 
   override async runAgent(
     parameters?: RunAgentParameters,
     subscriber?: AgentSubscriber,
   ): Promise<RunAgentResult> {
-    this.calls.push(parameters);
+    agentRuns.push({ parameters, messages: structuredClone(this.messages) });
     return super.runAgent(parameters, subscriber);
   }
 }
 
 const channels: Channel[] = [];
+
+let turnSeq = 0;
+
+// Managed turns carry provider-neutral revision identity. A plain inbound
+// mention is a `created` revision that addresses the Channel; each turn needs
+// its own logical id so revisions are never conflated.
+function turnOperation(
+  overrides: Partial<MessageOperation> = {},
+): MessageOperation {
+  turnSeq += 1;
+  return {
+    kind: "created",
+    logicalMessageId: `m${turnSeq}`,
+    revisionId: `m${turnSeq}r1`,
+    mentioned: true,
+    ...overrides,
+  };
+}
 
 function confirmWriteEnvelope(
   action = "Create Linear issue",
@@ -104,6 +148,8 @@ function findIncidentButton(
 
 afterEach(async () => {
   await Promise.all(channels.splice(0).map((channel) => channel.ɵruntime.stop()));
+  agentRuns.length = 0;
+  vi.unstubAllEnvs();
   vi.restoreAllMocks();
 });
 
@@ -150,6 +196,7 @@ describe("createOpenTagChannel", () => {
 
     await channel.ɵruntime.start();
     await adapter.getSink().onTurn({
+      operation: turnOperation(),
       conversationKey: "c1",
       replyTarget: {},
       userText: "hello",
@@ -157,7 +204,7 @@ describe("createOpenTagChannel", () => {
       user: { id: "U1", name: "Ada" },
     });
 
-    const call = (agent as CapturingAgent).calls[0];
+    const call = agentRuns[0]?.parameters;
     expect(call?.tools?.map(({ name }) => name).sort()).toEqual(
       [...appTools, ...defaultSlackTools].map(({ name }) => name).sort(),
     );
@@ -176,6 +223,7 @@ describe("createOpenTagChannel", () => {
 
     await channel.ɵruntime.start();
     await adapter.getSink().onTurn({
+      operation: turnOperation(),
       conversationKey: "c1",
       replyTarget: {},
       userText: "hello",
@@ -183,7 +231,7 @@ describe("createOpenTagChannel", () => {
       user: { id: "T1", name: "Ada" },
     });
 
-    const call = (agent as CapturingAgent).calls[0];
+    const call = agentRuns[0]?.parameters;
     expect(call?.tools?.map(({ name }) => name).sort()).toEqual(
       appTools.map(({ name }) => name).sort(),
     );
@@ -202,6 +250,7 @@ describe("createOpenTagChannel", () => {
 
     await channel.ɵruntime.start();
     await adapter.getSink().onTurn({
+      operation: turnOperation(),
       conversationKey: "c1",
       replyTarget: {},
       userText: "fallback text",
@@ -210,9 +259,51 @@ describe("createOpenTagChannel", () => {
       user: { id: "U1" },
     });
 
-    expect(agent.messages).toContainEqual(
+    expect(agentRuns[0]?.messages).toContainEqual(
       expect.objectContaining({ role: "user", content: parts }),
     );
+  });
+
+  it("appends an Open session footer to a managed run", async () => {
+    // The managed adapter carries the canonical thread id as the conversation
+    // key, so a configured deployment can link back to the same conversation.
+    vi.stubEnv("INTELLIGENCE_CONSOLE_URL", "https://intelligence.example.com");
+    vi.stubEnv("INTELLIGENCE_ORG_SLUG", "acme-org");
+    vi.stubEnv("INTELLIGENCE_PROJECT_SLUG", "acme-project");
+    const { adapter, channel } = makeChannel();
+
+    await channel.ɵruntime.start();
+    await adapter.getSink().onTurn({
+      operation: turnOperation(),
+      conversationKey: "ed1f290b-f826-4275-b56e-a4d22850117d",
+      replyTarget: {},
+      userText: "hello",
+      platform: "slack",
+      user: { id: "U1" },
+    });
+
+    expect(JSON.stringify(adapter.posted)).toContain(
+      "/o/acme-org/acme-project/threads/ed1f290b-f826-4275-b56e-a4d22850117d|Open session>",
+    );
+  });
+
+  it("omits the footer when the conversation is not managed", async () => {
+    vi.stubEnv("INTELLIGENCE_CONSOLE_URL", "https://intelligence.example.com");
+    vi.stubEnv("INTELLIGENCE_ORG_SLUG", "acme-org");
+    vi.stubEnv("INTELLIGENCE_PROJECT_SLUG", "acme-project");
+    const { adapter, channel } = makeChannel();
+
+    await channel.ɵruntime.start();
+    await adapter.getSink().onTurn({
+      operation: turnOperation(),
+      conversationKey: "T1:C1:1785507740.811589",
+      replyTarget: {},
+      userText: "hello",
+      platform: "slack",
+      user: { id: "U1" },
+    });
+
+    expect(JSON.stringify(adapter.posted)).not.toContain("Open session");
   });
 
   it("personalizes suggested prompts when a thread starts", async () => {
@@ -274,6 +365,7 @@ describe("createOpenTagChannel", () => {
 
     await channel.ɵruntime.start();
     await adapter.getSink().onTurn({
+      operation: turnOperation(),
       conversationKey: "c1",
       replyTarget: {},
       userText: "hello",
@@ -313,6 +405,7 @@ describe("createOpenTagChannel", () => {
 
     await channel.ɵruntime.start();
     const turn = adapter.getSink().onTurn({
+      operation: turnOperation(),
       conversationKey: "c1",
       replyTarget: {},
       userText: "file this",
@@ -361,6 +454,7 @@ describe("createOpenTagChannel", () => {
 
     await channel.ɵruntime.start();
     await adapter.getSink().onTurn({
+      operation: turnOperation(),
       conversationKey: "c1",
       replyTarget: {},
       userText: "file this",
@@ -393,6 +487,7 @@ describe("createOpenTagChannel", () => {
     channels.push(firstChannel);
     await firstChannel.ɵruntime.start();
     await firstAdapter.getSink().onTurn({
+      operation: turnOperation(),
       conversationKey: "c1",
       replyTarget: {},
       userText: "file this",
@@ -410,7 +505,7 @@ describe("createOpenTagChannel", () => {
 
     const secondAdapter = new FakeAdapter({ platform: "intelligence" });
     secondAdapter.stateStore = sharedState;
-    const secondAgent = new FakeAgent();
+    const secondAgent = new CapturingAgent();
     const secondChannel = createOpenTagChannel("opentag", secondAgent);
     secondChannel.ɵruntime.addAdapter(secondAdapter);
     channels.push(secondChannel);
@@ -425,7 +520,7 @@ describe("createOpenTagChannel", () => {
 
     expect(secondAdapter.updated).toHaveLength(1);
     expect(JSON.stringify(secondAdapter.updated)).toContain("Approved");
-    expect(secondAgent.runAgentCalls).toBe(1);
+    expect(agentRuns).toHaveLength(1);
   });
 
   it("re-registers incident actions when a new Channel uses the same store", async () => {
@@ -454,6 +549,7 @@ describe("createOpenTagChannel", () => {
     channels.push(firstChannel);
     await firstChannel.ɵruntime.start();
     await firstAdapter.getSink().onTurn({
+      operation: turnOperation(),
       conversationKey: "incident-thread",
       replyTarget: {},
       userText: "show the incident",
