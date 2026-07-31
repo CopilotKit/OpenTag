@@ -13,10 +13,10 @@ const packageJson = JSON.parse(
 describe("launch dependency and cleanup contract", () => {
   it("keeps the exact Channels and Runtime canaries", () => {
     expect(packageJson.dependencies["@copilotkit/channels"]).toBe(
-      "0.2.2-canary.rc-1",
+      "0.4.1-canary.1785477663",
     );
     expect(packageJson.dependencies["@copilotkit/runtime"]).toBe(
-      "1.63.3-canary.rc-1",
+      "1.64.2-canary.1785477663",
     );
   });
 

@@ -20,8 +20,8 @@
   },
   "dependencies": {
     "@ag-ui/client": "^0.0.57",
-    "@copilotkit/channels": "0.2.2-canary.rc-1",
-    "@copilotkit/runtime": "1.63.3-canary.rc-1",
+    "@copilotkit/channels": "0.4.1-canary.1785477663",
+    "@copilotkit/runtime": "1.64.2-canary.1785477663",
     "dotenv": "^16.4.5",
     "playwright": "^1.49.0",
     "tsx": "^4.19.2",
