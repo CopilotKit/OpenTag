@@ -149,6 +149,7 @@ function findIncidentButton(
 afterEach(async () => {
   await Promise.all(channels.splice(0).map((channel) => channel.ɵruntime.stop()));
   agentRuns.length = 0;
+  vi.unstubAllEnvs();
   vi.restoreAllMocks();
 });
 
@@ -261,6 +262,48 @@ describe("createOpenTagChannel", () => {
     expect(agentRuns[0]?.messages).toContainEqual(
       expect.objectContaining({ role: "user", content: parts }),
     );
+  });
+
+  it("appends an Open session footer to a managed run", async () => {
+    // The managed adapter carries the canonical thread id as the conversation
+    // key, so a configured deployment can link back to the same conversation.
+    vi.stubEnv("INTELLIGENCE_CONSOLE_URL", "https://intelligence.example.com");
+    vi.stubEnv("INTELLIGENCE_ORG_SLUG", "acme-org");
+    vi.stubEnv("INTELLIGENCE_PROJECT_SLUG", "acme-project");
+    const { adapter, channel } = makeChannel();
+
+    await channel.ɵruntime.start();
+    await adapter.getSink().onTurn({
+      operation: turnOperation(),
+      conversationKey: "ed1f290b-f826-4275-b56e-a4d22850117d",
+      replyTarget: {},
+      userText: "hello",
+      platform: "slack",
+      user: { id: "U1" },
+    });
+
+    expect(JSON.stringify(adapter.posted)).toContain(
+      "/o/acme-org/acme-project/threads/ed1f290b-f826-4275-b56e-a4d22850117d|Open session>",
+    );
+  });
+
+  it("omits the footer when the conversation is not managed", async () => {
+    vi.stubEnv("INTELLIGENCE_CONSOLE_URL", "https://intelligence.example.com");
+    vi.stubEnv("INTELLIGENCE_ORG_SLUG", "acme-org");
+    vi.stubEnv("INTELLIGENCE_PROJECT_SLUG", "acme-project");
+    const { adapter, channel } = makeChannel();
+
+    await channel.ɵruntime.start();
+    await adapter.getSink().onTurn({
+      operation: turnOperation(),
+      conversationKey: "T1:C1:1785507740.811589",
+      replyTarget: {},
+      userText: "hello",
+      platform: "slack",
+      user: { id: "U1" },
+    });
+
+    expect(JSON.stringify(adapter.posted)).not.toContain("Open session");
   });
 
   it("personalizes suggested prompts when a thread starts", async () => {

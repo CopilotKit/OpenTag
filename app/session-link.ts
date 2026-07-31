@@ -4,13 +4,12 @@
  * A managed reply carries a link to the same conversation in the Intelligence
  * console, plus the model badge for the turn that produced it.
  *
- * Thread identity is NOT resolvable from the SDK today: an `IncomingTurn`
- * carries `deliveryId` and `turnId` but no canonical thread id, the
- * delivery transcript response is `{ messages, truncation }`, and
- * `GET /api/projects/:projectId/channels/:channelId/threads` is console-authed
- * rather than runtime-authed. Until the platform surfaces `canonicalThreadId`
- * on the delivery context, `sessionFooter` returns undefined and no footer is
- * posted — the link is omitted rather than guessed.
+ * On the managed Intelligence path the canonical thread id arrives as the
+ * turn's `conversationKey` — the delivery adapter sets
+ * `conversationKey: delivery.canonicalThreadId` from the prepared delivery.
+ * Local adapters instead put a provider-shaped key there (Slack's
+ * `${teamId}:${channel}:${threadTs}`), which is not a thread id and must never
+ * become a link, so the key is accepted only when it has canonical shape.
  */
 
 /** Console location of a canonical Intelligence thread. */
@@ -103,6 +102,25 @@ export function agentModelBadge(
   return `${model}[${reasoning}]`;
 }
 
+/**
+ * Canonical Intelligence thread ids are UUIDs. A provider conversation key
+ * (`${teamId}:${channel}:${threadTs}`) is not one, so requiring the shape keeps
+ * a local-adapter key from being rendered as a console link.
+ */
+const CANONICAL_THREAD_ID =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * The canonical thread id carried by a managed turn's conversation key, or
+ * undefined when this conversation is not managed.
+ */
+export function canonicalThreadIdFrom(
+  conversationKey: string | undefined,
+): string | undefined {
+  const key = conversationKey?.trim();
+  return key && CANONICAL_THREAD_ID.test(key) ? key : undefined;
+}
+
 /** Console URL for one canonical thread. */
 export function buildSessionUrl(
   config: SessionLinkConfig,
@@ -115,16 +133,17 @@ export function buildSessionUrl(
 
 /**
  * Footer text for a completed turn, or undefined when it should be omitted —
- * no config, or no canonical thread id to point at.
+ * no config, or a conversation with no canonical thread behind it.
  */
 export function sessionFooter(options: {
   config?: SessionLinkConfig;
-  canonicalThreadId?: string;
+  conversationKey?: string;
   env?: NodeJS.ProcessEnv;
 }): string | undefined {
-  const { config, canonicalThreadId } = options;
-  if (!config || !canonicalThreadId?.trim()) return undefined;
+  const { config } = options;
+  const threadId = canonicalThreadIdFrom(options.conversationKey);
+  if (!config || !threadId) return undefined;
 
-  const url = buildSessionUrl(config, canonicalThreadId);
+  const url = buildSessionUrl(config, threadId);
   return `<${url}|Open session> · ${agentModelBadge(options.env)}`;
 }

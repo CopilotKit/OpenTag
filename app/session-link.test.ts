@@ -6,6 +6,7 @@ import {
   AGENT_REASONING_DEFAULT,
   agentModelBadge,
   buildSessionUrl,
+  canonicalThreadIdFrom,
   readSessionLinkConfig,
   sessionFooter,
   type SessionLinkConfig,
@@ -123,24 +124,45 @@ describe("agentModelBadge", () => {
   });
 });
 
+const MANAGED_KEY = "ed1f290b-f826-4275-b56e-a4d22850117d";
+
+describe("canonicalThreadIdFrom", () => {
+  it("accepts a managed conversation key", () => {
+    expect(canonicalThreadIdFrom(MANAGED_KEY)).toBe(MANAGED_KEY);
+  });
+
+  it("rejects a Slack provider key", () => {
+    // A local adapter puts `${teamId}:${channel}:${threadTs}` here. Linking to
+    // it would produce a console URL for a thread that does not exist.
+    expect(canonicalThreadIdFrom("T123:C456:1785507740.811589")).toBeUndefined();
+  });
+
+  it("rejects absent or blank keys", () => {
+    expect(canonicalThreadIdFrom(undefined)).toBeUndefined();
+    expect(canonicalThreadIdFrom("   ")).toBeUndefined();
+  });
+});
+
 describe("sessionFooter", () => {
   it("renders a Slack link and the model badge", () => {
-    expect(sessionFooter({ config, canonicalThreadId: "t1", env: {} })).toBe(
-      `<${buildSessionUrl(config, "t1")}|Open session> · ${AGENT_MODEL_DEFAULT}[${AGENT_REASONING_DEFAULT}]`,
+    expect(
+      sessionFooter({ config, conversationKey: MANAGED_KEY, env: {} }),
+    ).toBe(
+      `<${buildSessionUrl(config, MANAGED_KEY)}|Open session> · ${AGENT_MODEL_DEFAULT}[${AGENT_REASONING_DEFAULT}]`,
     );
   });
 
-  it("omits the footer when no canonical thread id is available", () => {
-    // The platform does not surface a canonical thread id to the runtime yet.
-    // Omitting beats linking somewhere wrong.
-    expect(sessionFooter({ config, env: {} })).toBeUndefined();
+  it("omits the footer for a non-managed conversation", () => {
     expect(
-      sessionFooter({ config, canonicalThreadId: "  ", env: {} }),
+      sessionFooter({ config, conversationKey: "T1:C1:123.456", env: {} }),
     ).toBeUndefined();
+    expect(sessionFooter({ config, env: {} })).toBeUndefined();
   });
 
   it("omits the footer when unconfigured", () => {
-    expect(sessionFooter({ canonicalThreadId: "t1", env: {} })).toBeUndefined();
+    expect(
+      sessionFooter({ conversationKey: MANAGED_KEY, env: {} }),
+    ).toBeUndefined();
   });
 });
 
