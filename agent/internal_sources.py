@@ -1,4 +1,4 @@
-"""Optional Linear and Notion MCP integrations."""
+"""Optional PostHog, Linear, and Notion MCP integrations."""
 
 import asyncio
 import logging
@@ -13,6 +13,11 @@ from write_confirmation import WriteConfirmationInterceptor
 
 
 MCP_SERVERS = {
+    "posthog": {
+        "token_env": "POSTHOG_PERSONAL_API_KEY",
+        "url_env": "POSTHOG_MCP_URL",
+        "default_url": "https://mcp.posthog.com/mcp?mode=cli&readonly=true",
+    },
     "linear": {
         "token_env": "LINEAR_API_KEY",
         "url_env": "LINEAR_MCP_URL",

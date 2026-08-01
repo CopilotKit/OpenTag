@@ -27,6 +27,7 @@ runtime (Node + CopilotRuntime with embedded Channels)
 agent (Python + LangGraph deepagents)
           ├── OpenAI
           ├── Tavily (optional)
+          ├── PostHog MCP (optional, read-only)
           ├── Linear MCP (optional)
           └── Notion MCP (optional remote server)
 ```
@@ -66,8 +67,8 @@ Prerequisites: Node.js 22+, pnpm, Python 3.12, and
    INTELLIGENCE_API_KEY=cpk-...
    ```
 
-   Tavily, Linear, and Notion are optional. Both Node and Python load this root
-   `.env`; Railway supplies the same values as service variables.
+   Tavily, PostHog, Linear, and Notion are optional. Both Node and Python load
+   this root `.env`; Railway supplies the same values as service variables.
 
    `INTELLIGENCE_API_URL` and `INTELLIGENCE_GATEWAY_WS_URL` default to the
    production Intelligence endpoints. `INTELLIGENCE_CHANNEL_NAME` defaults to
@@ -139,6 +140,9 @@ Slack app**. Reusing it preserves the bot user, workspace installation, and
 
 - `TAVILY_API_KEY` enables live web research. Without it, OpenTag still chats,
   triages requests and renders UI from model knowledge.
+- `POSTHOG_PERSONAL_API_KEY` enables PostHog analytics through its hosted MCP.
+  Create the key with PostHog's **MCP Server** preset. The default connection is
+  token-efficient and read-only; `POSTHOG_MCP_URL` can override the endpoint.
 - `LINEAR_API_KEY` enables the hosted Linear MCP.
 - Notion is optional and remote-only. Set both `NOTION_MCP_URL` and
   `NOTION_MCP_AUTH_TOKEN`; setting only one disables the integration.
@@ -161,7 +165,7 @@ The runtime reaches the agent over Railway private networking and embeds the
 managed `open-tag` Channel. Railway sets
 `INTELLIGENCE_CHANNEL_NAME=open-tag`; Intelligence owns both platform
 adapters. The runtime API key is preserved. OpenAI is required on `agent`;
-Tavily, Linear, and remote Notion settings are optional. Connecting both
+Tavily, PostHog, Linear, and remote Notion settings are optional. Connecting both
 services to `main` enables GitHub-triggered deployments after merges.
 
 The repository configuration does not mutate the existing production Railway
