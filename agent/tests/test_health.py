@@ -7,6 +7,7 @@ import agent as agent_mod  # noqa: E402
 def test_health_ok(monkeypatch):
     monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
     monkeypatch.delenv("TAVILY_API_KEY", raising=False)
+    monkeypatch.delenv("POSTHOG_PERSONAL_API_KEY", raising=False)
     monkeypatch.delenv("LINEAR_API_KEY", raising=False)
     monkeypatch.delenv("NOTION_MCP_AUTH_TOKEN", raising=False)
     import main
@@ -23,6 +24,7 @@ def test_health_ok(monkeypatch):
 def test_server_exposes_opentag_metadata(monkeypatch):
     monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
     monkeypatch.delenv("TAVILY_API_KEY", raising=False)
+    monkeypatch.delenv("POSTHOG_PERSONAL_API_KEY", raising=False)
     monkeypatch.delenv("LINEAR_API_KEY", raising=False)
     monkeypatch.delenv("NOTION_MCP_AUTH_TOKEN", raising=False)
     import main
@@ -50,6 +52,7 @@ def test_local_agent_port_rejects_invalid_server_port():
 def test_build_agent_without_tavily(monkeypatch, capsys):
     monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
     monkeypatch.delenv("TAVILY_API_KEY", raising=False)
+    monkeypatch.delenv("POSTHOG_PERSONAL_API_KEY", raising=False)
     monkeypatch.delenv("LINEAR_API_KEY", raising=False)
     monkeypatch.delenv("NOTION_MCP_AUTH_TOKEN", raising=False)
     graph = agent_mod.build_agent()
@@ -61,6 +64,7 @@ def test_build_agent_without_tavily(monkeypatch, capsys):
 def test_build_agent_with_tavily(monkeypatch, capsys):
     monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
     monkeypatch.setenv("TAVILY_API_KEY", "tvly-test")
+    monkeypatch.delenv("POSTHOG_PERSONAL_API_KEY", raising=False)
     monkeypatch.delenv("LINEAR_API_KEY", raising=False)
     monkeypatch.delenv("NOTION_MCP_AUTH_TOKEN", raising=False)
     graph = agent_mod.build_agent()

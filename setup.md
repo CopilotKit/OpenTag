@@ -61,6 +61,8 @@ cp .env.example .env
 | `OPENAI_REASONING_EFFORT` | No | Defaults to `low` |
 | `OPENAI_VERBOSITY` | No | Defaults to `low` |
 | `TAVILY_API_KEY` | No | Enables live web research |
+| `POSTHOG_PERSONAL_API_KEY` | No | Enables the hosted PostHog MCP in read-only CLI mode |
+| `POSTHOG_MCP_URL` | No | Overrides the hosted PostHog MCP URL |
 | `LINEAR_API_KEY` | No | Enables the hosted Linear MCP |
 | `LINEAR_MCP_URL` | No | Overrides the hosted Linear MCP URL |
 | `NOTION_MCP_AUTH_TOKEN` | No | Bearer token for a remote Notion MCP; requires `NOTION_MCP_URL` |
@@ -177,6 +179,15 @@ Reads and UI rendering are never gated.
 Set `TAVILY_API_KEY` in the root `.env` to enable live web research. The
 `web_search` tool is not registered when the key is absent.
 
+### PostHog
+
+Create a PostHog personal API key using the **MCP Server** preset, then set
+`POSTHOG_PERSONAL_API_KEY` in the root `.env`. OpenTag connects to
+`https://mcp.posthog.com/mcp` in token-efficient CLI mode with server-enforced
+read-only access. Set `POSTHOG_MCP_URL` only to override the complete endpoint,
+including its `mode=cli&readonly=true` safety parameters. Restart `pnpm agent`
+after changing either variable.
+
 ### Linear
 
 Set `LINEAR_API_KEY` in the root `.env`. OpenTag connects to the hosted Linear
@@ -201,8 +212,8 @@ The IaC file declares exactly:
 `runtime.AGENT_URL` references the agent's Railway private domain and port.
 Production Intelligence URLs are literal configuration, the API key is
 preserved, and the Channel name is `open-tag`. `OPENAI_API_KEY` is required on
-`agent`; Tavily, Linear, and the paired remote Notion variables are optional
-preserved settings.
+`agent`; Tavily, PostHog, Linear, and the paired remote Notion variables are
+optional preserved settings.
 
 Evaluate the configuration locally without applying it:
 

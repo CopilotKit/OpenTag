@@ -26,6 +26,8 @@ export default defineRailway(() => {
       PORT: "8123",
       OPENAI_API_KEY: preserve(),
       TAVILY_API_KEY: preserve(),
+      POSTHOG_PERSONAL_API_KEY: preserve(),
+      POSTHOG_MCP_URL: preserve(),
       LINEAR_API_KEY: preserve(),
       NOTION_MCP_URL: preserve(),
       NOTION_MCP_AUTH_TOKEN: preserve(),

@@ -8,8 +8,20 @@ from langchain_core.tools import StructuredTool
 from write_confirmation import WriteConfirmationInterceptor
 
 
+@pytest.fixture(autouse=True)
+def clear_posthog_credentials(monkeypatch):
+    monkeypatch.delenv("POSTHOG_PERSONAL_API_KEY", raising=False)
+
+
 def test_mcp_servers_are_configured_in_one_place():
     assert internal_sources.MCP_SERVERS == {
+        "posthog": {
+            "token_env": "POSTHOG_PERSONAL_API_KEY",
+            "url_env": "POSTHOG_MCP_URL",
+            "default_url": (
+                "https://mcp.posthog.com/mcp?mode=cli&readonly=true"
+            ),
+        },
         "linear": {
             "token_env": "LINEAR_API_KEY",
             "url_env": "LINEAR_MCP_URL",
@@ -24,9 +36,22 @@ def test_mcp_servers_are_configured_in_one_place():
 
 
 def test_internal_source_tools_empty_without_env(monkeypatch):
+    monkeypatch.delenv("POSTHOG_PERSONAL_API_KEY", raising=False)
     monkeypatch.delenv("LINEAR_API_KEY", raising=False)
     monkeypatch.delenv("NOTION_MCP_AUTH_TOKEN", raising=False)
     assert internal_sources.internal_source_tools() == []
+
+
+def test_posthog_uses_hosted_read_only_mcp_with_personal_api_key():
+    assert internal_sources._configured_connections(
+        {"POSTHOG_PERSONAL_API_KEY": "phx_test"}
+    ) == {
+        "posthog": {
+            "transport": "streamable_http",
+            "url": "https://mcp.posthog.com/mcp?mode=cli&readonly=true",
+            "headers": {"Authorization": "Bearer phx_test"},
+        }
+    }
 
 
 @pytest.mark.parametrize(
