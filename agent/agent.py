@@ -19,6 +19,7 @@ from prompts import (
     BASE_SYSTEM_PROMPT,
     NO_WEB_SEARCH_TOOL_ADDENDUM,
     WEB_SEARCH_TOOL_ADDENDUM,
+    current_date_prompt,
 )
 from tools import web_search
 
@@ -98,7 +99,7 @@ def build_agent():
         model=llm,
         system_prompt=system_prompt,
         tools=main_tools,
-        middleware=[CopilotKitMiddleware()],
+        middleware=[CopilotKitMiddleware(), current_date_prompt],
         checkpointer=MemorySaver(),
     )
 

@@ -101,6 +101,16 @@ def test_build_agent_bounds_graph_recursion(monkeypatch):
     assert captured["config"] == {"recursion_limit": 25}
 
 
+def test_build_agent_refreshes_current_date_before_each_model_call(monkeypatch):
+    _, captured = build_with_captured_configuration(monkeypatch)
+
+    middleware_names = [
+        type(item).__name__ for item in captured["agent"]["middleware"]
+    ]
+
+    assert "current_date_prompt" in middleware_names
+
+
 def test_openai_harness_excludes_unusable_delegation_tools(monkeypatch):
     class RecordingOpenAIModel(BaseChatModel):
         model_name: str = "gpt-5.5"
