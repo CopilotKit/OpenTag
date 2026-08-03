@@ -3,11 +3,10 @@
  * locally (headless Chromium) and deliver it to the thread via the SDK's
  * `ctx.thread.postFile`. The image renders inline in the conversation. This
  * is the "upload a CSV → get a chart" payoff: the agent parses the data, then
- * calls this. After the upload we also post a small JSX caption card
- * (`<Context>`) so the tool doubles as a render-tool demo.
+ * calls this.
  */
 import { z } from "zod";
-import { Context, Message, defineChannelTool } from "@copilotkit/channels";
+import { defineChannelTool } from "@copilotkit/channels";
 import { renderChart } from "../render/chart.js";
 
 const schema = z.object({
@@ -81,21 +80,6 @@ export const renderChartTool = defineChannelTool({
       });
       if (!res.ok) {
         return `Chart render failed: ${res.error ?? "upload was rejected"}`;
-      }
-      // The image has landed — the tool has already succeeded from the
-      // agent's/user's point of view. Post the caption in its own guarded
-      // block so a caption-only failure (e.g. a flaky `thread.post`) never
-      // overrides the successful-upload result and triggers a duplicate
-      // re-render. Also doubles as a render-tool demo of a JSX <Message>/
-      // <Context> card.
-      try {
-        await ctx.thread.post(
-          <Message>
-            <Context>{`📊  *${title ?? "Chart"}*`}</Context>
-          </Message>,
-        );
-      } catch (captionError) {
-        console.error("[render-chart] caption post failed", captionError);
       }
       return "Rendered and posted the chart image to the thread.";
     } catch (e) {
