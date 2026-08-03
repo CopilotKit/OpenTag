@@ -178,14 +178,52 @@ describe("createOpenTagChannel", () => {
     expect((agent as CapturingAgent).calls).toHaveLength(2);
   });
 
-  it("handles an unmentioned turn already admitted by managed ingress", async () => {
+  it.each(["bot", "app"] as const)(
+    "ignores %s-authored messages in a subscribed thread",
+    async (actorKind) => {
+      const { adapter, agent, channel } = makeChannel();
+
+      await channel.ɵruntime.start();
+      await adapter.getSink().onTurn({
+        conversationKey: "bot-loop-thread",
+        replyTarget: {},
+        userText: "@Kite join us",
+        platform: "slack",
+        actor: { id: "U1", kind: "human" },
+        operation: {
+          kind: "created",
+          logicalMessageId: "m1",
+          revisionId: "m1",
+          mentioned: true,
+        },
+      });
+
+      await adapter.getSink().onTurn({
+        conversationKey: "bot-loop-thread",
+        replyTarget: {},
+        userText: "Canonical status confirmed: vibing cat it is.",
+        platform: "slack",
+        actor: { id: "B1", kind: actorKind },
+        operation: {
+          kind: "created",
+          logicalMessageId: "m2",
+          revisionId: "m2",
+          mentioned: false,
+        },
+      });
+
+      expect((agent as CapturingAgent).calls).toHaveLength(1);
+    },
+  );
+
+  it("ignores an unmentioned turn in an unsubscribed thread", async () => {
     const { adapter, agent, channel } = makeChannel();
 
     await channel.ɵruntime.start();
     await adapter.getSink().onTurn({
       conversationKey: "managed-thread",
       replyTarget: {},
-      userText: "This turn passed the managed subscription gate",
+      userText: "This thread is not subscribed",
       platform: "slack",
       actor: { id: "U2", kind: "human" },
       operation: {
@@ -196,7 +234,7 @@ describe("createOpenTagChannel", () => {
       },
     });
 
-    expect((agent as CapturingAgent).calls).toHaveLength(1);
+    expect((agent as CapturingAgent).calls).toHaveLength(0);
   });
 
   it("declares one managed Channel and retains app commands", () => {

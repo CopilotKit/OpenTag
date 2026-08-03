@@ -74,8 +74,11 @@ export function createOpenTagChannel(
   });
 
   channel.onMessage(async ({ thread, message }) => {
-    if(await thread.isSubscribed())
+    if (message.actor.kind === "bot" || message.actor.kind === "app") return;
+
+    if (await thread.isSubscribed()) {
       await runAgentSafely({ thread, message });
+    }
   });
 
   channel.onModalSubmit(FILE_ISSUE_CALLBACK, fileIssueSubmit);
