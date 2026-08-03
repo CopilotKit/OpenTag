@@ -9,6 +9,7 @@ from typing import Any
 
 from langchain_mcp_adapters.client import MultiServerMCPClient
 
+from tap_tools import tap_enabled
 from write_confirmation import WriteConfirmationInterceptor
 
 
@@ -125,6 +126,15 @@ async def _load_tools(connections: dict[str, dict[str, Any]]) -> list:
 
 def internal_source_tools() -> list:
     """Load optional MCP tools for the configured internal sources."""
+    # In TAP mode the agent reaches these services through the generic
+    # tap_call tool, so no direct MCP connection is made and no service
+    # key needs to be present in this process.
+    if tap_enabled():
+        print(
+            "[TOOLS] TAP mode: skipping direct MCP connections "
+            "(services are reachable via tap_call, no keys in process)"
+        )
+        return []
     connections = _configured_connections(os.environ)
     if not connections:
         return []
