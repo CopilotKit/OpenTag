@@ -26,6 +26,7 @@ export function createOpenTagChannel(
   const channel = createChannel({
     name,
     agent,
+    identifyUser: "platform",
     tools: appTools,
     context: [...appContext],
     commands: appCommands,
