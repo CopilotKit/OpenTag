@@ -1,10 +1,10 @@
 /**
- * `render_chart` — render Slack's native data visualization block directly
- * in the conversation. This is the "upload a CSV → get a chart" payoff: the
- * agent parses the data, then calls this with Slack's documented chart shape.
+ * `render_chart` — an agent-rendered Channel component backed by Slack's native
+ * data visualization block. This is the "upload a CSV → get a chart" payoff:
+ * the agent parses the data, then renders this with Slack's documented shape.
  */
 import { z } from "zod";
-import { defineChannelTool } from "@copilotkit/channels";
+import { Section, defineChannelComponent } from "@copilotkit/channels";
 import { Slack } from "@copilotkit/channels/slack";
 
 const shortLabel = z.string().min(1).max(20);
@@ -97,7 +97,7 @@ const schema = z.object({
   }
 });
 
-export const renderChartTool = defineChannelTool({
+export const RenderChart = defineChannelComponent({
   name: "render_chart",
   description:
     "Render a native Slack data visualization in the conversation. Use this " +
@@ -105,19 +105,15 @@ export const renderChartTool = defineChannelTool({
     "and line charts. Series data labels must exactly match the ordered axis " +
     "categories.",
   parameters: schema,
-  async handler({ title, chart }, ctx) {
-    if (ctx.platform !== "slack") {
-      return "Chart render failed: native data visualizations are only available in Slack.";
+  render({ title, chart }, { platform }) {
+    if (platform !== "slack") {
+      return (
+        <Section>
+          Native data visualizations are currently only available in Slack.
+        </Section>
+      );
     }
 
-    try {
-      await ctx.thread.post(
-        <Slack.Block.DataVisualization title={title} chart={chart} />,
-      );
-      return "Rendered and posted the native Slack chart to the thread.";
-    } catch (e) {
-      console.error("[render-chart] native Slack render failed", e);
-      return `Chart render failed: ${(e as Error).message}`;
-    }
+    return <Slack.Block.DataVisualization title={title} chart={chart} />;
   },
 });

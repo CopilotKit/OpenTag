@@ -1,7 +1,7 @@
 /**
- * Covers the `render_chart` and `render_diagram` tools (render-chart.tsx /
- * render-diagram.tsx) — the agent-facing tools that render a native Slack
- * data visualization or a Mermaid PNG. The
+ * Covers the `render_chart` component and `render_diagram` tool
+ * (render-chart.tsx / render-diagram.tsx) — the agent-facing definitions that
+ * render a native Slack data visualization or a Mermaid PNG. The
  * `issue_card` / `issue_list` / `page_list` render-tool wrappers are covered
  * separately in render-tools.test.tsx.
  */
@@ -15,43 +15,40 @@ const DIAGRAM_PNG = Buffer.from("DIAGRAMPNG");
 const renderDiagram = vi.fn(async () => DIAGRAM_PNG);
 vi.mock("../../render/diagram.js", () => ({ renderDiagram }));
 
-const { renderChartTool } = await import("../render-chart.js");
+const { RenderChart } = await import("../render-chart.js");
 const { renderDiagramTool } = await import("../render-diagram.js");
 
 /** The ctx a ChannelTool handler receives. */
-type HandlerCtx = Parameters<typeof renderChartTool.handler>[1];
+type HandlerCtx = Parameters<typeof renderDiagramTool.handler>[1];
 
 function makeCtx(opts?: {
   postFileResult?: { ok: boolean; fileId?: string; error?: string };
-  postError?: Error;
-  platform?: string;
 }) {
-  const posts: unknown[] = [];
   const postFileResult = opts?.postFileResult ?? { ok: true, fileId: "F1" };
   const postFile = vi.fn(async () => postFileResult);
   const thread = {
-    post: vi.fn(async (ui: unknown) => {
-      if (opts?.postError) throw opts.postError;
-      posts.push(ui);
-      return { id: "m1" };
-    }),
+    post: vi.fn(async () => ({ id: "m1" })),
     postFile,
   };
-  const ctx = {
-    thread,
-    platform: opts?.platform ?? "slack",
-  } as unknown as HandlerCtx;
-  return { ctx, posts, postFile, thread };
+  const ctx = { thread, platform: "slack" } as unknown as HandlerCtx;
+  return { ctx, postFile, thread };
 }
 
 beforeEach(() => {
   renderDiagram.mockClear();
 });
 
-describe("render_chart tool", () => {
-  it("posts a native Slack series chart", async () => {
-    const { ctx, posts, postFile } = makeCtx();
-    const out = (await renderChartTool.handler(
+describe("render_chart component", () => {
+  it("is defined as an agent-rendered Channel component", () => {
+    expect(RenderChart).toMatchObject({
+      name: "render_chart",
+      parameters: expect.any(Object),
+      render: expect.any(Function),
+    });
+  });
+
+  it("renders a native Slack series chart", async () => {
+    const ui = await RenderChart.render(
       {
         title: "Revenue Q2",
         chart: {
@@ -71,10 +68,9 @@ describe("render_chart tool", () => {
           },
         },
       },
-      ctx,
-    )) as string;
-    expect(posts).toHaveLength(1);
-    const { blocks } = renderSlackMessage(renderToIR(posts[0] as never));
+      { platform: "slack", signal: new AbortController().signal },
+    );
+    const { blocks } = renderSlackMessage(renderToIR(ui as never));
     expect(blocks[0]).toMatchObject({
       type: "data_visualization",
       title: "Revenue Q2",
@@ -95,13 +91,10 @@ describe("render_chart tool", () => {
         },
       },
     });
-    expect(postFile).not.toHaveBeenCalled();
-    expect(out).toBe("Rendered and posted the native Slack chart to the thread.");
   });
 
-  it("posts a native Slack pie chart", async () => {
-    const { ctx, posts } = makeCtx();
-    await renderChartTool.handler(
+  it("renders a native Slack pie chart", async () => {
+    const ui = await RenderChart.render(
       {
         title: "Incidents by severity",
         chart: {
@@ -112,10 +105,10 @@ describe("render_chart tool", () => {
           ],
         },
       },
-      ctx,
+      { platform: "slack", signal: new AbortController().signal },
     );
 
-    const { blocks } = renderSlackMessage(renderToIR(posts[0] as never));
+    const { blocks } = renderSlackMessage(renderToIR(ui as never));
     expect(blocks[0]).toMatchObject({
       type: "data_visualization",
       title: "Incidents by severity",
@@ -129,9 +122,8 @@ describe("render_chart tool", () => {
     });
   });
 
-  it("surfaces native chart post failures", async () => {
-    const { ctx, posts } = makeCtx({ postError: new Error("post rejected") });
-    const out = (await renderChartTool.handler(
+  it("renders an explicit portable fallback outside Slack", async () => {
+    const ui = await RenderChart.render(
       {
         title: "Incidents",
         chart: {
@@ -139,27 +131,14 @@ describe("render_chart tool", () => {
           segments: [{ label: "SEV1", value: 2 }],
         },
       },
-      ctx,
-    )) as string;
-    expect(out).toBe("Chart render failed: post rejected");
-    expect(posts).toHaveLength(0);
-  });
-
-  it("does not offer Slack-native charts on other platforms", async () => {
-    const { ctx, posts, thread } = makeCtx({ platform: "teams" });
-    const out = await renderChartTool.handler(
-      {
-        title: "Incidents",
-        chart: {
-          type: "pie",
-          segments: [{ label: "SEV1", value: 2 }],
-        },
-      },
-      ctx,
+      { platform: "teams", signal: new AbortController().signal },
     );
-    expect(out).toContain("only available in Slack");
-    expect(posts).toHaveLength(0);
-    expect(thread.post).not.toHaveBeenCalled();
+
+    const ir = renderToIR(ui as never);
+    expect(ir[0]?.type).toBe("section");
+    expect(JSON.stringify(ir)).toContain(
+      "Native data visualizations are currently only available in Slack.",
+    );
   });
 });
 

@@ -19,6 +19,7 @@ import {
 } from "@copilotkit/channels/slack";
 import { appContext } from "./context/app-context.js";
 import { appTools } from "./tools/index.js";
+import { RenderChart } from "./tools/render-chart.js";
 import { createOpenTagChannel } from "./channel.js";
 
 class CapturingAgent extends FakeAgent {
@@ -215,14 +216,60 @@ describe("createOpenTagChannel", () => {
       "issue_list",
       "page_list",
       "read_thread",
-      "render_chart",
       "render_diagram",
       "render_table",
       "show_incident",
       "show_links",
       "show_status",
     ]);
+    expect(RenderChart.name).toBe("render_chart");
     expect(appTools.map(({ name }) => name)).not.toContain("confirm_write");
+  });
+
+  it("renders render_chart through the registered Channel component", async () => {
+    const agent = new FakeAgent([
+      (subscriber) => {
+        subscriber.onToolCallEndEvent?.({
+          event: { toolCallId: "chart-1" },
+          toolCallName: RenderChart.name,
+          toolCallArgs: {
+            title: "Incidents",
+            chart: {
+              type: "pie",
+              segments: [
+                { label: "SEV1", value: 2 },
+                { label: "SEV2", value: 5 },
+              ],
+            },
+          },
+        } as never);
+      },
+      () => undefined,
+    ]);
+    const { adapter, channel } = makeChannel({ agent });
+
+    await channel.ɵruntime.start();
+    await adapter.getSink().onTurn({
+      conversationKey: "chart-thread",
+      replyTarget: {},
+      userText: "chart incidents by severity",
+      platform: "slack",
+      actor: { id: "U1", kind: "human" },
+    });
+
+    expect(adapter.posted).toHaveLength(1);
+    const { blocks } = renderSlackMessage(adapter.posted[0]!);
+    expect(blocks[0]).toMatchObject({
+      type: "data_visualization",
+      title: "Incidents",
+      chart: {
+        type: "pie",
+        segments: [
+          { label: "SEV1", value: 2 },
+          { label: "SEV2", value: 5 },
+        ],
+      },
+    });
   });
 
   it("injects Slack defaults per managed Slack run", async () => {
@@ -239,7 +286,11 @@ describe("createOpenTagChannel", () => {
 
     const call = (agent as CapturingAgent).calls[0];
     expect(call?.tools?.map(({ name }) => name).sort()).toEqual(
-      [...appTools, ...defaultSlackTools].map(({ name }) => name).sort(),
+      [
+        ...appTools.map(({ name }) => name),
+        RenderChart.name,
+        ...defaultSlackTools.map(({ name }) => name),
+      ].sort(),
     );
     expect(call?.context).toEqual([
       ...appContext,
@@ -265,7 +316,7 @@ describe("createOpenTagChannel", () => {
 
     const call = (agent as CapturingAgent).calls[0];
     expect(call?.tools?.map(({ name }) => name).sort()).toEqual(
-      appTools.map(({ name }) => name).sort(),
+      [...appTools.map(({ name }) => name), RenderChart.name].sort(),
     );
     expect(call?.context).toEqual([
       ...appContext,
