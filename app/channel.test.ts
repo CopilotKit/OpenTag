@@ -23,14 +23,19 @@ import { createOpenTagChannel } from "./channel.js";
 
 class CapturingAgent extends FakeAgent {
   readonly calls: Array<RunAgentParameters | undefined>;
+  readonly messageSnapshots: unknown[][];
 
-  constructor(calls: Array<RunAgentParameters | undefined> = []) {
+  constructor(
+    calls: Array<RunAgentParameters | undefined> = [],
+    messageSnapshots: unknown[][] = [],
+  ) {
     super();
     this.calls = calls;
+    this.messageSnapshots = messageSnapshots;
   }
 
   override clone(): CapturingAgent {
-    const cloned = new CapturingAgent(this.calls);
+    const cloned = new CapturingAgent(this.calls, this.messageSnapshots);
     cloned.threadId = this.threadId;
     cloned.agentId = this.agentId;
     cloned.messages = structuredClone(this.messages);
@@ -43,6 +48,7 @@ class CapturingAgent extends FakeAgent {
     subscriber?: AgentSubscriber,
   ): Promise<RunAgentResult> {
     this.calls.push(parameters);
+    this.messageSnapshots.push(structuredClone(this.messages));
     return super.runAgent(parameters, subscriber);
   }
 }
@@ -197,7 +203,6 @@ describe("createOpenTagChannel", () => {
     channels.push(channel);
 
     expect(channel.name).toBe("custom-channel");
-    expect(channel.provider).toBeUndefined();
     expect(channel.adapters).toEqual([]);
     expect(channel.commandNames.sort()).toEqual([
       "agent",
@@ -229,7 +234,7 @@ describe("createOpenTagChannel", () => {
       replyTarget: {},
       userText: "hello",
       platform: "slack",
-      user: { id: "U1", name: "Ada" },
+      actor: { id: "U1", kind: "human", name: "Ada" },
     });
 
     const call = (agent as CapturingAgent).calls[0];
@@ -255,7 +260,7 @@ describe("createOpenTagChannel", () => {
       replyTarget: {},
       userText: "hello",
       platform: "teams",
-      user: { id: "T1", name: "Ada" },
+      actor: { id: "T1", kind: "human", name: "Ada" },
     });
 
     const call = (agent as CapturingAgent).calls[0];
@@ -282,10 +287,10 @@ describe("createOpenTagChannel", () => {
       userText: "fallback text",
       contentParts: parts,
       platform: "slack",
-      user: { id: "U1" },
+      actor: { id: "U1", kind: "human" },
     });
 
-    expect(agent.messages).toContainEqual(
+    expect((agent as CapturingAgent).messageSnapshots.flat()).toContainEqual(
       expect.objectContaining({ role: "user", content: parts }),
     );
   });
@@ -297,7 +302,7 @@ describe("createOpenTagChannel", () => {
     await adapter.emitThreadStarted({
       conversationKey: "c1",
       replyTarget: {},
-      user: { id: "U1", name: "Ada" },
+      actor: { id: "U1", kind: "human", name: "Ada" },
     });
 
     expect(adapter.suggestedPromptsCalls[0]?.prompts[0]?.title).toBe(
@@ -318,7 +323,7 @@ describe("createOpenTagChannel", () => {
     await adapter.emitThreadStarted({
       conversationKey: "c1",
       replyTarget: {},
-      user: { id: "U1", name: "Ada" },
+      actor: { id: "U1", kind: "human", name: "Ada" },
     });
 
     expect(consoleError).toHaveBeenCalledWith(
@@ -353,7 +358,7 @@ describe("createOpenTagChannel", () => {
       replyTarget: {},
       userText: "hello",
       platform: "slack",
-      user: { id: "U1" },
+      actor: { id: "U1", kind: "human" },
     });
 
     expect(JSON.stringify(adapter.posted)).toMatch(/sorry.*error/i);
@@ -392,7 +397,7 @@ describe("createOpenTagChannel", () => {
       replyTarget: {},
       userText: "file this",
       platform: "slack",
-      user: { id: "U1" },
+      actor: { id: "U1", kind: "human" },
     });
     const result = await Promise.race([
       Promise.resolve(turn).then(() => "returned"),
@@ -486,7 +491,7 @@ describe("createOpenTagChannel", () => {
       replyTarget: {},
       userText: "file this",
       platform: "slack",
-      user: { id: "U1" },
+      actor: { id: "U1", kind: "human" },
     });
 
     expect(JSON.stringify(adapter.posted)).toMatch(/sorry.*error/i);
@@ -518,7 +523,7 @@ describe("createOpenTagChannel", () => {
       replyTarget: {},
       userText: "file this",
       platform: "slack",
-      user: { id: "U1" },
+      actor: { id: "U1", kind: "human" },
     });
 
     const createButton = findButton(firstAdapter.posted[0]!, true);
@@ -531,7 +536,7 @@ describe("createOpenTagChannel", () => {
 
     const secondAdapter = new FakeAdapter({ platform: "intelligence" });
     secondAdapter.stateStore = sharedState;
-    const secondAgent = new FakeAgent();
+    const secondAgent = new CapturingAgent();
     const secondChannel = createOpenTagChannel("opentag", secondAgent);
     secondChannel.ɵruntime.addAdapter(secondAdapter);
     channels.push(secondChannel);
@@ -546,7 +551,7 @@ describe("createOpenTagChannel", () => {
 
     expect(secondAdapter.updated).toHaveLength(1);
     expect(JSON.stringify(secondAdapter.updated)).toContain("Approved");
-    expect(secondAgent.runAgentCalls).toBe(1);
+    expect(secondAgent.calls).toHaveLength(1);
   });
 
   it("re-registers incident actions when a new Channel uses the same store", async () => {
@@ -579,7 +584,7 @@ describe("createOpenTagChannel", () => {
       replyTarget: {},
       userText: "show the incident",
       platform: "slack",
-      user: { id: "U1" },
+      actor: { id: "U1", kind: "human" },
     });
 
     const acknowledge = findIncidentButton(firstAdapter.posted[0]!, "ack");
@@ -600,7 +605,7 @@ describe("createOpenTagChannel", () => {
       conversationKey: "incident-thread",
       replyTarget: {},
       messageRef: { id: "incident-message" },
-      user: { id: "U2", name: "Ada" },
+      actor: { id: "U2", kind: "human", name: "Ada" },
       value: { action: "ack", id: "INC-42" },
     });
 

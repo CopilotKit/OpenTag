@@ -81,7 +81,7 @@ describe("fileIssueSubmit", () => {
     const result = await fileIssueSubmit({
       values: { title: "" },
       thread,
-      user: { id: "U1" },
+      actor: { id: "U1", kind: "human" },
     } as never);
     expect(result).toEqual({ errors: { title: expect.any(String) } });
     expect(thread.runAgent).not.toHaveBeenCalled();
@@ -92,7 +92,7 @@ describe("fileIssueSubmit", () => {
     const result = await fileIssueSubmit({
       values: { title: "   ", description: "x" },
       thread,
-      user: { id: "U1" },
+      actor: { id: "U1", kind: "human" },
     } as never);
     expect(result).toEqual({ errors: { title: expect.any(String) } });
     expect(thread.runAgent).not.toHaveBeenCalled();
@@ -106,7 +106,7 @@ describe("fileIssueSubmit", () => {
       fileIssueSubmit({
         values: { title: "T", description: "D", type: "bug", priority: "High" },
         thread,
-        user: { id: "U1" },
+        actor: { id: "U1", kind: "human" },
       } as never),
     ).resolves.toBeUndefined();
     expect(thread.runAgent).toHaveBeenCalledTimes(1);
@@ -117,7 +117,7 @@ describe("fileIssueSubmit", () => {
       fileIssueSubmit({
         values: { title: "T", description: "D" },
         thread: undefined,
-        user: { id: "U1" },
+        actor: { id: "U1", kind: "human" },
       } as never),
     ).resolves.toBeUndefined();
   });
@@ -128,7 +128,12 @@ describe("fileIssueSubmit", () => {
         new Promise<void>(() => {}),
     );
     const thread = { runAgent, platform: "intelligence" };
-    const user = { id: "U1", name: "Ada Lovelace", email: "ada@example.com" };
+    const actor = {
+      id: "U1",
+      kind: "human" as const,
+      name: "Ada Lovelace",
+      email: "ada@example.com",
+    };
     await fileIssueSubmit({
       values: {
         title: "Login broken",
@@ -137,7 +142,7 @@ describe("fileIssueSubmit", () => {
         priority: "High",
       },
       thread,
-      user,
+      actor,
       privateMetadata: "slack",
     } as never);
 
@@ -171,7 +176,7 @@ describe("fileIssueSubmit", () => {
     await fileIssueSubmit({
       values: { title: "T", description: "D", type: "bug", priority: "High" },
       thread,
-      user: { id: "U1" },
+      actor: { id: "U1", kind: "human" },
     } as never);
     // Let the fire-and-forget .catch() run before asserting.
     await new Promise((r) => setTimeout(r, 0));
@@ -206,7 +211,7 @@ describe("fileIssueSubmit", () => {
     await fileIssueSubmit({
       values: { title: "T", description: "D", type: "bug", priority: "High" },
       thread,
-      user: { id: "U1" },
+      actor: { id: "U1", kind: "human" },
     } as never);
     await new Promise((resolve) => setTimeout(resolve, 0));
 

@@ -63,14 +63,14 @@ export const appCommands: ChannelCommand[] = [
   defineChannelCommand({
     name: "agent",
     description: "Ask the triage agent anything (no @mention needed).",
-    async handler({ thread, text, user, platform }) {
+    async handler({ thread, text, actor, platform }) {
       if (!text) {
         await thread.post("Usage: `/agent <your question>`");
         return;
       }
       await runAgentSafely("agent", thread, {
         prompt: text,
-        ...platformRunInput(platform, user),
+        ...platformRunInput(platform, actor),
       });
     },
   }),
@@ -81,13 +81,13 @@ export const appCommands: ChannelCommand[] = [
     name: "triage",
     description:
       "Summarize the conversation and propose Linear issues to file.",
-    async handler({ thread, text, user, platform }) {
+    async handler({ thread, text, actor, platform }) {
       const prompt = text
         ? `Triage this and propose Linear issues to file: ${text}`
         : "Triage the current conversation: summarize it and propose Linear issues to file.";
       await runAgentSafely("triage", thread, {
         prompt,
-        ...platformRunInput(platform, user),
+        ...platformRunInput(platform, actor),
       });
     },
   }),
@@ -99,12 +99,12 @@ export const appCommands: ChannelCommand[] = [
   defineChannelCommand({
     name: "preview",
     description: "Privately preview the issue I'd file (only you see it).",
-    async handler({ thread, text, user, platform }) {
+    async handler({ thread, text, actor, platform }) {
       if (!text) {
         await thread.post("Usage: `/preview <issue title>`");
         return;
       }
-      if (!user) {
+      if (!actor.id) {
         await thread.post(
           "I couldn't tell who you are, so I can't send a private preview here.",
         );
@@ -116,7 +116,7 @@ export const appCommands: ChannelCommand[] = [
         state: "Triage",
         description: "_Draft — nothing is filed until you run_ `/file-issue`.",
       });
-      const res = await thread.postEphemeral(user, draft, {
+      const res = await thread.postEphemeral(actor, draft, {
         fallbackToDM: true,
       });
       // Degrade, never throw: report what actually happened.
@@ -141,7 +141,7 @@ export const appCommands: ChannelCommand[] = [
   defineChannelCommand({
     name: "file-issue",
     description: "Open a form to file a Linear issue.",
-    async handler({ thread, openModal, platform, user }) {
+    async handler({ thread, openModal, platform, actor }) {
       if (!openModal) {
         await thread.post(
           "Modals aren't supported here — let's do it in chat instead. " +
@@ -151,7 +151,7 @@ export const appCommands: ChannelCommand[] = [
           prompt:
             "The user wants to file a Linear issue but this platform has no modal form. " +
             "Ask them for a title and description, then (after the usual confirm) file it.",
-          ...platformRunInput(platform, user),
+          ...platformRunInput(platform, actor),
         });
         return;
       }

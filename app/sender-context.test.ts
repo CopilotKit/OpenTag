@@ -8,7 +8,7 @@ describe("senderContext", () => {
 
   it("labels a slack user with email", () => {
     const out = senderContext(
-      { id: "U1", name: "Ada", email: "ada@x.io" },
+      { id: "U1", kind: "human", name: "Ada", email: "ada@x.io" },
       "slack",
     );
     expect(out).toEqual([
@@ -20,7 +20,10 @@ describe("senderContext", () => {
   });
 
   it("labels a Teams user without an email with the platform", () => {
-    const out = senderContext({ id: "teams-user", name: "Bob" }, "teams");
+    const out = senderContext(
+      { id: "teams-user", kind: "human", name: "Bob" },
+      "teams",
+    );
     expect(out).toEqual([
       {
         description: "Requesting teams user",
@@ -30,7 +33,10 @@ describe("senderContext", () => {
   });
 
   it("falls back to the id when a Teams user has no name", () => {
-    const out = senderContext({ id: "teams-user" }, "teams");
+    const out = senderContext(
+      { id: "teams-user", kind: "human" },
+      "teams",
+    );
     expect(out).toEqual([
       {
         description: "Requesting teams user",

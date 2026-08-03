@@ -14,6 +14,7 @@ const message = (
 ): IncomingMessage => ({
   text: "hello",
   user: { id: "U1", name: "Ada" },
+  actor: { id: "U1", kind: "human", name: "Ada" },
   ref: { id: "m1" },
   platform: "slack",
   ...overrides,
@@ -54,6 +55,7 @@ describe("managedRunInput", () => {
         message({
           platform: "teams",
           user: { id: "T1", name: "Ada" },
+          actor: { id: "T1", kind: "human", name: "Ada" },
         }),
       ),
     ).toEqual({

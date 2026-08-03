@@ -1,89 +1,122 @@
 /**
- * `render_chart` — the agent emits a Chart.js config; we render it to a PNG
- * locally (headless Chromium) and deliver it to the thread via the SDK's
- * `ctx.thread.postFile`. The image renders inline in the conversation. This
- * is the "upload a CSV → get a chart" payoff: the agent parses the data, then
- * calls this.
+ * `render_chart` — render Slack's native data visualization block directly
+ * in the conversation. This is the "upload a CSV → get a chart" payoff: the
+ * agent parses the data, then calls this with Slack's documented chart shape.
  */
 import { z } from "zod";
 import { defineChannelTool } from "@copilotkit/channels";
-import { renderChart } from "../render/chart.js";
+import { Slack } from "@copilotkit/channels/slack";
+
+const shortLabel = z.string().min(1).max(20);
+const dataPoint = z.object({
+  label: shortLabel.describe(
+    "X-axis category. Must match one axis_config.categories value.",
+  ),
+  value: z.number().finite().describe("Numeric y-axis value."),
+});
+
+const pieChart = z.object({
+  type: z.literal("pie"),
+  segments: z
+    .array(
+      z.object({
+        label: shortLabel.describe("Slice label shown in the legend."),
+        value: z.number().finite().positive().describe("Positive slice weight."),
+      }),
+    )
+    .min(1)
+    .max(12),
+});
+
+const seriesChart = z.object({
+  type: z.enum(["bar", "area", "line"]),
+  series: z
+    .array(
+      z.object({
+        name: shortLabel.describe("Unique series name shown in the legend."),
+        data: z.array(dataPoint).min(1).max(20),
+      }),
+    )
+    .min(1)
+    .max(12),
+  axis_config: z.object({
+    categories: z
+      .array(shortLabel)
+      .min(1)
+      .max(20)
+      .describe("Unique categories in left-to-right display order."),
+    x_label: z.string().max(50).optional(),
+    y_label: z.string().max(50).optional(),
+  }),
+});
 
 const schema = z.object({
   title: z
     .string()
-    .optional()
-    .describe("Short title shown as the image's filename/caption."),
-  chartSpec: z
-    .object({
-      type: z.string().describe("'bar' | 'line' | 'pie' | 'doughnut' | 'radar'."),
-      data: z
-        .object({
-          labels: z
-            .array(z.string())
-            .describe("X-axis / category labels, e.g. ['2026-01','2026-02']."),
-          datasets: z
-            .array(
-              z
-                .object({
-                  label: z
-                    .string()
-                    .optional()
-                    .describe("Series name in the legend, e.g. 'Sev1'."),
-                  data: z
-                    .array(z.number())
-                    .describe("One numeric value per label."),
-                })
-                // Allow Chart.js dataset extras: stack, backgroundColor, fill…
-                .passthrough(),
-            )
-            .min(1)
-            .describe("One entry per data series."),
-        })
-        .describe("Chart.js data — inline the actual numbers."),
-      options: z
-        .record(z.string(), z.any())
-        .optional()
-        .describe(
-          "Optional Chart.js options. Stacked bar: " +
-            "{ scales: { x: { stacked: true }, y: { stacked: true } } }.",
-        ),
-    })
-    .describe("A Chart.js config with all values inlined."),
-});
+    .min(1)
+    .max(50)
+    .describe("Short title displayed above the chart."),
+  chart: z
+    .discriminatedUnion("type", [pieChart, seriesChart])
+    .describe("Slack pie, bar, area, or line chart payload."),
+}).superRefine(({ chart }, ctx) => {
+  if (chart.type === "pie") return;
 
-function slug(s: string): string {
-  return (
-    (s || "chart")
-      .replace(/[^a-z0-9]+/gi, "-")
-      .replace(/^-|-$/g, "")
-      .toLowerCase() || "chart"
-  );
-}
+  const categories = chart.axis_config.categories;
+  if (new Set(categories).size !== categories.length) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["chart", "axis_config", "categories"],
+      message: "Category labels must be unique.",
+    });
+  }
+
+  const seriesNames = chart.series.map(({ name }) => name);
+  if (new Set(seriesNames).size !== seriesNames.length) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["chart", "series"],
+      message: "Series names must be unique.",
+    });
+  }
+
+  for (const [index, series] of chart.series.entries()) {
+    const labels = series.data.map(({ label }) => label);
+    const labelsMatchCategories =
+      labels.length === categories.length &&
+      new Set(labels).size === labels.length &&
+      labels.every((label) => categories.includes(label));
+    if (!labelsMatchCategories) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["chart", "series", index, "data"],
+        message:
+          "Each series must contain exactly one data point for every axis category.",
+      });
+    }
+  }
+});
 
 export const renderChartTool = defineChannelTool({
   name: "render_chart",
   description:
-    "Render a chart as an image and post it to the conversation thread. Pass " +
-    "a Chart.js config OBJECT (type + data, optionally options). Use this to " +
-    "visualize data — e.g. after analyzing an uploaded CSV. The image renders " +
-    "inline in the conversation.",
+    "Render a native Slack data visualization in the conversation. Use this " +
+    "after analyzing data such as an uploaded CSV. Supports pie, bar, area, " +
+    "and line charts. Series data labels must exactly match the ordered axis " +
+    "categories.",
   parameters: schema,
-  async handler({ title, chartSpec }, ctx) {
+  async handler({ title, chart }, ctx) {
+    if (ctx.platform !== "slack") {
+      return "Chart render failed: native data visualizations are only available in Slack.";
+    }
+
     try {
-      const png = await renderChart(chartSpec);
-      const res = await ctx.thread.postFile({
-        bytes: png,
-        filename: `${slug(title ?? "chart")}.png`,
-        title: title ?? "Chart",
-        altText: title ?? "Generated chart",
-      });
-      if (!res.ok) {
-        return `Chart render failed: ${res.error ?? "upload was rejected"}`;
-      }
-      return "Rendered and posted the chart image to the thread.";
+      await ctx.thread.post(
+        <Slack.Block.DataVisualization title={title} chart={chart} />,
+      );
+      return "Rendered and posted the native Slack chart to the thread.";
     } catch (e) {
-      console.error("[render-chart] render/upload failed", e);
+      console.error("[render-chart] native Slack render failed", e);
       return `Chart render failed: ${(e as Error).message}`;
     }
   },
