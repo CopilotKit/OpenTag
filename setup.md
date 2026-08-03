@@ -41,11 +41,11 @@ uv sync
 cd ..
 ```
 
-The Channels and Runtime packages are intentionally pinned to canaries:
+The Channels and Runtime packages are intentionally pinned:
 
 ```text
-@copilotkit/channels  0.2.2-canary.rc-1
-@copilotkit/runtime   1.63.3-canary.rc-1
+@copilotkit/channels  0.7.0
+@copilotkit/runtime   1.66.0
 ```
 
 ## Configure the environment
@@ -166,8 +166,8 @@ OpenTag registers:
 - `/file-issue` to open a form where supported, with a conversational fallback.
 
 The Channel also forwards sender context, Slack-specific tools on Slack turns,
-file content, and rich issue/page/table/chart/diagram/status/incident/link
-components.
+file content, and rich issue/page/table/native-Slack-chart/diagram/status/
+incident/link components.
 
 Before a Linear or Notion mutation reaches MCP, a Python interceptor emits
 `confirm_write`. The Channel posts an approval card, and the button resumes the

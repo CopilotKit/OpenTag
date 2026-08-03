@@ -149,11 +149,10 @@ describe("createOpenTagApplication", () => {
     expect(
       application.channels.map((channel) => ({
         name: channel.name,
-        provider: channel.provider,
         adapters: channel.adapters,
       })),
     ).toEqual([
-      { name: "open-tag", provider: undefined, adapters: [] },
+      { name: "open-tag", adapters: [] },
     ]);
     expect(application.runtime.channels).toEqual(application.channels);
   });

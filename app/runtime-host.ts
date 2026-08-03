@@ -11,9 +11,15 @@ export const OPENTAG_SERVICE_USER = {
   name: "OpenTag Channel Service",
 } as const;
 
+type ChannelEngine = NonNullable<
+  Parameters<typeof createCopilotNodeListener>[0]["__channelEngine"]
+>;
+
 export function createOpenTagRuntime(options: {
   environment: AppEnvironment;
   channels: Channel[];
+  /** @internal Test seam supplied by Runtime 1.66; production uses the gateway. */
+  __channelEngine?: ChannelEngine;
 }) {
   const intelligence = new CopilotKitIntelligence({
     apiUrl: options.environment.intelligenceApiUrl,
@@ -31,6 +37,9 @@ export function createOpenTagRuntime(options: {
   const listener = createCopilotNodeListener({
     runtime,
     basePath: "/api/copilotkit",
+    ...(options.__channelEngine
+      ? { __channelEngine: options.__channelEngine }
+      : {}),
   });
 
   return { intelligence, listener, runtime };

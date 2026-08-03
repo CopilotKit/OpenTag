@@ -38,10 +38,10 @@ There is one canonical runtime host: [`server.ts`](./server.ts).
 `CopilotRuntime`, and one adapter-free managed Channel. Intelligence owns its
 Slack and Microsoft Teams adapters, credentials, and attachments.
 
-The launch pins the requested canaries:
+The SDK versions are pinned for reproducible deploys:
 
-- `@copilotkit/channels@0.2.2-canary.rc-1`
-- `@copilotkit/runtime@1.63.3-canary.rc-1`
+- `@copilotkit/channels@0.7.0`
+- `@copilotkit/runtime@1.66.0`
 
 ## Quick start
 
@@ -101,7 +101,8 @@ HTTP listener accepts traffic.
 
 - Mentions and app-owned commands.
 - Sender-aware context and Slack tools scoped to Slack turns.
-- Rich issue, page, status, incident, link, table, chart, and diagram output.
+- Rich issue, page, status, incident, link, table, native Slack chart, and
+  diagram output.
 - File-aware prompts.
 - A LangGraph interrupt and resumable confirmation card before Linear or Notion
   writes.
