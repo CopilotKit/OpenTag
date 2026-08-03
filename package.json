@@ -20,7 +20,7 @@
   },
   "dependencies": {
     "@ag-ui/client": "^0.0.57",
-    "@copilotkit/channels": "0.6.0",
+    "@copilotkit/channels": "0.6.1",
     "@copilotkit/runtime": "1.65.0",
     "dotenv": "^16.4.5",
     "playwright": "^1.49.0",
