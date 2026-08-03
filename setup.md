@@ -61,6 +61,8 @@ cp .env.example .env
 | `OPENAI_REASONING_EFFORT` | No | Defaults to `low` |
 | `OPENAI_VERBOSITY` | No | Defaults to `low` |
 | `TAVILY_API_KEY` | No | Enables live web research |
+| `GITHUB_PERSONAL_ACCESS_TOKEN` | No | Enables read-only GitHub repository, code, issue, and PR search |
+| `GITHUB_MCP_URL` | No | Overrides the hosted GitHub MCP URL; OpenTag still sends read-only headers |
 | `POSTHOG_PERSONAL_API_KEY` | No | Enables the hosted PostHog MCP in read-only CLI mode |
 | `POSTHOG_MCP_URL` | No | Overrides the hosted PostHog MCP URL |
 | `LINEAR_API_KEY` | No | Enables the hosted Linear MCP |
@@ -179,6 +181,15 @@ Reads and UI rendering are never gated.
 Set `TAVILY_API_KEY` in the root `.env` to enable live web research. The
 `web_search` tool is not registered when the key is absent.
 
+### GitHub
+
+Set `GITHUB_PERSONAL_ACCESS_TOKEN` in the root `.env` to enable GitHub search.
+Use a fine-grained personal access token limited to the repositories and read
+permissions the agent needs. OpenTag connects to GitHub's hosted MCP with only
+the repository, issue, and pull-request toolsets and requests read-only mode.
+Set `GITHUB_MCP_URL` only to override the hosted endpoint, then restart
+`pnpm agent` so it discovers the tools.
+
 ### PostHog
 
 Create a PostHog personal API key using the **MCP Server** preset, then set
@@ -212,8 +223,8 @@ The IaC file declares exactly:
 `runtime.AGENT_URL` references the agent's Railway private domain and port.
 Production Intelligence URLs are literal configuration, the API key is
 preserved, and the Channel name is `open-tag`. `OPENAI_API_KEY` is required on
-`agent`; Tavily, PostHog, Linear, and the paired remote Notion variables are
-optional preserved settings.
+`agent`; Tavily, GitHub, PostHog, Linear, and the paired remote Notion variables
+are optional preserved settings.
 
 Evaluate the configuration locally without applying it:
 

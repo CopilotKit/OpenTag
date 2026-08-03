@@ -26,6 +26,8 @@ export default defineRailway(() => {
       PORT: "8123",
       OPENAI_API_KEY: preserve(),
       TAVILY_API_KEY: preserve(),
+      GITHUB_PERSONAL_ACCESS_TOKEN: preserve(),
+      GITHUB_MCP_URL: preserve(),
       POSTHOG_PERSONAL_API_KEY: preserve(),
       POSTHOG_MCP_URL: preserve(),
       LINEAR_API_KEY: preserve(),

@@ -9,12 +9,22 @@ from write_confirmation import WriteConfirmationInterceptor
 
 
 @pytest.fixture(autouse=True)
-def clear_posthog_credentials(monkeypatch):
+def clear_ambient_credentials(monkeypatch):
+    monkeypatch.delenv("GITHUB_PERSONAL_ACCESS_TOKEN", raising=False)
     monkeypatch.delenv("POSTHOG_PERSONAL_API_KEY", raising=False)
 
 
 def test_mcp_servers_are_configured_in_one_place():
     assert internal_sources.MCP_SERVERS == {
+        "github": {
+            "token_env": "GITHUB_PERSONAL_ACCESS_TOKEN",
+            "url_env": "GITHUB_MCP_URL",
+            "default_url": "https://api.githubcopilot.com/mcp/readonly",
+            "headers": {
+                "X-MCP-Readonly": "true",
+                "X-MCP-Toolsets": "repos,issues,pull_requests",
+            },
+        },
         "posthog": {
             "token_env": "POSTHOG_PERSONAL_API_KEY",
             "url_env": "POSTHOG_MCP_URL",
@@ -36,10 +46,44 @@ def test_mcp_servers_are_configured_in_one_place():
 
 
 def test_internal_source_tools_empty_without_env(monkeypatch):
+    monkeypatch.delenv("GITHUB_PERSONAL_ACCESS_TOKEN", raising=False)
     monkeypatch.delenv("POSTHOG_PERSONAL_API_KEY", raising=False)
     monkeypatch.delenv("LINEAR_API_KEY", raising=False)
     monkeypatch.delenv("NOTION_MCP_AUTH_TOKEN", raising=False)
     assert internal_sources.internal_source_tools() == []
+
+
+def test_github_uses_hosted_read_only_search_mcp_with_pat():
+    assert internal_sources._configured_connections(
+        {"GITHUB_PERSONAL_ACCESS_TOKEN": "github_pat_test"}
+    ) == {
+        "github": {
+            "transport": "streamable_http",
+            "url": "https://api.githubcopilot.com/mcp/readonly",
+            "headers": {
+                "Authorization": "Bearer github_pat_test",
+                "X-MCP-Readonly": "true",
+                "X-MCP-Toolsets": "repos,issues,pull_requests",
+            },
+        }
+    }
+
+
+def test_github_url_can_be_overridden_without_disabling_read_only_mode():
+    assert internal_sources._configured_connections(
+        {
+            "GITHUB_PERSONAL_ACCESS_TOKEN": "github_pat_test",
+            "GITHUB_MCP_URL": "https://github.example.test/mcp",
+        }
+    )["github"] == {
+        "transport": "streamable_http",
+        "url": "https://github.example.test/mcp",
+        "headers": {
+            "Authorization": "Bearer github_pat_test",
+            "X-MCP-Readonly": "true",
+            "X-MCP-Toolsets": "repos,issues,pull_requests",
+        },
+    }
 
 
 def test_posthog_uses_hosted_read_only_mcp_with_personal_api_key():

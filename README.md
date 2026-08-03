@@ -27,6 +27,7 @@ runtime (Node + CopilotRuntime with embedded Channels)
 agent (Python + LangGraph deepagents)
           ├── OpenAI
           ├── Tavily (optional)
+          ├── GitHub MCP (optional, read-only)
           ├── PostHog MCP (optional, read-only)
           ├── Linear MCP (optional)
           └── Notion MCP (optional remote server)
@@ -67,8 +68,9 @@ Prerequisites: Node.js 22+, pnpm, Python 3.12, and
    INTELLIGENCE_API_KEY=cpk-...
    ```
 
-   Tavily, PostHog, Linear, and Notion are optional. Both Node and Python load
-   this root `.env`; Railway supplies the same values as service variables.
+   Tavily, GitHub, PostHog, Linear, and Notion are optional. Both Node and
+   Python load this root `.env`; Railway supplies the same values as service
+   variables.
 
    `INTELLIGENCE_API_URL` and `INTELLIGENCE_GATEWAY_WS_URL` default to the
    production Intelligence endpoints. `INTELLIGENCE_CHANNEL_NAME` defaults to
@@ -140,6 +142,9 @@ Slack app**. Reusing it preserves the bot user, workspace installation, and
 
 - `TAVILY_API_KEY` enables live web research. Without it, OpenTag still chats,
   triages requests and renders UI from model knowledge.
+- `GITHUB_PERSONAL_ACCESS_TOKEN` enables read-only repository, code, issue, and
+  pull-request search through GitHub's hosted MCP. `GITHUB_MCP_URL` can override
+  the endpoint; OpenTag still sends GitHub's read-only configuration header.
 - `POSTHOG_PERSONAL_API_KEY` enables PostHog analytics through its hosted MCP.
   Create the key with PostHog's **MCP Server** preset. The default connection is
   token-efficient and read-only; `POSTHOG_MCP_URL` can override the endpoint.
@@ -165,8 +170,9 @@ The runtime reaches the agent over Railway private networking and embeds the
 managed `open-tag` Channel. Railway sets
 `INTELLIGENCE_CHANNEL_NAME=open-tag`; Intelligence owns both platform
 adapters. The runtime API key is preserved. OpenAI is required on `agent`;
-Tavily, PostHog, Linear, and remote Notion settings are optional. Connecting both
-services to `main` enables GitHub-triggered deployments after merges.
+Tavily, GitHub search, PostHog, Linear, and remote Notion settings are optional.
+Connecting both services to `main` enables GitHub-triggered deployments after
+merges.
 
 The repository configuration does not mutate the existing production Railway
 project. Inventory and cutover should happen after Railway authentication.
