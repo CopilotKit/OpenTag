@@ -145,6 +145,71 @@ def _thread_key() -> str | None:
     return str(thread_id) if thread_id else None
 
 
+class ApprovalGate:
+    """Which thread currently has an approval outstanding.
+
+    A model turn can emit several tool calls at once, and LangGraph runs each
+    as its own task. Two mutating calls in one turn therefore raise two
+    interrupts in the same super-step -- and then nothing can answer them: the
+    Channel posts one card, and LangGraph rejects a resume that doesn't name an
+    interrupt id ("When there are multiple pending interrupts, you must specify
+    the interrupt id when resuming"), killing the run.
+
+    So only the first write on a thread may pause for approval. The rest come
+    back unrun, with a result that tells the model to re-issue them, which it
+    does on the next turn -- one card at a time, in order.
+
+    Shared across interceptors because each MCP server gets its own: two writes
+    to different servers in one turn are exactly the case a per-server gate
+    would miss.
+    """
+
+    def __init__(self):
+        self._claims: dict[str, tuple] = {}
+
+    def claim(self, thread: str | None, token: tuple) -> bool:
+        """Whether `token` may pause this thread for approval.
+
+        The token identifies the call, so a claim survives the replay that
+        resume performs: the same call reclaims its own pause, while a
+        different call in the same turn is turned away.
+        """
+        if thread is None:
+            # No thread to serialize on. Approving is still safe -- worst case
+            # is the multi-interrupt error this gate exists to avoid, which is
+            # better than skipping the gate and writing unapproved.
+            return True
+        held = self._claims.get(thread)
+        if held is not None and held != token:
+            return False
+        self._claims[thread] = token
+        return True
+
+    def release(self, thread: str | None) -> None:
+        if thread is not None:
+            self._claims.pop(thread, None)
+
+
+# One gate for the whole process; see ApprovalGate for why it is not per-server.
+APPROVAL_GATE = ApprovalGate()
+
+
+def _deferred_result(action: str) -> CallToolResult:
+    return CallToolResult(
+        content=[
+            TextContent(
+                type="text",
+                text=(
+                    f"Not run: another write on this conversation is waiting "
+                    f"for the user's approval. Writes are approved one at a "
+                    f"time, so re-issue this {action.lower()} call on its own "
+                    f"once the current one resolves."
+                ),
+            )
+        ]
+    )
+
+
 class WriteConfirmationInterceptor:
     """Require approval for every MCP tool not marked read-only."""
 
@@ -154,8 +219,9 @@ class WriteConfirmationInterceptor:
         "API-query-data-source",
     }
 
-    def __init__(self):
+    def __init__(self, gate: ApprovalGate | None = None):
         self._read_only_tools = set(self._KNOWN_READ_ONLY_TOOLS)
+        self._gate = gate if gate is not None else APPROVAL_GATE
         # (thread id, tool name) -> (attempts so far, last failure text).
         self._failures: OrderedDict[tuple[str, str], tuple[int, str]] = (
             OrderedDict()
@@ -219,14 +285,26 @@ class WriteConfirmationInterceptor:
         action = action[:1].upper() + action[1:]
         thread = _thread_key()
         key = None if thread is None else (thread, request.name)
+        fields = summarize_args(request.args)
+
+        # Identifies this specific call, so the claim survives resume's replay
+        # but does not cover a different write issued in the same turn.
+        token = (request.server_name, request.name, json.dumps(fields, sort_keys=True))
+        if not self._gate.claim(thread, token):
+            return _deferred_result(action)
+
+        # This raises to pause the task, and the claim is deliberately not
+        # released on the way out: the thread stays claimed for as long as the
+        # card is unanswered. Only a resolved approval frees it, below.
         _answer, response = copilotkit_interrupt(
             action="confirm_write",
             args={
                 "action": action,
-                "fields": summarize_args(request.args),
+                "fields": fields,
                 **self._retry_args(key),
             },
         )
+        self._gate.release(thread)
 
         if isinstance(response, str):
             try:
