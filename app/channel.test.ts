@@ -123,16 +123,18 @@ afterEach(async () => {
 
 function makeChannel(options: { agent?: FakeAgent } = {}) {
   const adapter = new FakeAdapter({ platform: "intelligence" });
+  const stateStore = new MemoryStore();
+  adapter.stateStore = stateStore;
   const agent = options.agent ?? new CapturingAgent();
   const channel = createOpenTagChannel("opentag", agent);
   channel.ɵruntime.addAdapter(adapter);
   channels.push(channel);
-  return { adapter, agent, channel };
+  return { adapter, agent, channel, stateStore };
 }
 
 describe("createOpenTagChannel", () => {
-  it("continues responding in a thread after Kite is mentioned", async () => {
-    const { adapter, agent, channel } = makeChannel();
+  it("subscribes when Kite is mentioned and handles a later managed delivery", async () => {
+    const { adapter, agent, channel, stateStore } = makeChannel();
 
     await channel.ɵruntime.start();
     await adapter.getSink().onTurn({
@@ -148,6 +150,10 @@ describe("createOpenTagChannel", () => {
         mentioned: true,
       },
     });
+    expect(
+      await stateStore.kv.get<boolean>("sub:mentioned-thread"),
+    ).toBe(true);
+
     await adapter.getSink().onTurn({
       conversationKey: "mentioned-thread",
       replyTarget: {},
@@ -161,21 +167,29 @@ describe("createOpenTagChannel", () => {
         mentioned: false,
       },
     });
+
+    expect((agent as CapturingAgent).calls).toHaveLength(2);
+  });
+
+  it("handles an unmentioned turn already admitted by managed ingress", async () => {
+    const { adapter, agent, channel } = makeChannel();
+
+    await channel.ɵruntime.start();
     await adapter.getSink().onTurn({
-      conversationKey: "unrelated-thread",
+      conversationKey: "managed-thread",
       replyTarget: {},
-      userText: "Kite should not answer this",
+      userText: "This turn passed the managed subscription gate",
       platform: "slack",
       actor: { id: "U2", kind: "human" },
       operation: {
         kind: "created",
-        logicalMessageId: "m3",
-        revisionId: "m3",
+        logicalMessageId: "m1",
+        revisionId: "m1",
         mentioned: false,
       },
     });
 
-    expect((agent as CapturingAgent).calls).toHaveLength(2);
+    expect((agent as CapturingAgent).calls).toHaveLength(1);
   });
 
   it("declares one managed Channel and retains app commands", () => {

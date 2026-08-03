@@ -66,8 +66,6 @@ export function createOpenTagChannel(
   });
 
   channel.onMessage(async ({ thread, message }) => {
-    if (!(await thread.isSubscribed())) return;
-
     await runAgentSafely({ thread, message });
   });
 
