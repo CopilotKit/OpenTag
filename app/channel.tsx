@@ -78,6 +78,8 @@ export function createOpenTagChannel(
         action={args.action}
         fields={args.fields}
         detail={args.detail ?? undefined}
+        attempt={args.attempt}
+        previousError={args.previous_error ?? undefined}
       />,
     );
   });
