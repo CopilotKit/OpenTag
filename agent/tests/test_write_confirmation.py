@@ -47,6 +47,14 @@ def save_project(**args):
     )
 
 
+class _Paused(BaseException):
+    """Stands in for the GraphInterrupt that suspends an interrupted task.
+
+    A BaseException, like the real one, so `except Exception` handlers in the
+    interceptor cannot swallow it.
+    """
+
+
 def test_summarize_args_omits_empty_values():
     fields = summarize_args(
         {
@@ -496,6 +504,203 @@ def test_a_broken_failure_report_does_not_break_the_write(monkeypatch):
 
     # The tool's own result still reaches the agent, which can retry or explain.
     assert result is failed
+
+
+def test_only_one_write_per_thread_may_pause_for_approval(monkeypatch):
+    """Two writes in one model turn must not raise two interrupts.
+
+    LangGraph runs parallel tool calls as separate tasks, so both would pause;
+    the resume then fails with "multiple pending interrupts" and the run dies.
+    """
+    cards = approve_and_track(monkeypatch)
+    capture_reports(monkeypatch)
+    gate = write_confirmation.ApprovalGate()
+    interceptor = write_confirmation.WriteConfirmationInterceptor(gate)
+    written = []
+
+    paused = []
+
+    def pause(**kwargs):
+        # Stand in for the GraphInterrupt that suspends the first task.
+        paused.append(kwargs["args"])
+        raise _Paused
+
+    monkeypatch.setattr(write_confirmation, "copilotkit_interrupt", pause)
+
+    async def handler(request):
+        written.append(request.name)
+        return CallToolResult(content=[TextContent(type="text", text="ok")])
+
+    with pytest.raises(_Paused):
+        asyncio.run(interceptor(save_project(name="one"), handler))
+
+    # The second write in the same turn comes back unrun rather than pausing.
+    second = asyncio.run(interceptor(save_project(name="two"), handler))
+
+    assert len(paused) == 1
+    assert written == []
+    assert "another write" in second.content[0].text
+    assert "re-issue" in second.content[0].text.lower()
+    assert cards == []
+
+
+def test_the_same_write_reclaims_its_own_pause_on_resume(monkeypatch):
+    """Resume replays the task; it must not be mistaken for a second write."""
+    capture_reports(monkeypatch)
+    monkeypatch.setattr(write_confirmation, "_thread_key", lambda: "thread-1")
+    gate = write_confirmation.ApprovalGate()
+    interceptor = write_confirmation.WriteConfirmationInterceptor(gate)
+
+    calls = []
+
+    def pause_then_approve(**kwargs):
+        calls.append(kwargs["args"])
+        if len(calls) == 1:
+            raise _Paused
+        return '{"confirmed": true}', {"confirmed": True}
+
+    monkeypatch.setattr(
+        write_confirmation, "copilotkit_interrupt", pause_then_approve
+    )
+
+    async def handler(_request):
+        return CallToolResult(content=[TextContent(type="text", text="ok")])
+
+    request = save_project(name="one")
+    with pytest.raises(_Paused):
+        asyncio.run(interceptor(request, handler))
+
+    # Same call, replayed by the resume: it must reach the interrupt again.
+    result = asyncio.run(interceptor(request, handler))
+
+    assert len(calls) == 2
+    assert result.content[0].text == "ok"
+
+
+def test_a_resolved_approval_frees_the_thread_for_the_next_write(monkeypatch):
+    approve_and_track(monkeypatch)
+    capture_reports(monkeypatch)
+    gate = write_confirmation.ApprovalGate()
+    interceptor = write_confirmation.WriteConfirmationInterceptor(gate)
+
+    async def handler(_request):
+        return CallToolResult(content=[TextContent(type="text", text="ok")])
+
+    first = asyncio.run(interceptor(save_project(name="one"), handler))
+    second = asyncio.run(interceptor(save_project(name="two"), handler))
+
+    # The first approval resolved, so the next write is asked about normally
+    # rather than being deferred behind a claim nobody is holding.
+    assert first.content[0].text == "ok"
+    assert second.content[0].text == "ok"
+
+
+def test_writes_to_different_servers_share_one_gate(monkeypatch):
+    """Each MCP server gets its own interceptor; the gate must span them."""
+    capture_reports(monkeypatch)
+    monkeypatch.setattr(write_confirmation, "_thread_key", lambda: "thread-1")
+    gate = write_confirmation.ApprovalGate()
+    linear = write_confirmation.WriteConfirmationInterceptor(gate)
+    notion = write_confirmation.WriteConfirmationInterceptor(gate)
+
+    def pause(**_kwargs):
+        raise _Paused
+
+    monkeypatch.setattr(write_confirmation, "copilotkit_interrupt", pause)
+
+    async def handler(_request):
+        return CallToolResult(content=[TextContent(type="text", text="ok")])
+
+    with pytest.raises(_Paused):
+        asyncio.run(linear(save_project(name="one"), handler))
+
+    deferred = asyncio.run(
+        notion(
+            MCPToolCallRequest(
+                name="save_document", args={"title": "x"}, server_name="notion"
+            ),
+            handler,
+        )
+    )
+
+    assert "another write" in deferred.content[0].text
+
+
+def test_a_declined_write_frees_the_thread(monkeypatch):
+    capture_reports(monkeypatch)
+    monkeypatch.setattr(write_confirmation, "_thread_key", lambda: "thread-1")
+    gate = write_confirmation.ApprovalGate()
+    interceptor = write_confirmation.WriteConfirmationInterceptor(gate)
+    monkeypatch.setattr(
+        write_confirmation,
+        "copilotkit_interrupt",
+        lambda **_k: ('{"confirmed": false}', {"confirmed": False}),
+    )
+
+    async def handler(_request):
+        return CallToolResult(content=[TextContent(type="text", text="ok")])
+
+    asyncio.run(interceptor(save_project(name="one"), handler))
+
+    # Cancelling must not wedge the thread against every later write.
+    assert gate.claim("thread-1", ("linear", "save_issue", "[]")) is True
+
+
+def test_reads_are_never_deferred(monkeypatch):
+    """A read behind a pending approval still answers; only writes queue."""
+    capture_reports(monkeypatch)
+    monkeypatch.setattr(write_confirmation, "_thread_key", lambda: "thread-1")
+    gate = write_confirmation.ApprovalGate()
+    interceptor = write_confirmation.WriteConfirmationInterceptor(gate)
+    gate.claim("thread-1", ("linear", "save_project", "[]"))
+
+    async def read_issue(issue_id: str):
+        return issue_id
+
+    interceptor.register_tools(
+        [
+            StructuredTool.from_function(
+                coroutine=read_issue,
+                name="get_issue",
+                description="Read an issue",
+                metadata={"readOnlyHint": True},
+            )
+        ]
+    )
+
+    async def handler(_request):
+        return "read-result"
+
+    result = asyncio.run(
+        interceptor(
+            MCPToolCallRequest(
+                name="get_issue", args={"issue_id": "CPK-9"}, server_name="linear"
+            ),
+            handler,
+        )
+    )
+
+    assert result == "read-result"
+
+
+def test_a_thread_without_an_id_still_asks_for_approval(monkeypatch):
+    """Failing open on the gate is right; failing open on the gate is not."""
+    cards = approve_and_track(monkeypatch, thread=None)
+    capture_reports(monkeypatch)
+    gate = write_confirmation.ApprovalGate()
+    interceptor = write_confirmation.WriteConfirmationInterceptor(gate)
+    written = []
+
+    async def handler(request):
+        written.append(request.name)
+        return CallToolResult(content=[TextContent(type="text", text="ok")])
+
+    asyncio.run(interceptor(save_project(name="one"), handler))
+
+    # Serialization is best-effort without a thread id, but the write is still
+    # gated -- never silently executed.
+    assert len(cards) == 1
+    assert written == ["save_project"]
 
 
 def test_write_confirmation_interceptor_rejects_a_malformed_resume(
