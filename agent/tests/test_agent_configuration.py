@@ -39,6 +39,7 @@ def build_with_captured_configuration(monkeypatch):
 
     monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
     monkeypatch.delenv("TAVILY_API_KEY", raising=False)
+    monkeypatch.delenv("GITHUB_PERSONAL_ACCESS_TOKEN", raising=False)
     monkeypatch.delenv("POSTHOG_PERSONAL_API_KEY", raising=False)
     monkeypatch.delenv("LINEAR_API_KEY", raising=False)
     monkeypatch.delenv("NOTION_MCP_AUTH_TOKEN", raising=False)
@@ -146,6 +147,7 @@ def test_openai_harness_excludes_unusable_delegation_tools(monkeypatch):
     model = RecordingOpenAIModel()
     monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
     monkeypatch.delenv("TAVILY_API_KEY", raising=False)
+    monkeypatch.delenv("GITHUB_PERSONAL_ACCESS_TOKEN", raising=False)
     monkeypatch.delenv("POSTHOG_PERSONAL_API_KEY", raising=False)
     monkeypatch.delenv("LINEAR_API_KEY", raising=False)
     monkeypatch.delenv("NOTION_MCP_AUTH_TOKEN", raising=False)
@@ -170,6 +172,7 @@ def _configure_minimal_environment(monkeypatch):
     monkeypatch.delenv("OPENAI_REASONING_EFFORT", raising=False)
     monkeypatch.delenv("OPENAI_VERBOSITY", raising=False)
     monkeypatch.delenv("TAVILY_API_KEY", raising=False)
+    monkeypatch.delenv("GITHUB_PERSONAL_ACCESS_TOKEN", raising=False)
     monkeypatch.delenv("POSTHOG_PERSONAL_API_KEY", raising=False)
     monkeypatch.delenv("LINEAR_API_KEY", raising=False)
     monkeypatch.delenv("NOTION_MCP_AUTH_TOKEN", raising=False)
