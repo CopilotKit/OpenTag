@@ -20,13 +20,31 @@ import {
   Context,
   Actions,
   Button,
+  Table,
+  Row,
+  Cell,
 } from "@copilotkit/channels";
 import type { InteractionContext } from "@copilotkit/channels";
+
+/** One argument of the pending write, already labelled and stringified. */
+export interface ConfirmWriteField {
+  label: string;
+  value: string;
+}
 
 interface ConfirmWriteProps {
   /** Short imperative title of the write, e.g. 'Create Linear issue'. */
   action: string;
-  /** The specifics being approved — issue title + one-line description, etc. */
+  /**
+   * The write's arguments as approver-readable rows, rendered as a table. The
+   * agent decides which fields are worth showing (see `summarize_args`); this
+   * component only decides how they look.
+   */
+  fields?: ConfirmWriteField[];
+  /**
+   * Legacy single-string summary. Superseded by `fields`, but still rendered
+   * when an agent revision predating `fields` is what sent the interrupt.
+   */
   detail?: string;
 }
 
@@ -59,11 +77,36 @@ async function resumeOrShowFailure(
   }
 }
 
-export function ConfirmWrite({ action, detail }: ConfirmWriteProps) {
+/**
+ * The write's arguments, as a headerless two-column table. No `columns` prop is
+ * passed, so neither renderer emits a header row — "Field | Value" would spend a
+ * row restating what the layout already says. Slack renders cells as `raw_text`,
+ * so labels cannot be bolded here.
+ */
+function fieldTable(fields: ConfirmWriteField[]) {
+  return (
+    <Table>
+      {fields.map((field) => (
+        <Row>
+          <Cell>{field.label}</Cell>
+          <Cell>{field.value}</Cell>
+        </Row>
+      ))}
+    </Table>
+  );
+}
+
+export function ConfirmWrite({ action, fields, detail }: ConfirmWriteProps) {
+  const body = fields?.length
+    ? fieldTable(fields)
+    : detail
+      ? <Section>{detail}</Section>
+      : null;
+
   return (
     <Message accent="#E2B340">
       <Header>{`📝 ${action}?`}</Header>
-      {detail ? <Section>{detail}</Section> : null}
+      {body}
       <Context>{"🔒  Nothing is written until you click **Create**."}</Context>
       <Actions>
         <Button

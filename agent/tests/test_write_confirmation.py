@@ -5,6 +5,71 @@ import pytest
 import write_confirmation
 from langchain_core.tools import StructuredTool
 from langchain_mcp_adapters.interceptors import MCPToolCallRequest
+from write_confirmation import summarize_args
+
+
+def test_summarize_args_omits_empty_values():
+    fields = summarize_args(
+        {
+            "name": "OpenTag",
+            "color": "",
+            "id": None,
+            "labels": [],
+            "metadata": {},
+        }
+    )
+
+    assert fields == [{"label": "Name", "value": "OpenTag"}]
+
+
+def test_summarize_args_keeps_zero_and_false():
+    fields = summarize_args({"priority": 0, "archived": False})
+
+    assert fields == [
+        {"label": "Priority", "value": "0"},
+        {"label": "Archived", "value": "No"},
+    ]
+
+
+def test_summarize_args_humanizes_camel_case_and_snake_case_keys():
+    fields = summarize_args({"addTeams": ["CopilotKit"], "due_date": "2026-08-03"})
+
+    assert [f["label"] for f in fields] == ["Add teams", "Due date"]
+
+
+def test_summarize_args_joins_lists_and_compacts_nested_values():
+    fields = summarize_args(
+        {
+            "teams": ["CopilotKit", "Growth"],
+            "lead": {"email": "jerel@copilotkit.ai"},
+        }
+    )
+
+    assert fields[0] == {"label": "Teams", "value": "CopilotKit, Growth"}
+    assert fields[1] == {
+        "label": "Lead",
+        "value": '{"email": "jerel@copilotkit.ai"}',
+    }
+
+
+def test_summarize_args_truncates_an_overlong_value():
+    fields = summarize_args({"description": "x" * 400})
+
+    assert len(fields) == 1
+    assert fields[0]["value"] == "x" * 300 + "…"
+
+
+def test_summarize_args_caps_rows_and_notes_the_overflow():
+    fields = summarize_args({f"field{i}": f"value{i}" for i in range(15)})
+
+    assert len(fields) == 13
+    assert fields[12] == {"label": "…", "value": "3 more fields"}
+
+
+def test_summarize_args_renders_booleans_as_yes_and_no():
+    fields = summarize_args({"notify": True})
+
+    assert fields == [{"label": "Notify", "value": "Yes"}]
 
 
 def test_write_confirmation_emits_the_copilotkit_interrupt_envelope(monkeypatch):
@@ -41,7 +106,7 @@ def test_write_confirmation_emits_the_copilotkit_interrupt_envelope(monkeypatch)
         "action": "confirm_write",
         "args": {
             "action": "Create issue",
-            "detail": '{"title": "Checkout 500s"}',
+            "fields": [{"label": "Title", "value": "Checkout 500s"}],
         },
     }
 
@@ -121,7 +186,7 @@ def test_write_confirmation_interceptor_blocks_a_declined_mutation(monkeypatch):
             "action": "confirm_write",
             "args": {
                 "action": "Create issue",
-                "detail": '{"title": "Checkout 500s"}',
+                "fields": [{"label": "Title", "value": "Checkout 500s"}],
             },
         }
     ]

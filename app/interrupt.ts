@@ -5,6 +5,11 @@ const confirmWriteInterruptSchema = z.object({
     action: z.literal("confirm_write"),
     args: z.object({
       action: z.string().min(1),
+      /** Approver-readable rows built by the agent's `summarize_args`. */
+      fields: z
+        .array(z.object({ label: z.string(), value: z.string() }))
+        .optional(),
+      /** Legacy pre-`fields` summary; still accepted across a deploy skew. */
       detail: z.string().nullish(),
     }),
   }),

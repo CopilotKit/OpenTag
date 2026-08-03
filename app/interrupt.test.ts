@@ -61,6 +61,39 @@ describe("parseConfirmWriteInterrupt", () => {
     );
   });
 
+  it("parses the fields the agent sends for the confirmation table", () => {
+    const fields = [
+      { label: "Name", value: "OpenTag" },
+      { label: "Description", value: "Project for OpenTag work." },
+    ];
+
+    expect(
+      parseConfirmWriteInterrupt(
+        JSON.stringify({
+          ...realEnvelope,
+          __copilotkit_interrupt_value__: {
+            action: "confirm_write",
+            args: { action: "Save project", fields },
+          },
+        }),
+      ).args.fields,
+    ).toEqual(fields);
+  });
+
+  it("rejects fields that are not label/value pairs", () => {
+    expect(() =>
+      parseConfirmWriteInterrupt(
+        JSON.stringify({
+          ...realEnvelope,
+          __copilotkit_interrupt_value__: {
+            action: "confirm_write",
+            args: { action: "Save project", fields: [{ label: "Name" }] },
+          },
+        }),
+      ),
+    ).toThrow();
+  });
+
   it("rejects malformed envelopes and other actions", () => {
     expect(() =>
       parseConfirmWriteInterrupt(

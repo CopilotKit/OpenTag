@@ -106,6 +106,76 @@ describe("ConfirmWrite", () => {
     expect(blocks.some((b) => b.type === "section")).toBe(false);
   });
 
+  it("renders fields as a headerless Slack table", () => {
+    const ir = renderToIR(
+      <ConfirmWrite
+        action="Save project"
+        fields={[
+          { label: "Name", value: "OpenTag" },
+          { label: "Description", value: "Project for OpenTag work." },
+        ]}
+      />,
+    );
+    const { blocks } = renderSlackMessage(ir);
+
+    const table = blocks.find((b) => b.type === "table") as
+      | { rows: { text: string }[][]; column_settings?: unknown }
+      | undefined;
+    expect(table).toBeDefined();
+
+    // No `columns` prop, so no header row is emitted — the first row is data.
+    expect(table?.column_settings).toBeUndefined();
+    expect(table?.rows.map((row) => row.map((cell) => cell.text))).toEqual([
+      ["Name", "OpenTag"],
+      ["Description", "Project for OpenTag work."],
+    ]);
+  });
+
+  it("prefers the fields table over a legacy detail string", () => {
+    const ir = renderToIR(
+      <ConfirmWrite
+        action="Save project"
+        fields={[{ label: "Name", value: "OpenTag" }]}
+        detail='{"name": "OpenTag"}'
+      />,
+    );
+    const { blocks } = renderSlackMessage(ir);
+
+    expect(blocks.some((b) => b.type === "table")).toBe(true);
+    expect(JSON.stringify(blocks)).not.toContain('{\\"name\\"');
+  });
+
+  it("falls back to the detail section when fields is empty", () => {
+    const ir = renderToIR(
+      <ConfirmWrite action="Save project" fields={[]} detail="CPK-9: ..." />,
+    );
+    const { blocks } = renderSlackMessage(ir);
+
+    expect(blocks.some((b) => b.type === "table")).toBe(false);
+    const section = blocks.find((b) => b.type === "section") as
+      | { text: { text: string } }
+      | undefined;
+    expect(section?.text.text).toContain("CPK-9");
+  });
+
+  it("renders fields as a Teams Adaptive Card table without a header row", () => {
+    const card = renderAdaptiveCard(
+      renderToIR(
+        <ConfirmWrite
+          action="Save project"
+          fields={[{ label: "Name", value: "OpenTag" }]}
+        />,
+      ),
+    );
+
+    const table = (
+      card.body as { type: string; firstRowAsHeader?: boolean }[]
+    ).find((el) => el.type === "Table");
+    expect(table).toBeDefined();
+    expect(table?.firstRowAsHeader).toBe(false);
+    expect(JSON.stringify(card)).toContain("OpenTag");
+  });
+
   it("renders Create and Cancel actions as a Teams Adaptive Card", () => {
     const card = renderAdaptiveCard(
       renderToIR(
