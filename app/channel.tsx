@@ -74,7 +74,8 @@ export function createOpenTagChannel(
   });
 
   channel.onMessage(async ({ thread, message }) => {
-    await runAgentSafely({ thread, message });
+    if(await thread.isSubscribed())
+      await runAgentSafely({ thread, message });
   });
 
   channel.onModalSubmit(FILE_ISSUE_CALLBACK, fileIssueSubmit);
