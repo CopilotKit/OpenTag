@@ -3,9 +3,48 @@ import asyncio
 import copilotkit.langgraph
 import pytest
 import write_confirmation
+from langchain_core.messages import ToolMessage
 from langchain_core.tools import StructuredTool
 from langchain_mcp_adapters.interceptors import MCPToolCallRequest
-from write_confirmation import summarize_args
+from mcp.types import CallToolResult, TextContent
+from write_confirmation import failure_text, summarize_args
+
+
+def approve_and_track(monkeypatch, thread="thread-1"):
+    """Auto-approve every confirmation and record the args each card carried."""
+    cards = []
+
+    def approve(**kwargs):
+        cards.append(kwargs["args"])
+        return '{"confirmed": true}', {"confirmed": True}
+
+    monkeypatch.setattr(write_confirmation, "copilotkit_interrupt", approve)
+    monkeypatch.setattr(write_confirmation, "_thread_key", lambda: thread)
+    return cards
+
+
+def capture_reports(monkeypatch):
+    """Record what the interceptor reports back to the thread."""
+    reported = []
+
+    async def emit(_config, message):
+        reported.append(message)
+
+    monkeypatch.setattr(write_confirmation, "copilotkit_emit_message", emit)
+    monkeypatch.setattr(write_confirmation, "ensure_config", lambda: {})
+    return reported
+
+
+def error_result(text):
+    return CallToolResult(
+        content=[TextContent(type="text", text=text)], isError=True
+    )
+
+
+def save_project(**args):
+    return MCPToolCallRequest(
+        name="save_project", args=args, server_name="linear"
+    )
 
 
 def test_summarize_args_omits_empty_values():
@@ -217,6 +256,246 @@ def test_write_confirmation_interceptor_runs_an_approved_mutation(monkeypatch):
 
     assert result == "write-result"
     assert handler_calls == [request]
+
+
+def test_failure_text_reads_an_mcp_error_result():
+    assert failure_text(error_result('Team "Growth" not found')) == (
+        'Team "Growth" not found'
+    )
+
+
+def test_failure_text_reads_an_errored_tool_message():
+    message = ToolMessage(content="boom", tool_call_id="1", status="error")
+
+    assert failure_text(message) == "boom"
+
+
+def test_failure_text_is_none_for_successful_results():
+    ok = CallToolResult(content=[TextContent(type="text", text="done")])
+
+    assert failure_text(ok) is None
+    assert failure_text(ToolMessage(content="done", tool_call_id="1")) is None
+    assert failure_text("write-result") is None
+
+
+def test_failure_text_names_an_error_with_no_readable_content():
+    assert failure_text(CallToolResult(content=[], isError=True)) == (
+        "the tool reported an error"
+    )
+
+
+def test_failure_text_truncates_an_overlong_error():
+    assert failure_text(error_result("x" * 400)) == "x" * 240 + "…"
+
+
+def test_a_failed_write_is_reported_to_the_thread(monkeypatch):
+    approve_and_track(monkeypatch)
+    reported = capture_reports(monkeypatch)
+
+    async def handler(_request):
+        return error_result('Team "Growth" not found')
+
+    asyncio.run(
+        write_confirmation.WriteConfirmationInterceptor()(
+            save_project(name="channels sdk launch"), handler
+        )
+    )
+
+    assert reported == ['⚠️ **Save project** failed — Team "Growth" not found']
+
+
+def test_a_raised_write_failure_is_reported_and_still_propagates(monkeypatch):
+    approve_and_track(monkeypatch)
+    reported = capture_reports(monkeypatch)
+
+    async def handler(_request):
+        raise TimeoutError("linear timed out")
+
+    with pytest.raises(TimeoutError):
+        asyncio.run(
+            write_confirmation.WriteConfirmationInterceptor()(
+                save_project(name="channels sdk launch"), handler
+            )
+        )
+
+    assert reported == ["⚠️ **Save project** failed — TimeoutError: linear timed out"]
+
+
+def test_a_successful_write_is_not_reported_as_a_failure(monkeypatch):
+    approve_and_track(monkeypatch)
+    reported = capture_reports(monkeypatch)
+
+    async def handler(_request):
+        return CallToolResult(content=[TextContent(type="text", text="ok")])
+
+    asyncio.run(
+        write_confirmation.WriteConfirmationInterceptor()(
+            save_project(name="channels sdk launch"), handler
+        )
+    )
+
+    assert reported == []
+
+
+def test_a_retry_card_names_the_attempt_and_the_previous_failure(monkeypatch):
+    cards = approve_and_track(monkeypatch)
+    capture_reports(monkeypatch)
+    interceptor = write_confirmation.WriteConfirmationInterceptor()
+
+    async def failing(_request):
+        return error_result('Team "Growth" not found')
+
+    async def succeeding(_request):
+        return CallToolResult(content=[TextContent(type="text", text="ok")])
+
+    asyncio.run(interceptor(save_project(setTeams=["Growth"]), failing))
+    asyncio.run(
+        interceptor(save_project(setTeams=["Growth & Partnerships"]), succeeding)
+    )
+
+    # The first card asks cold; the second says why it is asking again.
+    assert "attempt" not in cards[0]
+    assert cards[1]["attempt"] == 2
+    assert cards[1]["previous_error"] == 'Team "Growth" not found'
+
+
+def test_a_third_card_counts_every_failed_attempt(monkeypatch):
+    cards = approve_and_track(monkeypatch)
+    capture_reports(monkeypatch)
+    interceptor = write_confirmation.WriteConfirmationInterceptor()
+
+    async def failing(_request):
+        return error_result("still wrong")
+
+    for _ in range(3):
+        asyncio.run(interceptor(save_project(name="x"), failing))
+
+    assert [card.get("attempt") for card in cards] == [None, 2, 3]
+
+
+def test_a_succeeded_write_clears_the_retry_banner(monkeypatch):
+    cards = approve_and_track(monkeypatch)
+    capture_reports(monkeypatch)
+    interceptor = write_confirmation.WriteConfirmationInterceptor()
+
+    async def failing(_request):
+        return error_result("nope")
+
+    async def succeeding(_request):
+        return CallToolResult(content=[TextContent(type="text", text="ok")])
+
+    asyncio.run(interceptor(save_project(name="x"), failing))
+    asyncio.run(interceptor(save_project(name="x"), succeeding))
+    asyncio.run(interceptor(save_project(name="x"), succeeding))
+
+    assert cards[2].get("attempt") is None
+
+
+def test_a_declined_write_clears_the_retry_banner(monkeypatch):
+    cards = []
+    capture_reports(monkeypatch)
+    monkeypatch.setattr(write_confirmation, "_thread_key", lambda: "thread-1")
+    interceptor = write_confirmation.WriteConfirmationInterceptor()
+
+    confirmed = [True, False, True]
+
+    def respond(**kwargs):
+        cards.append(kwargs["args"])
+        answer = confirmed.pop(0)
+        return f'{{"confirmed": {str(answer).lower()}}}', {"confirmed": answer}
+
+    monkeypatch.setattr(write_confirmation, "copilotkit_interrupt", respond)
+
+    async def failing(_request):
+        return error_result("nope")
+
+    asyncio.run(interceptor(save_project(name="x"), failing))
+    asyncio.run(interceptor(save_project(name="x"), failing))
+    asyncio.run(interceptor(save_project(name="x"), failing))
+
+    # Card 2 cites the failure and is declined; card 3 starts clean.
+    assert cards[1]["attempt"] == 2
+    assert cards[2].get("attempt") is None
+
+
+def test_failures_never_leak_between_conversations(monkeypatch):
+    cards = []
+    capture_reports(monkeypatch)
+    interceptor = write_confirmation.WriteConfirmationInterceptor()
+
+    def approve(**kwargs):
+        cards.append(kwargs["args"])
+        return '{"confirmed": true}', {"confirmed": True}
+
+    monkeypatch.setattr(write_confirmation, "copilotkit_interrupt", approve)
+
+    async def failing(_request):
+        return error_result("nope")
+
+    monkeypatch.setattr(write_confirmation, "_thread_key", lambda: "thread-a")
+    asyncio.run(interceptor(save_project(name="x"), failing))
+    monkeypatch.setattr(write_confirmation, "_thread_key", lambda: "thread-b")
+    asyncio.run(interceptor(save_project(name="x"), failing))
+
+    # thread-b has failed nothing; its first card must not cite thread-a's error.
+    assert cards[1].get("attempt") is None
+
+
+def test_failures_are_forgotten_without_a_thread_id(monkeypatch):
+    cards = approve_and_track(monkeypatch, thread=None)
+    capture_reports(monkeypatch)
+    interceptor = write_confirmation.WriteConfirmationInterceptor()
+
+    async def failing(_request):
+        return error_result("nope")
+
+    asyncio.run(interceptor(save_project(name="x"), failing))
+    asyncio.run(interceptor(save_project(name="x"), failing))
+
+    # No thread to attribute the failure to, so nothing is remembered — better
+    # than a shared key that would label an unrelated conversation's card.
+    assert cards[1].get("attempt") is None
+
+
+def test_tracked_failures_stay_bounded(monkeypatch):
+    approve_and_track(monkeypatch)
+    capture_reports(monkeypatch)
+    interceptor = write_confirmation.WriteConfirmationInterceptor()
+
+    async def failing(_request):
+        return error_result("nope")
+
+    for i in range(write_confirmation._MAX_TRACKED_FAILURES + 10):
+        monkeypatch.setattr(
+            write_confirmation, "_thread_key", lambda i=i: f"thread-{i}"
+        )
+        asyncio.run(interceptor(save_project(name="x"), failing))
+
+    assert len(interceptor._failures) == write_confirmation._MAX_TRACKED_FAILURES
+
+
+def test_a_broken_failure_report_does_not_break_the_write(monkeypatch):
+    approve_and_track(monkeypatch)
+
+    async def emit(_config, _message):
+        raise RuntimeError("no stream")
+
+    monkeypatch.setattr(write_confirmation, "copilotkit_emit_message", emit)
+    monkeypatch.setattr(write_confirmation, "ensure_config", lambda: {})
+
+    failed = error_result("nope")
+
+    async def failing(_request):
+        return failed
+
+    result = asyncio.run(
+        write_confirmation.WriteConfirmationInterceptor()(
+            save_project(name="x"), failing
+        )
+    )
+
+    # The tool's own result still reaches the agent, which can retry or explain.
+    assert result is failed
 
 
 def test_write_confirmation_interceptor_rejects_a_malformed_resume(

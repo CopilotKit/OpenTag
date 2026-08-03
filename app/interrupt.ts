@@ -11,6 +11,13 @@ const confirmWriteInterruptSchema = z.object({
         .optional(),
       /** Legacy pre-`fields` summary; still accepted across a deploy skew. */
       detail: z.string().nullish(),
+      /**
+       * Which attempt at this write the card is asking about. Absent on a
+       * first attempt; `2` and up mean an earlier approved attempt failed.
+       */
+      attempt: z.number().int().min(1).optional(),
+      /** Why the previous attempt at this same write failed. */
+      previous_error: z.string().nullish(),
     }),
   }),
   __copilotkit_messages__: z.array(z.unknown()),

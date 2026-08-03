@@ -46,6 +46,14 @@ interface ConfirmWriteProps {
    * when an agent revision predating `fields` is what sent the interrupt.
    */
   detail?: string;
+  /**
+   * Which attempt at this write is being confirmed. `2` and up mean the user
+   * already approved this action once and the write was rejected — without
+   * saying so, a corrected retry is indistinguishable from asking twice.
+   */
+  attempt?: number;
+  /** Why the previous attempt failed, quoted from the tool that rejected it. */
+  previousError?: string;
 }
 
 async function resumeOrShowFailure(
@@ -127,12 +135,36 @@ function confirmLabel(verb: string): string {
   return verb.toLowerCase() === DECLINE_LABEL.toLowerCase() ? "Confirm" : verb;
 }
 
-export function ConfirmWrite({ action, fields, detail }: ConfirmWriteProps) {
+/**
+ * The retry banner, shown only from the second attempt on. It names the
+ * attempt number and quotes the failure, so an approver can tell a corrected
+ * retry from the same question asked again — and can see what to fix.
+ */
+function retryNotice(attempt: number, previousError?: string) {
+  const cause = previousError ? `: ${previousError}` : ".";
+  return (
+    <Context>
+      {`♻️  Attempt ${attempt} — an earlier approved attempt failed${cause}`}
+    </Context>
+  );
+}
+
+export function ConfirmWrite({
+  action,
+  fields,
+  detail,
+  attempt,
+  previousError,
+}: ConfirmWriteProps) {
   const body = fields?.length
     ? fieldTable(fields)
     : detail
       ? <Section>{detail}</Section>
       : null;
+
+  const retry = attempt && attempt > 1
+    ? retryNotice(attempt, previousError)
+    : null;
 
   const verb = verbOf(action);
   const label = confirmLabel(verb);
@@ -143,6 +175,7 @@ export function ConfirmWrite({ action, fields, detail }: ConfirmWriteProps) {
   return (
     <Message accent="#E2B340">
       <Header>{`📝 ${action}?`}</Header>
+      {retry}
       {body}
       <Context>
         {`🔒  Nothing is changed until you click **${label}**.`}
@@ -156,7 +189,16 @@ export function ConfirmWrite({ action, fields, detail }: ConfirmWriteProps) {
               message.ref,
               <Message accent="#27AE60">
                 <Header>{`✅ ${action}`}</Header>
-                <Context>{"✅  Approved — writing now."}</Context>
+                {/*
+                  Claims only what is true at click time. The card cannot be
+                  updated with the outcome — the agent, not this handler, learns
+                  whether the tool accepted the write — so the agent reports the
+                  result in the thread (see `_report_failure`) rather than
+                  leaving this card asserting a write that may have failed.
+                */}
+                <Context>
+                  {"✅  Approved — running the write. The result follows below."}
+                </Context>
               </Message>,
             );
             await resumeOrShowFailure(

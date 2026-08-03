@@ -253,6 +253,77 @@ describe("ConfirmWrite", () => {
     expect(json).toContain("Action.Submit");
   });
 
+  it("says nothing about retries on a first attempt", () => {
+    const { blocks } = renderSlackMessage(
+      renderToIR(<ConfirmWrite action="Save project" />),
+    );
+
+    expect(JSON.stringify(blocks)).not.toMatch(/Attempt|failed/i);
+  });
+
+  it("names the attempt and the previous failure when re-asking", () => {
+    const { blocks } = renderSlackMessage(
+      renderToIR(
+        <ConfirmWrite
+          action="Save project"
+          fields={[{ label: "Set teams", value: "Growth & Partnerships" }]}
+          attempt={2}
+          previousError={'Team "Growth" not found'}
+        />,
+      ),
+    );
+
+    const contexts = blocks.filter((b) => b.type === "context") as {
+      elements: { text: string }[];
+    }[];
+    // The retry banner leads, so the reason for the second ask is visible
+    // before the arguments the approver is being asked to re-approve.
+    expect(contexts[0]?.elements[0]?.text).toContain("Attempt 2");
+    expect(contexts[0]?.elements[0]?.text).toContain('Team "Growth" not found');
+    expect(blocks.findIndex((b) => b.type === "context")).toBeLessThan(
+      blocks.findIndex((b) => b.type === "table"),
+    );
+    // The buttons and their lock note survive the extra block.
+    expect(
+      contexts[contexts.length - 1]?.elements[0]?.text,
+    ).toContain("Nothing is changed until you click");
+  });
+
+  it("still flags a retry when the failure text is missing", () => {
+    const { blocks } = renderSlackMessage(
+      renderToIR(<ConfirmWrite action="Save project" attempt={3} />),
+    );
+
+    const context = blocks.find((b) => b.type === "context") as
+      | { elements: { text: string }[] }
+      | undefined;
+    expect(context?.elements[0]?.text).toContain("Attempt 3");
+    expect(context?.elements[0]?.text).not.toContain("undefined");
+  });
+
+  it("treats attempt 1 as a first ask, not a retry", () => {
+    const { blocks } = renderSlackMessage(
+      renderToIR(<ConfirmWrite action="Save project" attempt={1} />),
+    );
+
+    expect(JSON.stringify(blocks)).not.toMatch(/Attempt/i);
+  });
+
+  it("renders the retry banner on a Teams Adaptive Card too", () => {
+    const card = renderAdaptiveCard(
+      renderToIR(
+        <ConfirmWrite
+          action="Save project"
+          attempt={2}
+          previousError="Team not found"
+        />,
+      ),
+    );
+
+    expect(JSON.stringify(card)).toContain("Attempt 2");
+    expect(JSON.stringify(card)).toContain("Team not found");
+  });
+
   it("approve onClick updates the picker and resumes the interrupted agent", async () => {
     const ir = renderToIR(
       <ConfirmWrite action="Create Linear issue" detail="CPK-9: ..." />,
@@ -292,6 +363,33 @@ describe("ConfirmWrite", () => {
       | { elements: { text: string }[] }
       | undefined;
     expect(context?.elements[0]?.text).toContain("Approved");
+  });
+
+  it("the approved card does not claim a write that may still fail", async () => {
+    const ir = renderToIR(<ConfirmWrite action="Save project" />);
+    const save = buttonByText(ir, "Save");
+    const update = vi.fn(async () => ({ id: "m1" }));
+    const ctx = {
+      thread: { update, resume: vi.fn(async () => ({ id: "m2" })) },
+      message: { ref: { id: "m1" } },
+    } as unknown as InteractionContext;
+
+    await (save.props.onClick as ClickHandler)(ctx);
+
+    const [, renderable] = update.mock.calls[0] as unknown as [
+      { id: string },
+      Parameters<typeof renderToIR>[0],
+    ];
+    const { blocks } = renderSlackMessage(renderToIR(renderable));
+    const context = blocks.find((b) => b.type === "context") as
+      | { elements: { text: string }[] }
+      | undefined;
+
+    // This card is never revisited: the agent, not the click handler, learns
+    // the outcome. It must therefore claim only that the write was started —
+    // a card reading "writing now" outlives a write that Linear rejected.
+    expect(context?.elements[0]?.text).toContain("running the write");
+    expect(context?.elements[0]?.text).not.toMatch(/written|wrote|saved|done/i);
   });
 
   it("does not resume approval when the status update fails", async () => {
