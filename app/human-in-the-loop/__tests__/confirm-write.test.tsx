@@ -84,7 +84,7 @@ describe("ConfirmWrite", () => {
       | { elements: { text: string }[] }
       | undefined;
     expect(context?.elements[0]?.text).toContain(
-      "Nothing is written until you click",
+      "Nothing is changed until you click",
     );
     // "Create" is authored as Markdown bold (`**Create**`) so the IR→mrkdwn
     // transform renders it as Slack bold (`*Create*`), matching the old card.
@@ -104,6 +104,135 @@ describe("ConfirmWrite", () => {
     const ir = renderToIR(<ConfirmWrite action="Create Linear issue" />);
     const { blocks } = renderSlackMessage(ir);
     expect(blocks.some((b) => b.type === "section")).toBe(false);
+  });
+
+  it("labels the confirm button with the action's own verb", () => {
+    const ir = renderToIR(<ConfirmWrite action="Delete customer" />);
+    const { blocks } = renderSlackMessage(ir);
+
+    const actions = blocks.find((b) => b.type === "actions") as
+      | { elements: { text: { text: string } }[] }
+      | undefined;
+    expect(actions?.elements.map((e) => e.text.text)).toEqual([
+      "Delete",
+      "Cancel",
+    ]);
+  });
+
+  it("does not label both buttons the same when the verb collides with Cancel", () => {
+    const ir = renderToIR(<ConfirmWrite action="Cancel subscription" />);
+    const { blocks } = renderSlackMessage(ir);
+
+    const actions = blocks.find((b) => b.type === "actions") as
+      | { elements: { text: { text: string } }[] }
+      | undefined;
+    const labels = actions?.elements.map((e) => e.text.text);
+
+    // "Cancel subscription" would otherwise render Cancel/Cancel, where one of
+    // the two identical buttons destroys the subscription.
+    expect(labels).toEqual(["Confirm", "Cancel"]);
+    expect(new Set(labels).size).toBe(2);
+
+    // Relabelling must not cost the destructive styling — the action is still
+    // a cancellation, whatever the button ends up reading.
+    const styled = blocks.find((b) => b.type === "actions") as
+      | { elements: { style?: string }[] }
+      | undefined;
+    expect(styled?.elements[0]?.style).toBe("danger");
+  });
+
+  it("styles a destructive action's confirm button as dangerous", () => {
+    const ir = renderToIR(<ConfirmWrite action="Delete customer" />);
+    const { blocks } = renderSlackMessage(ir);
+
+    const actions = blocks.find((b) => b.type === "actions") as
+      | { elements: { style?: string }[] }
+      | undefined;
+    // The destructive button carries the warning colour; Cancel becomes the
+    // neutral escape hatch rather than the red one.
+    expect(actions?.elements[0]?.style).toBe("danger");
+    expect(actions?.elements[1]?.style).toBeUndefined();
+  });
+
+  it("names the derived verb in the lock context", () => {
+    const ir = renderToIR(<ConfirmWrite action="Delete customer" />);
+    const { blocks } = renderSlackMessage(ir);
+
+    const context = blocks.find((b) => b.type === "context") as
+      | { elements: { text: string }[] }
+      | undefined;
+    expect(context?.elements[0]?.text).toContain("*Delete*");
+    expect(context?.elements[0]?.text).not.toContain("Create");
+  });
+
+  it("renders fields as a headerless Slack table", () => {
+    const ir = renderToIR(
+      <ConfirmWrite
+        action="Save project"
+        fields={[
+          { label: "Name", value: "OpenTag" },
+          { label: "Description", value: "Project for OpenTag work." },
+        ]}
+      />,
+    );
+    const { blocks } = renderSlackMessage(ir);
+
+    const table = blocks.find((b) => b.type === "table") as
+      | { rows: { text: string }[][]; column_settings?: unknown }
+      | undefined;
+    expect(table).toBeDefined();
+
+    // No `columns` prop, so no header row is emitted — the first row is data.
+    expect(table?.column_settings).toBeUndefined();
+    expect(table?.rows.map((row) => row.map((cell) => cell.text))).toEqual([
+      ["Name", "OpenTag"],
+      ["Description", "Project for OpenTag work."],
+    ]);
+  });
+
+  it("prefers the fields table over a legacy detail string", () => {
+    const ir = renderToIR(
+      <ConfirmWrite
+        action="Save project"
+        fields={[{ label: "Name", value: "OpenTag" }]}
+        detail='{"name": "OpenTag"}'
+      />,
+    );
+    const { blocks } = renderSlackMessage(ir);
+
+    expect(blocks.some((b) => b.type === "table")).toBe(true);
+    expect(JSON.stringify(blocks)).not.toContain('{\\"name\\"');
+  });
+
+  it("falls back to the detail section when fields is empty", () => {
+    const ir = renderToIR(
+      <ConfirmWrite action="Save project" fields={[]} detail="CPK-9: ..." />,
+    );
+    const { blocks } = renderSlackMessage(ir);
+
+    expect(blocks.some((b) => b.type === "table")).toBe(false);
+    const section = blocks.find((b) => b.type === "section") as
+      | { text: { text: string } }
+      | undefined;
+    expect(section?.text.text).toContain("CPK-9");
+  });
+
+  it("renders fields as a Teams Adaptive Card table without a header row", () => {
+    const card = renderAdaptiveCard(
+      renderToIR(
+        <ConfirmWrite
+          action="Save project"
+          fields={[{ label: "Name", value: "OpenTag" }]}
+        />,
+      ),
+    );
+
+    const table = (
+      card.body as { type: string; firstRowAsHeader?: boolean }[]
+    ).find((el) => el.type === "Table");
+    expect(table).toBeDefined();
+    expect(table?.firstRowAsHeader).toBe(false);
+    expect(JSON.stringify(card)).toContain("OpenTag");
   });
 
   it("renders Create and Cancel actions as a Teams Adaptive Card", () => {

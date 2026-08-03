@@ -64,6 +64,7 @@ export function createOpenTagChannel(
     await thread.post(
       <ConfirmWrite
         action={args.action}
+        fields={args.fields}
         detail={args.detail ?? undefined}
       />,
     );

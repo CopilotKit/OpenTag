@@ -334,6 +334,52 @@ describe("createOpenTagChannel", () => {
     expect(JSON.stringify(blocks)).toContain("CPK-9: Checkout 500s");
   });
 
+  it("renders the interrupt's fields as a table on the posted card", async () => {
+    const envelope = {
+      __copilotkit_interrupt_value__: {
+        action: "confirm_write",
+        args: {
+          action: "Save project",
+          fields: [
+            { label: "Name", value: "OpenTag" },
+            { label: "Lead", value: "jerel@copilotkit.ai" },
+          ],
+        },
+      },
+      __copilotkit_messages__: [],
+    };
+    const agent = new FakeAgent([
+      (subscriber) => {
+        subscriber.onCustomEvent?.({
+          event: {
+            type: EventType.CUSTOM,
+            name: "on_interrupt",
+            value: JSON.stringify(envelope),
+          },
+        } as never);
+      },
+    ]);
+    const { adapter, channel } = makeChannel({ agent });
+
+    await channel.ɵruntime.start();
+    await adapter.getSink().onTurn({
+      conversationKey: "c1",
+      replyTarget: {},
+      userText: "save it",
+      platform: "slack",
+    });
+
+    expect(adapter.posted).toHaveLength(1);
+    const { blocks } = renderSlackMessage(adapter.posted[0]!);
+    const table = blocks.find((b) => b.type === "table") as
+      | { rows: { text: string }[][] }
+      | undefined;
+    expect(table?.rows.map((row) => row.map((cell) => cell.text))).toEqual([
+      ["Name", "OpenTag"],
+      ["Lead", "jerel@copilotkit.ai"],
+    ]);
+  });
+
   it("rejects malformed confirm_write interrupt payloads", async () => {
     const consoleError = vi
       .spyOn(console, "error")
