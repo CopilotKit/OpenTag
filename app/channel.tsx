@@ -14,6 +14,7 @@ import { ConfirmWrite } from "./human-in-the-loop/index.js";
 import { parseConfirmWriteInterrupt } from "./interrupt.js";
 import { FILE_ISSUE_CALLBACK, fileIssueSubmit } from "./modals/file-issue.js";
 import { IncidentCard } from "./tools/showcase-tools.js";
+import { RenderChart } from "./tools/render-chart.js";
 import { appTools } from "./tools/index.js";
 
 type ChannelAgent = NonNullable<CreateChannelOptions["agent"]>;
@@ -30,7 +31,14 @@ export function createOpenTagChannel(
     tools: appTools,
     context: [...appContext],
     commands: appCommands,
-    components: [IssueCard, IssueList, PageList, IncidentCard, ConfirmWrite],
+    components: [
+      IssueCard,
+      IssueList,
+      PageList,
+      IncidentCard,
+      ConfirmWrite,
+      RenderChart,
+    ],
   });
 
   const runAgentSafely: Parameters<typeof channel.onMessage>[0] = async ({
@@ -66,7 +74,8 @@ export function createOpenTagChannel(
   });
 
   channel.onMessage(async ({ thread, message }) => {
-    await runAgentSafely({ thread, message });
+    if(await thread.isSubscribed())
+      await runAgentSafely({ thread, message });
   });
 
   channel.onModalSubmit(FILE_ISSUE_CALLBACK, fileIssueSubmit);
