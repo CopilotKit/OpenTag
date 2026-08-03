@@ -22,7 +22,21 @@ import { appTools } from "./tools/index.js";
 import { createOpenTagChannel } from "./channel.js";
 
 class CapturingAgent extends FakeAgent {
-  readonly calls: Array<RunAgentParameters | undefined> = [];
+  readonly calls: Array<RunAgentParameters | undefined>;
+
+  constructor(calls: Array<RunAgentParameters | undefined> = []) {
+    super();
+    this.calls = calls;
+  }
+
+  override clone(): CapturingAgent {
+    const cloned = new CapturingAgent(this.calls);
+    cloned.threadId = this.threadId;
+    cloned.agentId = this.agentId;
+    cloned.messages = structuredClone(this.messages);
+    cloned.state = structuredClone(this.state);
+    return cloned;
+  }
 
   override async runAgent(
     parameters?: RunAgentParameters,
@@ -109,14 +123,75 @@ afterEach(async () => {
 
 function makeChannel(options: { agent?: FakeAgent } = {}) {
   const adapter = new FakeAdapter({ platform: "intelligence" });
+  const stateStore = new MemoryStore();
+  adapter.stateStore = stateStore;
   const agent = options.agent ?? new CapturingAgent();
   const channel = createOpenTagChannel("opentag", agent);
   channel.ɵruntime.addAdapter(adapter);
   channels.push(channel);
-  return { adapter, agent, channel };
+  return { adapter, agent, channel, stateStore };
 }
 
 describe("createOpenTagChannel", () => {
+  it("subscribes when Kite is mentioned and handles a later managed delivery", async () => {
+    const { adapter, agent, channel, stateStore } = makeChannel();
+
+    await channel.ɵruntime.start();
+    await adapter.getSink().onTurn({
+      conversationKey: "mentioned-thread",
+      replyTarget: {},
+      userText: "@Kite help me triage this",
+      platform: "slack",
+      actor: { id: "U1", kind: "human" },
+      operation: {
+        kind: "created",
+        logicalMessageId: "m1",
+        revisionId: "m1",
+        mentioned: true,
+      },
+    });
+    expect(
+      await stateStore.kv.get<boolean>("sub:mentioned-thread"),
+    ).toBe(true);
+
+    await adapter.getSink().onTurn({
+      conversationKey: "mentioned-thread",
+      replyTarget: {},
+      userText: "What should I do first?",
+      platform: "slack",
+      actor: { id: "U1", kind: "human" },
+      operation: {
+        kind: "created",
+        logicalMessageId: "m2",
+        revisionId: "m2",
+        mentioned: false,
+      },
+    });
+
+    expect((agent as CapturingAgent).calls).toHaveLength(2);
+  });
+
+  it("handles an unmentioned turn already admitted by managed ingress", async () => {
+    const { adapter, agent, channel } = makeChannel();
+
+    await channel.ɵruntime.start();
+    await adapter.getSink().onTurn({
+      conversationKey: "managed-thread",
+      replyTarget: {},
+      userText: "This turn passed the managed subscription gate",
+      platform: "slack",
+      actor: { id: "U2", kind: "human" },
+      operation: {
+        kind: "created",
+        logicalMessageId: "m1",
+        revisionId: "m1",
+        mentioned: false,
+      },
+    });
+
+    expect((agent as CapturingAgent).calls).toHaveLength(1);
+  });
+
   it("declares one managed Channel and retains app commands", () => {
     const channel = createOpenTagChannel("custom-channel", new FakeAgent());
     channels.push(channel);
