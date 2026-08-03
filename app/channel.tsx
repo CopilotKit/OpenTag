@@ -33,7 +33,10 @@ export function createOpenTagChannel(
     components: [IssueCard, IssueList, PageList, IncidentCard, ConfirmWrite],
   });
 
-  channel.onMention(async ({ thread, message }) => {
+  const runAgentSafely: Parameters<typeof channel.onMessage>[0] = async ({
+    thread,
+    message,
+  }) => {
     try {
       await thread.runAgent(managedRunInput(message));
     } catch (error) {
@@ -55,6 +58,17 @@ export function createOpenTagChannel(
         recovery: "posted_user_facing_error",
       });
     }
+  };
+
+  channel.onMention(async ({ thread, message }) => {
+    await thread.subscribe();
+    await runAgentSafely({ thread, message });
+  });
+
+  channel.onMessage(async ({ thread, message }) => {
+    if (!(await thread.isSubscribed())) return;
+
+    await runAgentSafely({ thread, message });
   });
 
   channel.onModalSubmit(FILE_ISSUE_CALLBACK, fileIssueSubmit);

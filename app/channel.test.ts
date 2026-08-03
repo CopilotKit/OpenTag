@@ -22,7 +22,21 @@ import { appTools } from "./tools/index.js";
 import { createOpenTagChannel } from "./channel.js";
 
 class CapturingAgent extends FakeAgent {
-  readonly calls: Array<RunAgentParameters | undefined> = [];
+  readonly calls: Array<RunAgentParameters | undefined>;
+
+  constructor(calls: Array<RunAgentParameters | undefined> = []) {
+    super();
+    this.calls = calls;
+  }
+
+  override clone(): CapturingAgent {
+    const cloned = new CapturingAgent(this.calls);
+    cloned.threadId = this.threadId;
+    cloned.agentId = this.agentId;
+    cloned.messages = structuredClone(this.messages);
+    cloned.state = structuredClone(this.state);
+    return cloned;
+  }
 
   override async runAgent(
     parameters?: RunAgentParameters,
@@ -117,6 +131,53 @@ function makeChannel(options: { agent?: FakeAgent } = {}) {
 }
 
 describe("createOpenTagChannel", () => {
+  it("continues responding in a thread after Kite is mentioned", async () => {
+    const { adapter, agent, channel } = makeChannel();
+
+    await channel.ɵruntime.start();
+    await adapter.getSink().onTurn({
+      conversationKey: "mentioned-thread",
+      replyTarget: {},
+      userText: "@Kite help me triage this",
+      platform: "slack",
+      actor: { id: "U1", kind: "human" },
+      operation: {
+        kind: "created",
+        logicalMessageId: "m1",
+        revisionId: "m1",
+        mentioned: true,
+      },
+    });
+    await adapter.getSink().onTurn({
+      conversationKey: "mentioned-thread",
+      replyTarget: {},
+      userText: "What should I do first?",
+      platform: "slack",
+      actor: { id: "U1", kind: "human" },
+      operation: {
+        kind: "created",
+        logicalMessageId: "m2",
+        revisionId: "m2",
+        mentioned: false,
+      },
+    });
+    await adapter.getSink().onTurn({
+      conversationKey: "unrelated-thread",
+      replyTarget: {},
+      userText: "Kite should not answer this",
+      platform: "slack",
+      actor: { id: "U2", kind: "human" },
+      operation: {
+        kind: "created",
+        logicalMessageId: "m3",
+        revisionId: "m3",
+        mentioned: false,
+      },
+    });
+
+    expect((agent as CapturingAgent).calls).toHaveLength(2);
+  });
+
   it("declares one managed Channel and retains app commands", () => {
     const channel = createOpenTagChannel("custom-channel", new FakeAgent());
     channels.push(channel);
