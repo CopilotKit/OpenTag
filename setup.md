@@ -67,6 +67,9 @@ cp .env.example .env
 | `LINEAR_MCP_URL` | No | Overrides the hosted Linear MCP URL |
 | `NOTION_MCP_AUTH_TOKEN` | No | Bearer token for a remote Notion MCP; requires `NOTION_MCP_URL` |
 | `NOTION_MCP_URL` | No | Remote Notion MCP endpoint; requires `NOTION_MCP_AUTH_TOKEN` |
+| `TAP_AGENT_KEY` | No | Enables TAP mode: services are reached through the [TAP](https://tap.human.tech) credential proxy, no service keys in this process (see [docs/tap.md](./docs/tap.md)) |
+| `TAP_PROXY_URL` | No | Overrides the TAP proxy URL (defaults to the hosted proxy; set for self-hosted TAP) |
+| `TAP_APPROVAL_TIMEOUT` | No | Seconds to wait when TAP holds a call for human approval; defaults to `300` |
 | `SERVER_HOST` | No | Local bind host; defaults to `0.0.0.0` |
 | `SERVER_PORT` / `PORT` | No | Local port; defaults to `8123` |
 
@@ -199,6 +202,17 @@ Notion is optional and is not a separate Railway service. Configure an existing
 remote MCP endpoint by setting both `NOTION_MCP_URL` and
 `NOTION_MCP_AUTH_TOKEN`, then restart `pnpm agent` so it discovers the tools.
 If either value is absent, OpenTag skips Notion without blocking startup.
+
+### TAP mode (credential isolation + any connected service)
+
+Set `TAP_AGENT_KEY` (from a [TAP](https://tap.human.tech) account's agent key)
+and restart `pnpm agent`. The agent then reaches Linear, Notion, PostHog, and
+any other service connected to the TAP account through the TAP proxy via two
+generic tools (`tap_discover` + `tap_call`) — the direct MCP connections above
+are skipped and none of their keys need to be set. Credentials don't have to be
+created up front: when the agent needs a service that isn't connected yet, it
+posts a prefilled setup link in the conversation. Full guide:
+[docs/tap.md](./docs/tap.md).
 
 ## Railway
 

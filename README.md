@@ -151,6 +151,30 @@ Every Linear and Notion mutation is intercepted in code before the MCP request
 runs. The interceptor emits `confirm_write` and proceeds only after approval;
 reads and rendering do not pause.
 
+## TAP mode — any service, no keys in the process
+
+**Optional, off by default.** Set `TAP_AGENT_KEY` and the agent reaches Linear,
+Notion, PostHog, **and any other service connected to the team's
+[TAP](https://tap.human.tech) account** through the TAP credential proxy
+instead of holding API keys:
+
+- **Any service, zero code.** Two generic tools (`tap_discover` + `tap_call`)
+  replace the per-service MCP connections. An admin connects a new service
+  (GitHub, Sentry, PagerDuty, Stripe, Gmail via mediated OAuth, …) in the TAP
+  dashboard and the agent can use it on the next message — no code change here,
+  no new MCP server. If a service isn't connected yet, the agent posts a
+  prefilled setup link in the conversation.
+- **No keys in the process.** TAP injects each credential server-side and pins
+  it to its own API host, so a prompt-injected agent has no key to leak and
+  nowhere else to send one. Every call is audited.
+- **The write gate stays.** Mutations still emit the same `confirm_write`
+  interrupt before running, and the team's TAP policy can additionally require
+  a human approval per credential — a dial for higher-stakes services, not a
+  default.
+
+Without `TAP_AGENT_KEY` nothing changes and the MCP integrations above are used
+as-is. Setup lives in [docs/tap.md](./docs/tap.md).
+
 ## Railway
 
 [`.railway/railway.ts`](./.railway/railway.ts) defines exactly two services,
