@@ -100,6 +100,26 @@ redundant "Field | Value" header row.
 The interrupt handler passes `fields={args.fields}` alongside the existing `action`
 and `detail`.
 
+### 5. Verb-correct buttons and lock text (added after review)
+
+Originally deferred, pulled in once the table was checked against a delete. Deletes
+go through the same interceptor, so a `delete_customer` call rendered
+`🗑 Delete customer?` with a green **Create** button reading "Nothing is written
+until you click Create" — inviting styling and false wording on an irreversible
+operation.
+
+- The confirm button and lock line take the action's own leading verb: `Delete
+  customer` -> **Delete**, `Archive project` -> **Archive**.
+- "Nothing is **written**" becomes "Nothing is **changed**", which is true of
+  deletes and updates as well as creates.
+- Destructive verbs (`delete`, `remove`, `archive`, `cancel`, `revoke`) put the
+  warning colour on the confirm button and drop Cancel to neutral, so the red on
+  the card marks the irreversible choice rather than the safe one.
+- `Cancel subscription` would derive the label "Cancel" and render two identical
+  buttons, one cancelling the subscription and one cancelling the request. That
+  case falls back to **Confirm**. The destructive flag is read from the action's
+  real verb, not the substituted label, so relabelling never costs the styling.
+
 ## Testing
 
 Tests are written before the implementation.
@@ -125,11 +145,15 @@ Tests are written before the implementation.
 ## Out of scope
 
 - **The non-functional Create button.** Owned by Tyler, tracked separately.
-- **The hardcoded "Nothing is written until you click Create" wording** at
-  `confirm-write.tsx:67`, which reads wrong for updates and deletes. Noted in
-  CPK-7748; deliberately not bundled here.
 - **Retaining the full payload for auditability.** Considered and rejected: appending
   the raw JSON would reintroduce the truncation this change exists to remove.
+- **Resolving opaque identifiers to names.** A delete typically carries only
+  `{"id": "3f34e790-…"}`, so the table honestly renders `Id | 3f34e790-…` — readable,
+  but it does not tell the approver *what* is about to be deleted. Fixing that means
+  the agent resolving the id to a human label before pausing, which is agent-side
+  work rather than card-side. Worth its own ticket.
+- **`main` being red.** Nine tests and twenty type errors fail on `main` after the
+  0.6.0 / 1.65.0 bump, independent of this work. Tracked as CPK-7751.
 
 ## Files touched
 

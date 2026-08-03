@@ -84,7 +84,7 @@ describe("ConfirmWrite", () => {
       | { elements: { text: string }[] }
       | undefined;
     expect(context?.elements[0]?.text).toContain(
-      "Nothing is written until you click",
+      "Nothing is changed until you click",
     );
     // "Create" is authored as Markdown bold (`**Create**`) so the IR→mrkdwn
     // transform renders it as Slack bold (`*Create*`), matching the old card.
@@ -104,6 +104,65 @@ describe("ConfirmWrite", () => {
     const ir = renderToIR(<ConfirmWrite action="Create Linear issue" />);
     const { blocks } = renderSlackMessage(ir);
     expect(blocks.some((b) => b.type === "section")).toBe(false);
+  });
+
+  it("labels the confirm button with the action's own verb", () => {
+    const ir = renderToIR(<ConfirmWrite action="Delete customer" />);
+    const { blocks } = renderSlackMessage(ir);
+
+    const actions = blocks.find((b) => b.type === "actions") as
+      | { elements: { text: { text: string } }[] }
+      | undefined;
+    expect(actions?.elements.map((e) => e.text.text)).toEqual([
+      "Delete",
+      "Cancel",
+    ]);
+  });
+
+  it("does not label both buttons the same when the verb collides with Cancel", () => {
+    const ir = renderToIR(<ConfirmWrite action="Cancel subscription" />);
+    const { blocks } = renderSlackMessage(ir);
+
+    const actions = blocks.find((b) => b.type === "actions") as
+      | { elements: { text: { text: string } }[] }
+      | undefined;
+    const labels = actions?.elements.map((e) => e.text.text);
+
+    // "Cancel subscription" would otherwise render Cancel/Cancel, where one of
+    // the two identical buttons destroys the subscription.
+    expect(labels).toEqual(["Confirm", "Cancel"]);
+    expect(new Set(labels).size).toBe(2);
+
+    // Relabelling must not cost the destructive styling — the action is still
+    // a cancellation, whatever the button ends up reading.
+    const styled = blocks.find((b) => b.type === "actions") as
+      | { elements: { style?: string }[] }
+      | undefined;
+    expect(styled?.elements[0]?.style).toBe("danger");
+  });
+
+  it("styles a destructive action's confirm button as dangerous", () => {
+    const ir = renderToIR(<ConfirmWrite action="Delete customer" />);
+    const { blocks } = renderSlackMessage(ir);
+
+    const actions = blocks.find((b) => b.type === "actions") as
+      | { elements: { style?: string }[] }
+      | undefined;
+    // The destructive button carries the warning colour; Cancel becomes the
+    // neutral escape hatch rather than the red one.
+    expect(actions?.elements[0]?.style).toBe("danger");
+    expect(actions?.elements[1]?.style).toBeUndefined();
+  });
+
+  it("names the derived verb in the lock context", () => {
+    const ir = renderToIR(<ConfirmWrite action="Delete customer" />);
+    const { blocks } = renderSlackMessage(ir);
+
+    const context = blocks.find((b) => b.type === "context") as
+      | { elements: { text: string }[] }
+      | undefined;
+    expect(context?.elements[0]?.text).toContain("*Delete*");
+    expect(context?.elements[0]?.text).not.toContain("Create");
   });
 
   it("renders fields as a headerless Slack table", () => {
