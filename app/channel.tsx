@@ -1,6 +1,7 @@
 import {
   createChannel,
   type Channel,
+  type ChannelHandler,
   type CreateChannelOptions,
 } from "@copilotkit/channels";
 import {
@@ -33,7 +34,7 @@ export function createOpenTagChannel(
     components: [IssueCard, IssueList, PageList, IncidentCard, ConfirmWrite],
   });
 
-  channel.onMention(async ({ thread, message }) => {
+  const runTurn: ChannelHandler = async ({ thread, message }) => {
     try {
       await thread.runAgent(managedRunInput(message));
     } catch (error) {
@@ -55,6 +56,20 @@ export function createOpenTagChannel(
         recovery: "posted_user_facing_error",
       });
     }
+  };
+
+  // Being addressed joins the conversation; from then on OpenTag answers every
+  // message in it. Dispatch is exclusive — a mentioned turn goes to `onMention`
+  // whenever any is registered — so the mention that subscribes runs once.
+  channel.onMention(async (ctx) => {
+    await ctx.thread.subscribe();
+    await runTurn(ctx);
+  });
+
+  // Without the `isSubscribed` guard this answers every message in every
+  // conversation the bot can see, including ones it was never invited into.
+  channel.onMessage(async (ctx) => {
+    if (await ctx.thread.isSubscribed()) await runTurn(ctx);
   });
 
   channel.onModalSubmit(FILE_ISSUE_CALLBACK, fileIssueSubmit);

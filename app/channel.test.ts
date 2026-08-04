@@ -116,6 +116,31 @@ function makeChannel(options: { agent?: FakeAgent } = {}) {
   return { adapter, agent, channel };
 }
 
+/** Turn dedup keys off `logicalMessageId`/`revisionId`, so each turn needs its own id. */
+function messageOperation(id: string, mentioned: boolean) {
+  return {
+    kind: "created" as const,
+    logicalMessageId: id,
+    revisionId: id,
+    mentioned,
+  };
+}
+
+/**
+ * Count agent runs from inside the script rather than from a field on the agent:
+ * every turn runs on a *clone*, and `FakeAgent.clone()` copies the remaining
+ * script but resets its own counters, so instance state under-reports.
+ */
+function countingAgent(maxRuns = 5) {
+  const runs: string[] = [];
+  const agent = new FakeAgent(
+    Array.from({ length: maxRuns }, () => async () => {
+      runs.push("run");
+    }),
+  );
+  return { agent, runs };
+}
+
 describe("createOpenTagChannel", () => {
   it("declares one managed Channel and retains app commands", () => {
     const channel = createOpenTagChannel("custom-channel", new FakeAgent());
@@ -194,6 +219,53 @@ describe("createOpenTagChannel", () => {
         value: "Ada (teams id T1)",
       },
     ]);
+  });
+
+  it("stays quiet in a conversation that never addressed it", async () => {
+    const { agent, runs } = countingAgent();
+    const { adapter, channel } = makeChannel({ agent });
+
+    await channel.ɵruntime.start();
+    await adapter.getSink().onTurn({
+      conversationKey: "c1",
+      replyTarget: {},
+      userText: "chatter between two humans",
+      platform: "slack",
+      operation: messageOperation("m1", false),
+    });
+
+    expect(runs).toHaveLength(0);
+  });
+
+  it("answers follow-ups once a mention subscribes that conversation", async () => {
+    const { agent, runs } = countingAgent();
+    const { adapter, channel } = makeChannel({ agent });
+
+    await channel.ɵruntime.start();
+    await adapter.getSink().onTurn({
+      conversationKey: "c1",
+      replyTarget: {},
+      userText: "@opentag triage my issues",
+      platform: "slack",
+      operation: messageOperation("m1", true),
+    });
+    await adapter.getSink().onTurn({
+      conversationKey: "c1",
+      replyTarget: {},
+      userText: "and the second one?",
+      platform: "slack",
+      operation: messageOperation("m2", false),
+    });
+    // Subscriptions are per conversation, so an unrelated one stays quiet.
+    await adapter.getSink().onTurn({
+      conversationKey: "c2",
+      replyTarget: {},
+      userText: "unrelated chatter",
+      platform: "slack",
+      operation: messageOperation("m3", false),
+    });
+
+    expect(runs).toHaveLength(2);
   });
 
   it("injects managed content parts as the current agent prompt", async () => {
