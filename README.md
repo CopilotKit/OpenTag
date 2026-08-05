@@ -26,6 +26,43 @@ Do this **before** touching Slack. The Channel is what generates a Slack app
 manifest already pointed at the right Request URL, so creating the Slack app
 first means creating the wrong one.
 
+Two ways to do it. Both end in the same place.
+
+#### Let your coding agent drive it
+
+```bash
+npx --yes copilotkit@latest channels setup
+```
+
+That installs a `channels-setup` skill and copies a one-line prompt to your
+clipboard (`--no-clipboard` prints it instead). Paste it into your agent:
+
+> Use the `channels-setup` skill to set up a Channel for this project.
+
+The skill is deliberately a pointer rather than a copy of the steps: it fetches
+its workflow from <https://copilotkit.ai/channels-guide.md> at run time, so it
+cannot go stale against the CLI. It covers the whole path — selecting the
+project, creating and reconciling the Channel, walking you through the Slack
+console handoff, and proving a real mention gets a reply. It hands every secret
+back to you; it never asks you to paste one into chat.
+
+It writes `.agents/skills/channels-setup` and a `skills-lock.json`, both already
+gitignored here. Note that it installs to every coding agent it detects with no
+way to narrow the list. To install for one agent only, use the equivalent
+command, which takes the same prompt:
+
+```bash
+npx --yes copilotkit@latest skills onboard --channels --agent claude-code
+```
+
+The skill will also carry you through the rest of this quick start. One thing to
+watch: its workflow is written for a project starting from nothing, so it has
+phases for building the agent and writing the Channel runtime. **OpenTag already
+has both** — [`agent/`](./agent) and [`server.ts`](./server.ts). Point your agent
+at the existing code to verify and run, not to rewrite.
+
+#### Or run it yourself
+
 ```bash
 npx --yes copilotkit@latest project select
 ```
@@ -43,8 +80,18 @@ on the server, and returns a JSON envelope with one of three states:
   variable names to set, and the `resumeCommand` to run afterward. This exits 0.
 - `failed` — stop and read the error code. Do not continue.
 
-Follow the emitted `nextAction` rather than remembered Slack steps. Three
-details in that flow cost the most time when skipped:
+`--name` is a slug and must match `INTELLIGENCE_CHANNEL_NAME` character for
+character. If you are running a fork against your own project, pick your own
+name — see [Channel names claim deliveries](#channel-names-claim-deliveries).
+
+For Microsoft Teams, use `--adapter teams`. Two Teams steps stay yours because
+nothing can work around them: granting tenant admin consent, and uploading the
+app package through **Apps → Manage your apps → Upload an app**.
+
+#### Three Slack details that cost the most time
+
+These apply on either path. Follow the CLI's emitted `nextAction` rather than
+remembered Slack steps, and watch for:
 
 - After creating the app from the link, open **OAuth & Permissions** and choose
   **Reinstall to Workspace**. Slack applies the manifest's real scopes only on
@@ -55,14 +102,6 @@ details in that flow cost the most time when skipped:
   adapter wants — there is no app-level `xapp-` token anywhere on this path.
 - The signing secret is reissued on reinstall. If auth fails right after a
   reinstall, suspect a stale stored secret before a missing scope.
-
-`--name` is a slug and must match `INTELLIGENCE_CHANNEL_NAME` character for
-character. If you are running a fork against your own project, pick your own
-name — see [Channel names claim deliveries](#channel-names-claim-deliveries).
-
-For Microsoft Teams, use `--adapter teams`. Two Teams steps stay yours because
-nothing can work around them: granting tenant admin consent, and uploading the
-app package through **Apps → Manage your apps → Upload an app**.
 
 ### 3. Configure the environment
 

@@ -150,7 +150,8 @@ product sharing the words "channels" and "Slack".
 | `copilotkit channels list` | List Channels and their attachment state |
 | `copilotkit channels rotate <name>` | Replace stored provider credentials |
 | `copilotkit channels providers` | List providers and the credentials each asks for |
-| `copilotkit channels setup` | Hand the whole flow to your coding agent |
+| `copilotkit channels setup` | Install the `channels-setup` skill and hand the flow to your coding agent |
+| `copilotkit skills onboard --channels` | The same prompt, but `--agent` narrows which agents it installs to |
 
 No flag accepts a credential value. Credentials are read from `.env`, from a
 named variable via `--credential-env <field>=<VAR>`, or from a JSON document on
@@ -159,6 +160,13 @@ non-interactive: it never prompts and never opens a browser.
 
 `channels add` writes `.copilotkit/channels.json`. Keep that file tracked; keep
 `.env` and `.copilotkit/artifacts/` ignored.
+
+The `channels-setup` skill installed by `channels setup` is a pointer, not a copy
+of the steps: it fetches its workflow from
+<https://copilotkit.ai/channels-guide.md> at run time so it cannot go stale
+against the CLI. That workflow assumes a project starting from nothing, so it
+includes phases for building the agent and writing the Channel runtime — OpenTag
+has both already. Its Slack handoff never asks anyone to paste a secret into chat.
 
 ### Credentials each provider asks for
 
