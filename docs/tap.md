@@ -39,9 +39,13 @@ direct MCP integrations exactly as documented in [setup.md](../setup.md).
    # TAP_PROXY_URL only if self-hosting TAP; defaults to the hosted proxy
    ```
 
-3. Restart `pnpm agent`. Startup logs show `TAP mode: enabled` and the direct
-   MCP connections are skipped — `LINEAR_API_KEY`, `NOTION_MCP_AUTH_TOKEN`, and
-   `POSTHOG_PERSONAL_API_KEY` can be removed.
+3. Restart `pnpm agent`. Startup logs show `TAP mode: enabled`. TAP composes
+   per service with the direct integrations: any service key still set
+   (`LINEAR_API_KEY`, `NOTION_MCP_AUTH_TOKEN`, `POSTHOG_PERSONAL_API_KEY`)
+   keeps that service's direct MCP connection — remove a key to route that
+   service through TAP, which is what makes the isolation and approval
+   enforcement apply to it. The boot log states which services are direct and
+   that the rest go through `tap_call`.
 
 Credentials can be connected in the TAP dashboard up front, **or lazily**: ask
 the bot for something first — if the service isn't connected, the bot replies

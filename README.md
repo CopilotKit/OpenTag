@@ -159,14 +159,18 @@ Notion, PostHog, **and any other service connected to the team's
 instead of holding API keys:
 
 - **Any service, zero code.** Two generic tools (`tap_discover` + `tap_call`)
-  replace the per-service MCP connections. An admin connects a new service
-  (GitHub, Sentry, PagerDuty, Stripe, Gmail via mediated OAuth, …) in the TAP
-  dashboard and the agent can use it on the next message — no code change here,
-  no new MCP server. If a service isn't connected yet, the agent posts a
-  prefilled setup link in the conversation.
-- **No keys in the process.** TAP injects each credential server-side and pins
-  it to its own API host, so a prompt-injected agent has no key to leak and
-  nowhere else to send one. Every call is audited.
+  cover every service without a direct MCP connection. An admin connects a new
+  service (GitHub, Sentry, PagerDuty, Stripe, Gmail via mediated OAuth, …) in
+  the TAP dashboard and the agent can use it on the next message — no code
+  change here, no new MCP server. If a service isn't connected yet, the agent
+  posts a prefilled setup link in the conversation.
+- **Composes per service.** A service whose key is still set in `.env` keeps
+  its direct MCP connection; leave a key out and TAP covers that service. Move
+  services behind TAP one at a time — no all-at-once migration.
+- **No keys in the process.** For TAP-covered services, TAP injects each
+  credential server-side and pins it to its own API host, so a prompt-injected
+  agent has no key to leak and nowhere else to send one. Every call is
+  audited.
 - **The write gate stays.** Mutations still emit the same `confirm_write`
   interrupt before running, and the team's TAP policy can additionally require
   a human approval per credential — a dial for higher-stakes services, not a

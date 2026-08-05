@@ -21,10 +21,38 @@ def test_tap_enabled_with_agent_key(monkeypatch):
     assert tap_tools.tap_enabled() is True
 
 
-def test_tap_mode_skips_direct_mcp_connections(monkeypatch):
+def test_tap_mode_without_direct_keys_loads_no_mcp_connections(monkeypatch):
+    monkeypatch.setenv("TAP_AGENT_KEY", "tap_test")
+    assert internal_sources.internal_source_tools() == []
+
+
+def test_tap_mode_composes_with_direct_keys_per_service(monkeypatch):
+    """A service whose key is present keeps its direct MCP connection."""
+
+    class FakeMCPClient:
+        def __init__(self, connections, *, tool_interceptors):
+            self.connections = connections
+
+        async def get_tools(self):
+            from langchain_core.tools import StructuredTool
+
+            return [
+                StructuredTool.from_function(
+                    func=lambda: name,
+                    name=f"tool-for-{name}",
+                    description="test tool",
+                    metadata={"readOnlyHint": True},
+                )
+                for name in self.connections
+            ]
+
     monkeypatch.setenv("TAP_AGENT_KEY", "tap_test")
     monkeypatch.setenv("LINEAR_API_KEY", "lin_test")
-    assert internal_sources.internal_source_tools() == []
+    monkeypatch.setattr(internal_sources, "MultiServerMCPClient", FakeMCPClient)
+
+    result = internal_sources.internal_source_tools()
+
+    assert {tool.name for tool in result} == {"tool-for-linear"}
 
 
 def test_proxy_url_defaults_to_hosted_tap(monkeypatch):

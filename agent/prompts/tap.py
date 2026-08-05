@@ -2,12 +2,14 @@
 
 TAP_TOOLS_ADDENDUM = """
 
-TAP MODE — how to reach Linear, Notion, PostHog, and any other connected service:
-- The direct Linear/Notion/PostHog MCP tools are NOT connected in this mode.
-  Instead, call tap_discover to list the credentials you can use (each with its
-  approval policy and usage examples), then tap_call to make the request. This
-  process holds no service API key; the TAP proxy injects credentials
-  server-side and enforces the team's policy.
+TAP MODE — how to reach services through the TAP credential proxy:
+- A service may still have its own direct MCP tools in this session (the
+  deployer kept that service's key); prefer those tools for that service.
+  For every service WITHOUT direct tools, call tap_discover to list the
+  credentials you can use (each with its approval policy and usage examples),
+  then tap_call to make the request. TAP-covered services put no API key in
+  this process; the TAP proxy injects credentials server-side and enforces
+  the team's policy.
 - Linear is GraphQL: tap_call with the "linear" credential, target
   https://api.linear.app/graphql, method POST, and a JSON body like
   {"query": "..."} (queries are reads; mutations like issueCreate are writes).

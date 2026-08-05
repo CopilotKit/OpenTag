@@ -183,14 +183,16 @@ ways** — pick one before setting variables:
 - **Option A — direct keys (default).** Paste each service's key into the
   root `.env` as described per service below. Keys live in the agent process.
 - **Option B — [TAP mode](#tap-mode-credential-isolation--any-connected-service).**
-  Set a single `TAP_AGENT_KEY` and skip every service key below. The agent
-  reaches services through the [TAP](https://tap.human.tech) credential proxy:
+  Set a single `TAP_AGENT_KEY` and skip service keys. The agent reaches
+  services through the [TAP](https://tap.human.tech) credential proxy:
   no service keys in this process, per-call audit, and optional per-credential
   human approval. Also covers services with no MCP integration here (GitHub,
   Sentry, Stripe, Gmail, …).
 
-The options are exclusive per deployment: when `TAP_AGENT_KEY` is set, the
-direct MCP connections below are skipped.
+The choice is **per service, and the two compose**: with `TAP_AGENT_KEY` set,
+any service whose key you still provide below keeps its direct MCP connection,
+and TAP covers the rest. Leave a service's key out to route it through TAP —
+that is what makes TAP's isolation and approval enforcement apply to it.
 
 ### Tavily
 
@@ -221,13 +223,14 @@ If either value is absent, OpenTag skips Notion without blocking startup.
 ### TAP mode (credential isolation + any connected service)
 
 Set `TAP_AGENT_KEY` (from a [TAP](https://tap.human.tech) account's agent key)
-and restart `pnpm agent`. The agent then reaches Linear, Notion, PostHog, and
-any other service connected to the TAP account through the TAP proxy via two
-generic tools (`tap_discover` + `tap_call`) — the direct MCP connections above
-are skipped and none of their keys need to be set. Credentials don't have to be
-created up front: when the agent needs a service that isn't connected yet, it
-posts a prefilled setup link in the conversation. Full guide:
-[docs/tap.md](./docs/tap.md).
+and restart `pnpm agent`. The agent then reaches any service connected to the
+TAP account through the TAP proxy via two generic tools (`tap_discover` +
+`tap_call`). It composes per service with the direct integrations above: a
+service whose key is still set keeps its direct MCP connection; leave a
+service's key out and TAP covers it with no key in this process. Credentials
+don't have to be created up front: when the agent needs a service that isn't
+connected yet, it posts a prefilled setup link in the conversation. Full
+guide: [docs/tap.md](./docs/tap.md).
 
 ## Railway
 
