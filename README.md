@@ -155,12 +155,12 @@ reads and rendering do not pause.
 
 **Optional, off by default.** Set `TAP_AGENT_KEY` and the agent reaches Linear,
 Notion, PostHog, **and any other service connected to the team's
-[TAP](https://tap.human.tech) account** through the TAP credential proxy
-instead of holding API keys:
+[TAP](https://tap.human.tech?utm_source=opentag&utm_medium=github&utm_content=readme)
+account** through the TAP credential proxy instead of holding API keys:
 
 - **Any service, zero code.** Two generic tools (`tap_discover` + `tap_call`)
   cover every service without a direct MCP connection. An admin connects a new
-  service (GitHub, Sentry, PagerDuty, Stripe, Gmail via mediated OAuth, …) in
+  service (GitHub, Sentry, PagerDuty, Google Calendar via mediated OAuth, …) in
   the TAP dashboard and the agent can use it on the next message — no code
   change here, no new MCP server. If a service isn't connected yet, the agent
   posts a prefilled setup link in the conversation.

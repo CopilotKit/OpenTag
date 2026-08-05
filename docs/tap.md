@@ -30,8 +30,12 @@ direct MCP integrations exactly as documented in [setup.md](../setup.md).
 
 ## Setup
 
-1. Create a team at [tap.human.tech](https://tap.human.tech) and copy an agent
-   key from the onboarding wizard (or Dashboard → Agents).
+TAP mode needs a TAP account — the free tier covers trying this out, and the
+onboarding wizard issues the agent key in a few minutes.
+
+1. Create a team at
+   [tap.human.tech](https://tap.human.tech?utm_source=opentag&utm_medium=github&utm_content=docs)
+   and copy an agent key from the onboarding wizard (or Dashboard → Agents).
 2. In the root `.env`:
 
    ```
@@ -59,7 +63,7 @@ For the stock integrations, connect:
 | --------------- | ------------------ | ----- |
 | `linear`        | `api.linear.app`   | Linear personal API key; the agent speaks GraphQL to `/graphql` |
 | `notion`        | `api.notion.com`   | Notion internal-integration token |
-| `posthog`       | `us.posthog.com` (or your region) | PostHog personal API key |
+| `posthog`       | `us.posthog.com` (or your region) | PostHog personal API key. Note: direct mode is server-enforced read-only; TAP mode exposes the full REST API behind the write gate — consider a require-approval TAP policy for it |
 
 ## How writes are handled
 
@@ -73,14 +77,20 @@ Two independent layers, mirroring stock behavior:
 2. **TAP policy (per credential, optional).** The team can additionally
    require a human approval in the TAP dashboard for any credential. When TAP
    holds a call, the bot relays the approval link and waits (up to
-   `TAP_APPROVAL_TIMEOUT`, default 300s). Approvals denied on the TAP side
-   fail closed.
+   `TAP_APPROVAL_TIMEOUT`, default 300s; `0` means report the held call
+   immediately instead of waiting). If the approval lands later, the bot can
+   fetch the outcome with its `tap_check_approval` tool. Approvals denied on
+   the TAP side fail closed.
+
+Layer 1 is conversation UX, not enforcement — a confused or manipulated model
+could mislabel a call. Layer 2 is enforced server-side by TAP regardless of
+what the model does, which is why higher-stakes credentials should carry a
+TAP require-approval policy rather than relying on method-based auto-approval
+alone.
 
 ## Notes
 
-- TAP's free tier covers trying this out (multiple credentials, 1,000 proxied
-  requests/month at the time of writing); active team bots will want a paid
-  plan.
+- TAP has a free tier that covers trying this out.
 - The agent composes raw API calls from `tap_discover`'s usage examples. A
   malformed call returns a corrective error and costs nothing; if a specific
   service proves chronically awkward, a dedicated tool for it is a reasonable

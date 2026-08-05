@@ -9,7 +9,7 @@ from typing import Any
 
 from langchain_mcp_adapters.client import MultiServerMCPClient
 
-from tap_tools import tap_enabled
+from tap_tools import tap_boot_summary, tap_enabled
 from write_confirmation import WriteConfirmationInterceptor
 
 
@@ -142,11 +142,13 @@ def internal_source_tools() -> list:
                 "this process); every other service goes through tap_call "
                 "with no key in process"
             )
+            print(tap_boot_summary())
         else:
             print(
                 "[TOOLS] TAP mode: no direct service keys set — all "
                 "services are reached via tap_call, no keys in process"
             )
+            print(tap_boot_summary())
     elif not connections:
         print(
             "[TOOLS] no internal sources configured — set service keys "

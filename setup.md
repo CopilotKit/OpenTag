@@ -178,16 +178,19 @@ Reads and UI rendering are never gated.
 ## Optional sources
 
 Internal sources (PostHog, Linear, Notion) can be connected **one of two
-ways** — pick one before setting variables:
+ways** — pick per service before setting variables:
 
 - **Option A — direct keys (default).** Paste each service's key into the
   root `.env` as described per service below. Keys live in the agent process.
 - **Option B — [TAP mode](#tap-mode-credential-isolation--any-connected-service).**
   Set a single `TAP_AGENT_KEY` and skip service keys. The agent reaches
-  services through the [TAP](https://tap.human.tech) credential proxy:
-  no service keys in this process, per-call audit, and optional per-credential
-  human approval. Also covers services with no MCP integration here (GitHub,
-  Sentry, Stripe, Gmail, …).
+  services through the
+  [TAP](https://tap.human.tech?utm_source=opentag&utm_medium=github&utm_content=setup)
+  credential proxy: no service keys in this process — a prompt-injected agent
+  cannot leak a key it never held — plus per-call audit and optional
+  per-credential human approval. Also covers services with no MCP integration
+  here (GitHub, Sentry, PagerDuty, …). Free tier; the onboarding wizard
+  issues the agent key in a few minutes.
 
 The choice is **per service, and the two compose**: with `TAP_AGENT_KEY` set,
 any service whose key you still provide below keeps its direct MCP connection,
@@ -244,7 +247,8 @@ The IaC file declares exactly:
 `runtime.AGENT_URL` references the agent's Railway private domain and port.
 Production Intelligence URLs are literal configuration, the API key is
 preserved, and the Channel name is `open-tag`. `OPENAI_API_KEY` is required on
-`agent`; Tavily, PostHog, Linear, and the paired remote Notion variables are
+`agent`; Tavily, PostHog, Linear, the paired remote Notion variables, and the
+TAP variables (`TAP_AGENT_KEY`, `TAP_PROXY_URL`, `TAP_APPROVAL_TIMEOUT`) are
 optional preserved settings.
 
 Evaluate the configuration locally without applying it:

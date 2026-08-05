@@ -23,6 +23,7 @@ def test_tap_enabled_with_agent_key(monkeypatch):
 
 def test_tap_mode_without_direct_keys_loads_no_mcp_connections(monkeypatch):
     monkeypatch.setenv("TAP_AGENT_KEY", "tap_test")
+    monkeypatch.setattr(tap_tools, "_http", lambda *a, **k: (200, '{"services": {}}'))
     assert internal_sources.internal_source_tools() == []
 
 
@@ -49,6 +50,7 @@ def test_tap_mode_composes_with_direct_keys_per_service(monkeypatch):
     monkeypatch.setenv("TAP_AGENT_KEY", "tap_test")
     monkeypatch.setenv("LINEAR_API_KEY", "lin_test")
     monkeypatch.setattr(internal_sources, "MultiServerMCPClient", FakeMCPClient)
+    monkeypatch.setattr(tap_tools, "_http", lambda *a, **k: (200, '{"services": {}}'))
 
     result = internal_sources.internal_source_tools()
 
@@ -197,7 +199,7 @@ def test_missing_credential_error_reaches_the_model(monkeypatch):
     result = tap_tools.tap_call.invoke(
         {"credential": "sentry", "target": "https://sentry.io/api/0/projects/"}
     )
-    assert "credential_link_url" in result
+    assert result.startswith("Verified TAP setup link (origin checked):")
     assert "prefill_credential" in result
 
 
@@ -208,7 +210,7 @@ def test_missing_credential_error_reaches_the_model(monkeypatch):
         ("get", "https://us.posthog.com/api/projects/", None, True),
         ("POST", "https://api.linear.app/graphql", '{"query": "query { issues { id } }"}', True),
         ("POST", "https://api.linear.app/graphql", '{"query": "mutation { issueCreate }"}', False),
-        ("POST", "https://api.linear.app/graphql", None, True),
+        ("POST", "https://api.linear.app/graphql", None, False),
         ("POST", "https://api.notion.com/v1/search", '{"query": "x"}', True),
         ("POST", "https://api.notion.com/v1/databases/abc/query", "{}", True),
         ("POST", "https://api.notion.com/v1/data_sources/abc/query", "{}", True),
@@ -220,3 +222,195 @@ def test_missing_credential_error_reaches_the_model(monkeypatch):
 )
 def test_read_write_split(method, target, body, is_read):
     assert tap_tools._is_read(method, target, body) is is_read
+
+
+def test_setup_link_with_untrusted_origin_is_removed(monkeypatch):
+    monkeypatch.setenv("TAP_AGENT_KEY", "tap_test")
+    error = json.dumps(
+        {
+            "error": "Unknown credential 'sentry'",
+            "credential_link_url": "https://tap.human.tech.evil.example/steal",
+        }
+    )
+    monkeypatch.setattr(tap_tools, "_http", lambda *a, **k: (404, error))
+    result = tap_tools.tap_call.invoke(
+        {"credential": "sentry", "target": "https://sentry.io/api/0/projects/"}
+    )
+    assert "evil.example" not in result
+    assert "removed" in result
+    assert result.startswith("WARNING")
+
+
+@pytest.mark.parametrize(
+    ("url", "trusted"),
+    [
+        ("https://app.tap.human.tech/dashboard?prefill_credential=x", True),
+        ("https://tap.human.tech/", True),
+        ("https://proxy.tap.human.tech/approve/txn/1", True),
+        ("https://tap.human.tech.evil.example/", False),
+        ("http://app.tap.human.tech/", False),
+        ("https://evil.example/?tap.human.tech", False),
+        ("not a url", False),
+    ],
+)
+def test_trusted_tap_link_origins(url, trusted):
+    assert tap_tools._is_trusted_tap_link(url) is trusted
+
+
+def test_self_hosted_proxy_host_is_a_trusted_link_origin(monkeypatch):
+    monkeypatch.setenv("TAP_PROXY_URL", "http://127.0.0.1:3100")
+    assert tap_tools._is_trusted_tap_link("http://127.0.0.1:3100/dashboard") is True
+
+
+def test_proxy_url_requires_https_for_non_loopback(monkeypatch):
+    monkeypatch.setenv("TAP_PROXY_URL", "http://tap.internal.corp:3100")
+    with pytest.raises(RuntimeError, match="https"):
+        tap_tools._proxy_url()
+
+
+def test_transport_failure_returns_corrective_message_not_exception(monkeypatch):
+    import urllib.error
+
+    def raise_urlerror(*args, **kwargs):
+        raise urllib.error.URLError("connection refused")
+
+    monkeypatch.setattr(tap_tools.urllib.request, "urlopen", raise_urlerror)
+    status, text = tap_tools._http("GET", "https://proxy.tap.human.tech/x", {})
+    assert status == 0
+    assert "unreachable" in text
+    assert "TAP_PROXY_URL" in text
+
+
+def test_json_content_type_defaults_when_body_present(monkeypatch):
+    monkeypatch.setenv("TAP_AGENT_KEY", "tap_test")
+    seen = {}
+
+    def fake_http(method, url, headers, body=None):
+        seen.update(headers=headers)
+        return 200, "{}"
+
+    monkeypatch.setattr(tap_tools, "_http", fake_http)
+    tap_tools.tap_call.invoke(
+        {
+            "credential": "notion",
+            "target": "https://api.notion.com/v1/search",
+            "method": "POST",
+            "body": "{}",
+        }
+    )
+    assert seen["headers"]["Content-Type"] == "application/json"
+
+    tap_tools.tap_call.invoke(
+        {
+            "credential": "notion",
+            "target": "https://api.notion.com/v1/search",
+            "method": "POST",
+            "body": "q=x",
+            "headers": {"content-type": "application/x-www-form-urlencoded"},
+        }
+    )
+    assert seen["headers"]["content-type"] == "application/x-www-form-urlencoded"
+    assert "Content-Type" not in seen["headers"]
+
+
+def test_malformed_header_names_are_dropped(monkeypatch):
+    monkeypatch.setenv("TAP_AGENT_KEY", "tap_test")
+    seen = {}
+
+    def fake_http(method, url, headers, body=None):
+        seen.update(headers=headers)
+        return 200, "{}"
+
+    monkeypatch.setattr(tap_tools, "_http", fake_http)
+    tap_tools.tap_call.invoke(
+        {
+            "credential": "notion",
+            "target": "https://api.notion.com/v1/pages/abc",
+            "headers": {" X-TAP-Target": "https://evil.example", "Ok-Header": "v"},
+        }
+    )
+    assert " X-TAP-Target" not in seen["headers"]
+    assert seen["headers"]["X-TAP-Target"] == "https://api.notion.com/v1/pages/abc"
+    assert seen["headers"]["Ok-Header"] == "v"
+
+
+def test_held_call_timeout_surfaces_approval_link_and_txn(monkeypatch):
+    monkeypatch.setenv("TAP_AGENT_KEY", "tap_test")
+    monkeypatch.setenv("TAP_APPROVAL_TIMEOUT", "0")
+    monkeypatch.setattr(tap_tools, "_confirm_write", lambda *a: True)
+
+    def fake_http(method, url, headers, body=None):
+        if url.endswith("/forward"):
+            return 202, json.dumps(
+                {
+                    "txn_id": "txn_77",
+                    "approval_url": "https://app.tap.human.tech/approve/txn/txn_77",
+                }
+            )
+        return 200, json.dumps({"status": "pending"})
+
+    monkeypatch.setattr(tap_tools, "_http", fake_http)
+    result = tap_tools.tap_call.invoke(
+        {
+            "credential": "linear",
+            "target": "https://api.linear.app/graphql",
+            "method": "POST",
+            "body": '{"query": "mutation { issueCreate }"}',
+        }
+    )
+    assert "https://app.tap.human.tech/approve/txn/txn_77" in result
+    assert "txn_77" in result
+    assert "tap_check_approval" in result
+
+
+def test_untrusted_approval_link_is_not_surfaced(monkeypatch):
+    monkeypatch.setenv("TAP_AGENT_KEY", "tap_test")
+    monkeypatch.setenv("TAP_APPROVAL_TIMEOUT", "0")
+    monkeypatch.setattr(tap_tools, "_confirm_write", lambda *a: True)
+
+    def fake_http(method, url, headers, body=None):
+        if url.endswith("/forward"):
+            return 202, json.dumps(
+                {"txn_id": "txn_78", "approval_url": "https://evil.example/a"}
+            )
+        return 200, json.dumps({"status": "pending"})
+
+    monkeypatch.setattr(tap_tools, "_http", fake_http)
+    result = tap_tools.tap_call.invoke(
+        {
+            "credential": "linear",
+            "target": "https://api.linear.app/graphql",
+            "method": "POST",
+            "body": '{"query": "mutation { issueCreate }"}',
+        }
+    )
+    assert "evil.example" not in result
+    assert "txn_78" in result
+
+
+def test_check_approval_returns_forwarded_result(monkeypatch):
+    monkeypatch.setenv("TAP_AGENT_KEY", "tap_test")
+    payload = json.dumps(
+        {"status": "forwarded", "response": {"status": 200, "body": '{"id": 1}'}}
+    )
+    monkeypatch.setattr(tap_tools, "_http", lambda *a, **k: (200, payload))
+    assert tap_tools.tap_check_approval.invoke({"txn_id": "txn_1"}) == '{"id": 1}'
+
+
+def test_check_approval_reports_pending_and_expired(monkeypatch):
+    monkeypatch.setenv("TAP_AGENT_KEY", "tap_test")
+    monkeypatch.setattr(
+        tap_tools, "_http", lambda *a, **k: (200, json.dumps({"status": "pending"}))
+    )
+    assert "Still pending" in tap_tools.tap_check_approval.invoke({"txn_id": "t"})
+
+    monkeypatch.setattr(tap_tools, "_http", lambda *a, **k: (404, "{}"))
+    result = tap_tools.tap_check_approval.invoke({"txn_id": "t"})
+    assert "expired or was already resolved" in result
+
+
+def test_forwarded_result_flags_upstream_failure():
+    payload = {"status": "forwarded", "response": {"status": 502, "body": "bad gateway"}}
+    result = tap_tools._forwarded_result(payload, "raw")
+    assert "upstream request failed" in result
+    assert "502" in result

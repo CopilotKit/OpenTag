@@ -22,7 +22,7 @@ from prompts import (
     WEB_SEARCH_TOOL_ADDENDUM,
     current_date_prompt,
 )
-from tap_tools import tap_call, tap_discover, tap_enabled
+from tap_tools import tap_call, tap_check_approval, tap_discover, tap_enabled
 from tools import web_search
 
 load_dotenv(Path(__file__).resolve().parent.parent / ".env")
@@ -92,7 +92,7 @@ def build_agent():
         else [*internal_tools]
     )
     if tap_mode:
-        main_tools = [*main_tools, tap_discover, tap_call]
+        main_tools = [*main_tools, tap_discover, tap_call, tap_check_approval]
 
     system_prompt = BASE_SYSTEM_PROMPT + (
         WEB_SEARCH_TOOL_ADDENDUM
