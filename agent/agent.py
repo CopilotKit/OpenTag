@@ -117,4 +117,7 @@ def build_agent():
     print(f"[AGENT] internal-source tools: {len(internal_tools)}")
     print(f"[AGENT] Main tools: {[t.name for t in main_tools]}")
 
-    return agent_graph.with_config({"recursion_limit": 25})
+    # TAP mode composes raw API calls through generic tools, which takes more
+    # graph steps per answer (discover → call → corrective retry) than the
+    # curated MCP tools do; give it headroom before the recursion guard trips.
+    return agent_graph.with_config({"recursion_limit": 50 if tap_mode else 25})
