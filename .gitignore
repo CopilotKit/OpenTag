@@ -2,6 +2,16 @@ node_modules
 .env
 .env.local
 
+# CopilotKit CLI channel artifacts.
+# .copilotkit/channels.json is the tracked Channel declaration; artifacts are not.
+.copilotkit/artifacts
+
+# CopilotKit CLI skill installs (`copilotkit channels setup`, `copilotkit skills install`)
+.agents
+.claude/skills
+agent/skills
+skills-lock.json
+
 # E2E harness artifacts
 e2e/.chrome-profile
 e2e/results
