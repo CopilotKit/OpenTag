@@ -5,6 +5,8 @@ Teams, with research available on demand. It runs on CopilotKit Channels,
 connects to CopilotKit Intelligence, and uses a Python LangGraph agent over
 AG-UI.
 
+https://github.com/user-attachments/assets/46fb9854-7540-4756-a33f-fe97810f80d4
+
 Slack and Microsoft Teams are supported today. Discord, Telegram, and WhatsApp
 are coming soon.
 
