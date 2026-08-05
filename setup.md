@@ -69,7 +69,7 @@ cp .env.example .env
 | `NOTION_MCP_URL` | No | Remote Notion MCP endpoint; requires `NOTION_MCP_AUTH_TOKEN` |
 | `TAP_AGENT_KEY` | No | Enables TAP mode: services are reached through the [TAP](https://tap.human.tech) credential proxy, no service keys in this process (see [docs/tap.md](./docs/tap.md)) |
 | `TAP_PROXY_URL` | No | Overrides the TAP proxy URL (defaults to the hosted proxy; set for self-hosted TAP) |
-| `TAP_APPROVAL_TIMEOUT` | No | Seconds to wait when TAP holds a call for human approval; defaults to `300` |
+| `TAP_APPROVAL_TIMEOUT` | No | Seconds to wait when TAP holds a call for human approval; defaults to `60` (the held call's outcome stays retrievable after the wait) |
 | `SERVER_HOST` | No | Local bind host; defaults to `0.0.0.0` |
 | `SERVER_PORT` / `PORT` | No | Local port; defaults to `8123` |
 

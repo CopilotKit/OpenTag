@@ -73,11 +73,17 @@ def _proxy_url() -> str:
 
 
 def _approval_timeout_seconds() -> float:
-    raw = os.environ.get("TAP_APPROVAL_TIMEOUT", "300")
+    # Default 60s, deliberately short: the poll blocks the agent's turn, so a
+    # long wait both leaves the chat user staring at a typing indicator and
+    # can exceed the runtime's HTTP body timeout (undici defaults to 300s —
+    # a 300s wait here crashed the stock runtime in testing). Past the
+    # deadline the tool returns the approval link + txn_id and the outcome
+    # stays retrievable via tap_check_approval.
+    raw = os.environ.get("TAP_APPROVAL_TIMEOUT", "60")
     try:
         return max(0.0, float(raw))
     except ValueError:
-        return 300.0
+        return 60.0
 
 
 def _http(

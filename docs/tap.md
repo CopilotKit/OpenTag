@@ -77,8 +77,9 @@ Two independent layers, mirroring stock behavior:
 2. **TAP policy (per credential, optional).** The team can additionally
    require a human approval in the TAP dashboard for any credential. When TAP
    holds a call, the bot relays the approval link and waits (up to
-   `TAP_APPROVAL_TIMEOUT`, default 300s; `0` means report the held call
-   immediately instead of waiting). If the approval lands later, the bot can
+   `TAP_APPROVAL_TIMEOUT`, default 60s — kept short so a held call never
+   stalls the conversation or outlives the runtime's HTTP timeouts; `0`
+   means report the held call immediately instead of waiting). If the approval lands later, the bot can
    fetch the outcome with its `tap_check_approval` tool. Approvals denied on
    the TAP side fail closed.
 
