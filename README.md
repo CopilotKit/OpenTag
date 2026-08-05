@@ -1,14 +1,49 @@
+<div align="center">
+
 # OpenTag
 
-OpenTag is an open-source on-call triage assistant for Slack and Microsoft
-Teams, with research available on demand. It runs on CopilotKit Channels,
-connects to CopilotKit Intelligence, and uses a Python LangGraph agent over
-AG-UI.
+**An open-source, self-hosted on-call triage assistant for Slack and Microsoft Teams — clone it, customize it, ship your own.**
+
+[**See it work**](#see-it-work) · [**Quick start**](#quick-start) · [**Make it yours**](#make-it-yours) · [**Channels SDK**](https://github.com/CopilotKit/channels-sdk)
+
+[![Built with Channels SDK](https://img.shields.io/badge/built%20with-Channels%20SDK-6430AB)](https://github.com/CopilotKit/channels-sdk)
+[![Managed by CopilotKit Intelligence](https://img.shields.io/badge/managed%20by-CopilotKit%20Intelligence-1e293b)](https://docs.copilotkit.ai/channels)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](./LICENSE)
+
+</div>
 
 https://github.com/user-attachments/assets/46fb9854-7540-4756-a33f-fe97810f80d4
 
+<div align="center">
+
+A spreadsheet goes in. A native Slack chart, a Linear issue behind an approval
+gate, and a cited research brief come back — in the thread, where the work
+already is.
+
+</div>
+
+## The complete Channels SDK application
+
+[Channels SDK](https://github.com/CopilotKit/channels-sdk) brings any AG-UI agent
+into Slack and Microsoft Teams. Its README shows you the pieces. **OpenTag is
+those pieces assembled into something you would actually deploy** — and it is
+built to be taken, not just read.
+
+| Clone it | Customize it | Ship it |
+| --- | --- | --- |
+| A working triage bot in one quick start: managed Channel, Node runtime, Python LangGraph agent, and native Slack UI. | The agent, the persona, the tools, and the UI are each one file or one directory. Point it at your own agent without touching the Channel lifecycle. | Two Railway services, pinned SDK versions, graceful shutdown, and a live Slack harness — production shape, not demo shape. |
+
 Slack and Microsoft Teams are supported today. Discord, Telegram, and WhatsApp
 are coming soon.
+
+## See it work
+
+Every frame below is this repository running in a real Slack workspace.
+
+| Native UI from a file | Approval before a write | Research with sources |
+| --- | --- | --- |
+| <img src="./assets/demo-chart.png" alt="A CSV is uploaded and OpenTag replies with a native Slack line chart of impressions, engagements, and likes, plus a written takeaway"> | <img src="./assets/demo-approval.png" alt="OpenTag asks to save a project, the user approves, and OpenTag reports the Linear project it created"> | <img src="./assets/demo-research.png" alt="OpenTag returns a table of AI industry themes with a key takeaway and a list of cited sources"> |
+| A `.csv` becomes a Slack chart and an insight, not a wall of numbers. | Linear and Notion writes pause for a human. The button resumes the LangGraph run. | Live web research comes back as a table with the links it used. |
 
 ## Quick start
 
@@ -200,6 +235,26 @@ nothing. The tell is a Slack reply your terminal knows nothing about.
 production deployment uses. Give a local or forked runtime its own Intelligence
 project, its own API key, and its own Channel name.
 
+## Make it yours
+
+OpenTag is meant to be forked. Each thing you would want to change is one file
+or one directory, and none of them require touching the Channel lifecycle.
+
+| To change… | Edit | Notes |
+| --- | --- | --- |
+| The persona and behavior | [`agent/prompts/`](./agent/prompts) | `system.py` holds the base system prompt |
+| The agent itself | [`agent/agent.py`](./agent/agent.py) | A LangGraph deep agent; model and reasoning effort come from the environment |
+| **The agent framework** | `AGENT_URL` | Point it at *any* AG-UI-compatible agent. The runtime speaks AG-UI over HTTP and does not care what is on the other end |
+| Which tools the agent has | [`agent/tools.py`](./agent/tools.py), [`agent/internal_sources.py`](./agent/internal_sources.py) | Sources register only when their credentials are present |
+| What gets rendered in chat | [`app/components/`](./app/components), [`app/tools/`](./app/tools) | Issue cards, tables, charts, diagrams |
+| Mentions, commands, triggers | [`app/channel.tsx`](./app/channel.tsx) | The whole Channel surface in one file |
+| Which writes need approval | [`agent/write_confirmation.py`](./agent/write_confirmation.py) | The interceptor that emits `confirm_write` |
+| The deployment topology | [`.railway/railway.ts`](./.railway/railway.ts) | Two services, declared as code |
+
+If you are customizing with a coding agent, read [`AGENTS.md`](./AGENTS.md)
+first — it names the API authority for Channels code and points at the setup
+workflow instead of letting an agent improvise one.
+
 ## What OpenTag includes
 
 - Mentions and app-owned commands.
@@ -216,7 +271,7 @@ The Python agent is the only supported backend. Its identity and behavior live
 in [`agent/agent.py`](./agent/agent.py); the Channel UI and behavior live under
 [`app/`](./app/).
 
-## Architecture
+## How it works
 
 ```text
 Slack / Microsoft Teams
@@ -236,6 +291,12 @@ agent (Python + LangGraph deepagents)
           ├── Linear MCP (optional)
           └── Notion MCP (optional remote server)
 ```
+
+| You run | CopilotKit Intelligence manages |
+| --- | --- |
+| The Python agent, its model credentials, and its tools | Slack and Microsoft Teams platform credentials |
+| The long-running Node Channels runtime | Platform ingress and credentialed delivery |
+| Deployment, state, and logs | Runtime registration, health, and reconnects |
 
 Neither leg is Socket Mode, and neither needs a tunnel or a public URL of your
 own. Slack reaches Intelligence over HTTPS, authenticated by the signing secret
@@ -306,14 +367,20 @@ node node_modules/railway/dist/iac/bin.js
 
 The Slack live harness is documented in [`e2e/README.md`](./e2e/README.md).
 
-## Docs
+## Developer resources
 
-- [`setup.md`](./setup.md) — full reference: components, environment contract,
-  commands, optional sources, Railway.
-- [`docs/migration-kite.md`](./docs/migration-kite.md) — CopilotKit-internal
-  cutover of the existing production `@kite` app.
-- [`e2e/README.md`](./e2e/README.md) — Slack live harness.
+| I want to… | Start here |
+| --- | --- |
+| Get OpenTag answering in Slack | [Quick start](#quick-start) |
+| Fork it and change the agent | [Make it yours](#make-it-yours) |
+| Read the full environment contract | [`setup.md`](./setup.md) |
+| Customize it with a coding agent | [`AGENTS.md`](./AGENTS.md) |
+| Understand the SDK underneath | [Channels SDK](https://github.com/CopilotKit/channels-sdk) |
+| Build a Channel from scratch | [Channels documentation](https://docs.copilotkit.ai/channels) |
+| Try Channels with no setup at all | [Try Channels](https://www.copilotkit.ai/try-channels) |
+| Connect an agent in another framework | [AG-UI integrations](https://docs.ag-ui.com/introduction) |
+| Cut production `@kite` over to OpenTag | [`docs/migration-kite.md`](./docs/migration-kite.md) |
 
 ## License
 
-MIT — see [LICENSE](./LICENSE).
+[MIT](./LICENSE) © CopilotKit
