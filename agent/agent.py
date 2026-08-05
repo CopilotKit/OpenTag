@@ -76,7 +76,14 @@ def build_agent():
     )
     has_web_search = bool(os.environ.get("TAVILY_API_KEY"))
     model_name = os.environ.get("OPENAI_MODEL", "gpt-5.5")
+    # Parallel tool calls are disabled because confirm_write interrupts
+    # mid-step: with two calls in one assistant turn, the interrupt freezes
+    # the step before the sibling call's output is recorded, and the resumed
+    # conversation then fails the Responses API's bookkeeping ("No tool
+    # output found for function call ..."). One call per step sidesteps the
+    # whole class.
     llm = ChatOpenAI(
+        model_kwargs={"parallel_tool_calls": False},
         model=model_name,
         api_key=api_key,
         reasoning_effort=reasoning_effort,
