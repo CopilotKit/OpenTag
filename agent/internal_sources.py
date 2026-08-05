@@ -137,7 +137,17 @@ def internal_source_tools() -> list:
         return []
     connections = _configured_connections(os.environ)
     if not connections:
+        print(
+            "[TOOLS] no internal sources configured — set service keys "
+            "(setup.md) or TAP_AGENT_KEY for TAP mode (docs/tap.md)"
+        )
         return []
+    print(
+        "[TOOLS] service keys for "
+        + ", ".join(sorted(connections))
+        + " are loaded into this process — optional TAP mode keeps keys out "
+        "of the process and can require human approval per call (docs/tap.md)"
+    )
 
     # MCP discovery is async; agent construction is synchronous.
     try:

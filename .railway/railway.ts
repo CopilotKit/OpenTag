@@ -31,6 +31,10 @@ export default defineRailway(() => {
       LINEAR_API_KEY: preserve(),
       NOTION_MCP_URL: preserve(),
       NOTION_MCP_AUTH_TOKEN: preserve(),
+      // TAP mode (optional): set instead of the service keys above to reach
+      // services through the TAP credential proxy — no keys in this process.
+      // See docs/tap.md.
+      TAP_AGENT_KEY: preserve(),
     },
   });
 

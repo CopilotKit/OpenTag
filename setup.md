@@ -177,6 +177,21 @@ Reads and UI rendering are never gated.
 
 ## Optional sources
 
+Internal sources (PostHog, Linear, Notion) can be connected **one of two
+ways** — pick one before setting variables:
+
+- **Option A — direct keys (default).** Paste each service's key into the
+  root `.env` as described per service below. Keys live in the agent process.
+- **Option B — [TAP mode](#tap-mode-credential-isolation--any-connected-service).**
+  Set a single `TAP_AGENT_KEY` and skip every service key below. The agent
+  reaches services through the [TAP](https://tap.human.tech) credential proxy:
+  no service keys in this process, per-call audit, and optional per-credential
+  human approval. Also covers services with no MCP integration here (GitHub,
+  Sentry, Stripe, Gmail, …).
+
+The options are exclusive per deployment: when `TAP_AGENT_KEY` is set, the
+direct MCP connections below are skipped.
+
 ### Tavily
 
 Set `TAVILY_API_KEY` in the root `.env` to enable live web research. The
