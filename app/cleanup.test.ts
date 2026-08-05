@@ -10,13 +10,18 @@ const packageJson = JSON.parse(
   dependencies: Record<string, string>;
 };
 
+// A bare semver with no range operator, so deploys resolve reproducibly.
+const EXACT_VERSION = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/;
+
 describe("launch dependency and cleanup contract", () => {
-  it("keeps the exact Channels and Runtime versions", () => {
-    expect(packageJson.dependencies["@copilotkit/channels"]).toBe(
-      "0.7.0",
+  // Asserts the pin *shape*, not a literal version: the docs and this test both
+  // used to restate "0.7.0", and both drifted the moment the deps were bumped.
+  it("pins the Channels and Runtime versions exactly", () => {
+    expect(packageJson.dependencies["@copilotkit/channels"]).toMatch(
+      EXACT_VERSION,
     );
-    expect(packageJson.dependencies["@copilotkit/runtime"]).toBe(
-      "1.66.0",
+    expect(packageJson.dependencies["@copilotkit/runtime"]).toMatch(
+      EXACT_VERSION,
     );
   });
 
