@@ -25,6 +25,7 @@ py-modules = [
   "agent",
   "internal_sources",
   "main",
+  "tap_tools",
   "tools",
   "write_confirmation",
 ]

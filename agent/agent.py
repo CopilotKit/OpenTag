@@ -18,9 +18,11 @@ from internal_sources import internal_source_tools
 from prompts import (
     BASE_SYSTEM_PROMPT,
     NO_WEB_SEARCH_TOOL_ADDENDUM,
+    TAP_TOOLS_ADDENDUM,
     WEB_SEARCH_TOOL_ADDENDUM,
     current_date_prompt,
 )
+from tap_tools import tap_call, tap_check_approval, tap_discover, tap_enabled
 from tools import web_search
 
 load_dotenv(Path(__file__).resolve().parent.parent / ".env")
@@ -74,7 +76,14 @@ def build_agent():
     )
     has_web_search = bool(os.environ.get("TAVILY_API_KEY"))
     model_name = os.environ.get("OPENAI_MODEL", "gpt-5.5")
+    # Parallel tool calls are disabled because confirm_write interrupts
+    # mid-step: with two calls in one assistant turn, the interrupt freezes
+    # the step before the sibling call's output is recorded, and the resumed
+    # conversation then fails the Responses API's bookkeeping ("No tool
+    # output found for function call ..."). One call per step sidesteps the
+    # whole class.
     llm = ChatOpenAI(
+        model_kwargs={"parallel_tool_calls": False},
         model=model_name,
         api_key=api_key,
         reasoning_effort=reasoning_effort,
@@ -82,18 +91,21 @@ def build_agent():
         use_responses_api=True,
     )
 
+    tap_mode = tap_enabled()
     internal_tools = internal_source_tools()
     main_tools = (
         [web_search, *internal_tools]
         if has_web_search
         else [*internal_tools]
     )
+    if tap_mode:
+        main_tools = [*main_tools, tap_discover, tap_call, tap_check_approval]
 
     system_prompt = BASE_SYSTEM_PROMPT + (
         WEB_SEARCH_TOOL_ADDENDUM
         if has_web_search
         else NO_WEB_SEARCH_TOOL_ADDENDUM
-    )
+    ) + (TAP_TOOLS_ADDENDUM if tap_mode else "")
 
     agent_graph = create_deep_agent(
         model=llm,
@@ -108,7 +120,11 @@ def build_agent():
         f"with model={model_name}, reasoning={reasoning_effort}, verbosity={verbosity}"
     )
     print(f"[AGENT] web search: {'enabled' if has_web_search else 'disabled'}")
+    print(f"[AGENT] TAP mode: {'enabled' if tap_mode else 'disabled'}")
     print(f"[AGENT] internal-source tools: {len(internal_tools)}")
     print(f"[AGENT] Main tools: {[t.name for t in main_tools]}")
 
-    return agent_graph.with_config({"recursion_limit": 25})
+    # TAP mode composes raw API calls through generic tools, which takes more
+    # graph steps per answer (discover → call → corrective retry) than the
+    # curated MCP tools do; give it headroom before the recursion guard trips.
+    return agent_graph.with_config({"recursion_limit": 50 if tap_mode else 25})

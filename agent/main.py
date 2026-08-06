@@ -67,6 +67,12 @@ try:
             name=AGENT_NAME,
             description=AGENT_DESCRIPTION,
             graph=agent_graph,
+            # The AG-UI layer builds each run's config itself, which drops the
+            # graph-level with_config values — LangGraph then stamps its
+            # default recursion_limit=25. Passing the limit here puts it in
+            # the per-run config that actually reaches the graph. Mirrors the
+            # 50-step TAP-mode budget set in agent.build_agent.
+            config={"recursion_limit": 50},
         ),
         path="/",
     )

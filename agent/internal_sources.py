@@ -9,6 +9,7 @@ from typing import Any
 
 from langchain_mcp_adapters.client import MultiServerMCPClient
 
+from tap_tools import tap_boot_summary, tap_enabled
 from write_confirmation import WriteConfirmationInterceptor
 
 
@@ -137,8 +138,43 @@ async def _load_tools(connections: dict[str, dict[str, Any]]) -> list:
 
 
 def internal_source_tools() -> list:
-    """Load optional MCP tools for the configured internal sources."""
+    """Load optional MCP tools for the configured internal sources.
+
+    TAP mode composes per service rather than replacing everything: a
+    service whose key is present in this process keeps its direct MCP
+    connection (the deployer's explicit choice), and every other service
+    is reachable through the generic tap_call tool with no key held here.
+    """
     connections = _configured_connections(os.environ)
+    if tap_enabled():
+        if connections:
+            print(
+                "[TOOLS] TAP mode + direct keys: "
+                + ", ".join(sorted(connections))
+                + " keep their direct MCP connections (their keys are in "
+                "this process); every other service goes through tap_call "
+                "with no key in process"
+            )
+            print(tap_boot_summary())
+        else:
+            print(
+                "[TOOLS] TAP mode: no direct service keys set — all "
+                "services are reached via tap_call, no keys in process"
+            )
+            print(tap_boot_summary())
+    elif not connections:
+        print(
+            "[TOOLS] no internal sources configured — set service keys "
+            "(setup.md) or TAP_AGENT_KEY for TAP mode (docs/tap.md)"
+        )
+    else:
+        print(
+            "[TOOLS] service keys for "
+            + ", ".join(sorted(connections))
+            + " are loaded into this process — optional TAP mode keeps keys "
+            "out of the process and can require human approval per call "
+            "(docs/tap.md)"
+        )
     if not connections:
         return []
 

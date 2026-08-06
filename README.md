@@ -339,6 +339,35 @@ reads and rendering do not pause.
 [`setup.md`](./setup.md) documents each source, its overrides, and the full
 environment contract.
 
+## TAP mode — any service, no keys in the process
+
+**Optional, off by default.** Set `TAP_AGENT_KEY` and the agent reaches GitHub,
+Linear, Notion, PostHog, **and any other service connected to the team's
+[TAP](https://tap.human.tech?utm_source=opentag&utm_medium=github&utm_content=readme)
+account** through the TAP credential proxy instead of holding API keys:
+
+- **Any service, zero code.** Two generic tools (`tap_discover` + `tap_call`)
+  cover every service without a direct MCP connection. An admin connects a new
+  service (Sentry, PagerDuty, Stripe, Google Calendar via mediated OAuth, …) in
+  the TAP dashboard and the agent can use it on the next message — no code
+  change here, no new MCP server. If a service isn't connected yet, the agent
+  posts a prefilled setup link in the conversation.
+- **Composes per service.** A service whose key is still set in `.env` keeps
+  its direct MCP connection; leave a key out and TAP covers that service. Move
+  services behind TAP one at a time — no all-at-once migration.
+- **No keys in the process.** For TAP-covered services, TAP injects each
+  credential server-side and pins it to its own API host, so a prompt-injected
+  agent has no key to leak and nowhere else to send one. Every call is
+  audited.
+- **One human approval per write — never two.** When TAP policy holds a call
+  for an approver, that server-side approval is the single gate; otherwise
+  mutations emit the same `confirm_write` interrupt as stock MCP writes. The
+  per-credential TAP policy is the dial: enforced approval for higher-stakes
+  services, the in-channel card for the rest.
+
+Without `TAP_AGENT_KEY` nothing changes and the MCP integrations above are used
+as-is. Setup lives in [docs/tap.md](./docs/tap.md).
+
 ## Deploying
 
 [`.railway/railway.ts`](./.railway/railway.ts) defines exactly two services,

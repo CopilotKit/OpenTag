@@ -76,6 +76,9 @@ without a checked-in file.
 | `LINEAR_MCP_URL` | No | Overrides the hosted Linear MCP URL |
 | `NOTION_MCP_AUTH_TOKEN` | No | Bearer token for a remote Notion MCP; requires `NOTION_MCP_URL` |
 | `NOTION_MCP_URL` | No | Remote Notion MCP endpoint; requires `NOTION_MCP_AUTH_TOKEN` |
+| `TAP_AGENT_KEY` | No | Enables TAP mode: services are reached through the [TAP](https://tap.human.tech) credential proxy, no service keys in this process (see [docs/tap.md](./docs/tap.md)) |
+| `TAP_PROXY_URL` | No | Overrides the TAP proxy URL (defaults to the hosted proxy; set for self-hosted TAP) |
+| `TAP_APPROVAL_TIMEOUT` | No | Seconds to wait when TAP holds a call for human approval; defaults to `60` (the held call's outcome stays retrievable after the wait) |
 | `SERVER_HOST` | No | Local bind host; defaults to `0.0.0.0` |
 | `SERVER_PORT` / `PORT` | No | Local port; defaults to `8123` |
 
@@ -232,6 +235,26 @@ and UI rendering are never gated.
 
 ## Optional sources
 
+Internal sources (PostHog, Linear, Notion) can be connected **one of two
+ways** — pick per service before setting variables:
+
+- **Option A — direct keys (default).** Paste each service's key into the
+  root `.env` as described per service below. Keys live in the agent process.
+- **Option B — [TAP mode](#tap-mode-credential-isolation--any-connected-service).**
+  Set a single `TAP_AGENT_KEY` and skip service keys. The agent reaches
+  services through the
+  [TAP](https://tap.human.tech?utm_source=opentag&utm_medium=github&utm_content=setup)
+  credential proxy: no service keys in this process — a prompt-injected agent
+  cannot leak a key it never held — plus per-call audit and optional
+  per-credential human approval. Also covers services with no MCP integration
+  here (GitHub, Sentry, PagerDuty, …). Free tier; the onboarding wizard
+  issues the agent key in a few minutes.
+
+The choice is **per service, and the two compose**: with `TAP_AGENT_KEY` set,
+any service whose key you still provide below keeps its direct MCP connection,
+and TAP covers the rest. Leave a service's key out to route it through TAP —
+that is what makes TAP's isolation and approval enforcement apply to it.
+
 ### Tavily
 
 Set `TAVILY_API_KEY` to enable live web research. The `web_search` tool is not
@@ -267,6 +290,18 @@ Notion is optional and remote-only, not a separate Railway service. Set both
 discovers the tools. If either value is absent OpenTag skips Notion without
 blocking startup.
 
+### TAP mode (credential isolation + any connected service)
+
+Set `TAP_AGENT_KEY` (from a [TAP](https://tap.human.tech) account's agent key)
+and restart `pnpm agent`. The agent then reaches any service connected to the
+TAP account through the TAP proxy via two generic tools (`tap_discover` +
+`tap_call`). It composes per service with the direct integrations above: a
+service whose key is still set keeps its direct MCP connection; leave a
+service's key out and TAP covers it with no key in this process. Credentials
+don't have to be created up front: when the agent needs a service that isn't
+connected yet, it posts a prefilled setup link in the conversation. Full
+guide: [docs/tap.md](./docs/tap.md).
+
 ## Railway
 
 The IaC file declares exactly:
@@ -279,7 +314,8 @@ The IaC file declares exactly:
 `runtime.AGENT_URL` references the agent's Railway private domain and port.
 Production Intelligence URLs are literal configuration, the API key is
 preserved, and the Channel name is `open-tag`. `OPENAI_API_KEY` is required on
-`agent`; Tavily, GitHub, PostHog, Linear, and the paired remote Notion variables
+`agent`; Tavily, GitHub, PostHog, Linear, the paired remote Notion variables,
+and the TAP variables (`TAP_AGENT_KEY`, `TAP_PROXY_URL`, `TAP_APPROVAL_TIMEOUT`)
 are optional preserved settings.
 
 Evaluate the configuration locally without applying it:
