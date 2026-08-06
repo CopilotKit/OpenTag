@@ -149,6 +149,90 @@ def _is_trusted_tap_link(url: str) -> bool:
     )
 
 
+def _pattern_matches(pattern: str, target: str) -> bool:
+    """TAP's documented URL-override matcher, mirrored conservatively.
+
+    A pattern starting with '/' matches the target URL's *path* prefix; any
+    other pattern requires an exact host match before the path prefix. A '*'
+    path segment matches exactly one non-empty segment. Query strings and
+    fragments never participate.
+    """
+    try:
+        parts = urlsplit(target)
+        target_host = (parts.hostname or "").lower()
+        target_segments = [s for s in parts.path.split("/") if s]
+    except ValueError:
+        return False
+    pattern = pattern.strip()
+    if pattern.startswith("/"):
+        pattern_host = None
+        pattern_path = pattern
+    else:
+        pattern_host, _, rest = pattern.partition("/")
+        pattern_host = pattern_host.lower()
+        pattern_path = "/" + rest
+    if pattern_host is not None and pattern_host != target_host:
+        return False
+    pattern_segments = [s for s in pattern_path.split("/") if s]
+    if len(pattern_segments) > len(target_segments):
+        return False
+    return all(
+        p == "*" or p == t
+        for p, t in zip(pattern_segments, target_segments)
+    )
+
+
+def _tap_will_hold(credential: str, method: str, target: str) -> bool:
+    """True only when TAP's declared policy for this credential provably
+    pauses this call for a human.
+
+    Used to skip the in-channel confirmation for writes TAP will hold anyway
+    — otherwise the same human approves twice (Slack card, then TAP). The
+    prediction mirrors TAP's documented rule semantics: require-approval URL
+    overrides are safety gates and win over auto-approve URL overrides; URL
+    overrides win over method rules. ANY doubt — fetch failure, unknown
+    credential, no matching rule, malformed response — returns False, which
+    falls back to showing the card (fail toward more confirmation, never
+    less). An active TAP grant may auto-approve a call predicted as held;
+    that is TAP's own semantics — a grant is a human-authored pre-approval.
+    """
+    try:
+        status, text = _http(
+            "GET",
+            f"{_proxy_url()}/agent/services",
+            {"X-TAP-Key": _agent_key()},
+        )
+        if status != 200:
+            return False
+        rules = (
+            json.loads(text)["services"][credential]["approval"]["rules"]
+        )
+        normalized = method.upper()
+        auto_approved_by_url = False
+        for rule in rules:
+            rule_target = str(rule.get("target", "*"))
+            if rule_target == "*":
+                continue  # method rules are evaluated after URL overrides
+            if normalized not in [str(m).upper() for m in rule.get("methods", [])]:
+                continue
+            if not _pattern_matches(rule_target, target):
+                continue
+            if rule.get("decision") == "pauses_for_human":
+                return True  # require-approval overrides are safety gates
+            if rule.get("decision") == "proceeds_immediately":
+                auto_approved_by_url = True
+        if auto_approved_by_url:
+            return False
+        for rule in rules:
+            if str(rule.get("target", "*")) != "*":
+                continue
+            if normalized in [str(m).upper() for m in rule.get("methods", [])]:
+                return rule.get("decision") == "pauses_for_human"
+        return False
+    except Exception:
+        return False
+
+
 def _is_read(method: str, target: str, body: str | None) -> bool:
     """Best-effort read/write split for the in-channel confirmation gate.
 
@@ -347,8 +431,13 @@ def tap_call(
     retry once they confirm the credential is added.
     """
     if not _is_read(method, target, body):
-        if not _confirm_write(method, credential, target, body):
-            return "Write cancelled by the user; no changes were made."
+        # One human approval per write: when TAP's own policy will hold this
+        # call for an approver, the in-channel card is skipped — the enforced
+        # server-side gate is the single gate. Any doubt about TAP's policy
+        # shows the card as before.
+        if not _tap_will_hold(credential, method, target):
+            if not _confirm_write(method, credential, target, body):
+                return "Write cancelled by the user; no changes were made."
 
     request_headers = {
         "X-TAP-Key": _agent_key(),

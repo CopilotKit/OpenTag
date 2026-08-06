@@ -171,10 +171,11 @@ account** through the TAP credential proxy instead of holding API keys:
   credential server-side and pins it to its own API host, so a prompt-injected
   agent has no key to leak and nowhere else to send one. Every call is
   audited.
-- **The write gate stays.** Mutations still emit the same `confirm_write`
-  interrupt before running, and the team's TAP policy can additionally require
-  a human approval per credential — a dial for higher-stakes services, not a
-  default.
+- **One human approval per write — never two.** When TAP policy holds a call
+  for an approver, that server-side approval is the single gate; otherwise
+  mutations emit the same `confirm_write` interrupt as stock MCP writes. The
+  per-credential TAP policy is the dial: enforced approval for higher-stakes
+  services, the in-channel card for the rest.
 
 Without `TAP_AGENT_KEY` nothing changes and the MCP integrations above are used
 as-is. Setup lives in [docs/tap.md](./docs/tap.md).

@@ -414,3 +414,162 @@ def test_forwarded_result_flags_upstream_failure():
     result = tap_tools._forwarded_result(payload, "raw")
     assert "upstream request failed" in result
     assert "502" in result
+
+
+# ---- single-gate dedupe: _pattern_matches / _tap_will_hold / tap_call ----
+
+@pytest.mark.parametrize(
+    ("pattern", "target", "matches"),
+    [
+        ("/graphql", "https://api.linear.app/graphql", True),
+        ("/graphql", "https://api.linear.app/graphql?query=x", True),
+        ("api.linear.app/graphql", "https://api.linear.app/graphql", True),
+        ("api.linear.app/graphql", "https://evil.example/graphql", False),
+        ("/repos/*/*/git/refs", "https://api.github.com/repos/o/r/git/refs", True),
+        ("/repos/*/*/git/refs", "https://api.github.com/repos/o/git/refs", False),
+        ("/v1", "https://api.example.com/v1/things", True),
+        ("/v2", "https://api.example.com/v1/things", False),
+        ("api.x.com/v1", "https://api.x.com.evil.example/v1", False),
+    ],
+)
+def test_pattern_matches(pattern, target, matches):
+    assert tap_tools._pattern_matches(pattern, target) is matches
+
+
+def _services_payload(rules):
+    return json.dumps({"services": {"linear": {"approval": {"rules": rules}}}})
+
+
+METHOD_GATED = [
+    {"decision": "proceeds_immediately", "methods": ["GET", "HEAD"], "target": "*"},
+    {"decision": "pauses_for_human", "methods": ["POST", "PUT", "PATCH", "DELETE"], "target": "*"},
+]
+
+
+def test_will_hold_method_gated_post(monkeypatch):
+    monkeypatch.setenv("TAP_AGENT_KEY", "tap_test")
+    monkeypatch.setattr(
+        tap_tools, "_http", lambda *a, **k: (200, _services_payload(METHOD_GATED))
+    )
+    assert tap_tools._tap_will_hold("linear", "POST", "https://api.linear.app/graphql") is True
+    assert tap_tools._tap_will_hold("linear", "GET", "https://api.linear.app/x") is False
+
+
+def test_will_hold_auto_approve_url_override_wins_over_method_rule(monkeypatch):
+    monkeypatch.setenv("TAP_AGENT_KEY", "tap_test")
+    rules = [
+        {"decision": "proceeds_immediately", "methods": ["POST"], "target": "api.linear.app/graphql"},
+        *METHOD_GATED,
+    ]
+    monkeypatch.setattr(tap_tools, "_http", lambda *a, **k: (200, _services_payload(rules)))
+    assert tap_tools._tap_will_hold("linear", "POST", "https://api.linear.app/graphql") is False
+
+
+def test_will_hold_require_url_override_wins_over_auto_url_override(monkeypatch):
+    monkeypatch.setenv("TAP_AGENT_KEY", "tap_test")
+    rules = [
+        {"decision": "proceeds_immediately", "methods": ["POST"], "target": "/graphql"},
+        {"decision": "pauses_for_human", "methods": ["POST"], "target": "api.linear.app/graphql"},
+    ]
+    monkeypatch.setattr(tap_tools, "_http", lambda *a, **k: (200, _services_payload(rules)))
+    assert tap_tools._tap_will_hold("linear", "POST", "https://api.linear.app/graphql") is True
+
+
+@pytest.mark.parametrize(
+    "response",
+    [
+        (500, "boom"),
+        (200, "not json"),
+        (200, json.dumps({"services": {}})),
+        (200, json.dumps({"services": {"linear": {}}})),
+    ],
+)
+def test_will_hold_fails_closed_to_false_on_any_doubt(monkeypatch, response):
+    monkeypatch.setenv("TAP_AGENT_KEY", "tap_test")
+    monkeypatch.setattr(tap_tools, "_http", lambda *a, **k: (*response,))
+    assert tap_tools._tap_will_hold("linear", "POST", "https://api.linear.app/x") is False
+
+
+def test_write_skips_card_when_tap_will_hold(monkeypatch):
+    """The single-gate behavior: a TAP-held write must NOT also show the
+    in-channel card — TAP's enforced approval is the one gate."""
+    monkeypatch.setenv("TAP_AGENT_KEY", "tap_test")
+    monkeypatch.setenv("TAP_APPROVAL_TIMEOUT", "0")
+
+    def fail_confirm(*a, **k):
+        raise AssertionError("card must not be shown for a TAP-held write")
+
+    def fake_http(method, url, headers, body=None):
+        if url.endswith("/agent/services"):
+            return 200, _services_payload(METHOD_GATED)
+        if url.endswith("/forward"):
+            return 202, json.dumps({"txn_id": "txn_sg"})
+        return 200, json.dumps({"status": "pending"})
+
+    monkeypatch.setattr(tap_tools, "_confirm_write", fail_confirm)
+    monkeypatch.setattr(tap_tools, "_http", fake_http)
+    result = tap_tools.tap_call.invoke(
+        {
+            "credential": "linear",
+            "target": "https://api.linear.app/graphql",
+            "method": "POST",
+            "body": '{"query": "mutation { issueCreate }"}',
+        }
+    )
+    assert "txn_sg" in result  # went straight to TAP and got held
+
+
+def test_write_shows_card_when_tap_auto_approves(monkeypatch):
+    monkeypatch.setenv("TAP_AGENT_KEY", "tap_test")
+    confirmed = {"called": False}
+
+    def confirm(*a, **k):
+        confirmed["called"] = True
+        return True
+
+    rules = [{"decision": "proceeds_immediately", "methods": ["POST"], "target": "*"}]
+
+    def fake_http(method, url, headers, body=None):
+        if url.endswith("/agent/services"):
+            return 200, _services_payload(rules)
+        return 200, '{"ok": true}'
+
+    monkeypatch.setattr(tap_tools, "_confirm_write", confirm)
+    monkeypatch.setattr(tap_tools, "_http", fake_http)
+    result = tap_tools.tap_call.invoke(
+        {
+            "credential": "linear",
+            "target": "https://api.linear.app/graphql",
+            "method": "POST",
+            "body": '{"query": "mutation { issueCreate }"}',
+        }
+    )
+    assert confirmed["called"] is True
+    assert result == '{"ok": true}'
+
+
+def test_write_shows_card_when_services_fetch_fails(monkeypatch):
+    monkeypatch.setenv("TAP_AGENT_KEY", "tap_test")
+    confirmed = {"called": False}
+
+    def confirm(*a, **k):
+        confirmed["called"] = True
+        return False
+
+    def fake_http(method, url, headers, body=None):
+        if url.endswith("/agent/services"):
+            return 0, "TAP proxy unreachable"
+        raise AssertionError("cancelled write must not reach /forward")
+
+    monkeypatch.setattr(tap_tools, "_confirm_write", confirm)
+    monkeypatch.setattr(tap_tools, "_http", fake_http)
+    result = tap_tools.tap_call.invoke(
+        {
+            "credential": "linear",
+            "target": "https://api.linear.app/graphql",
+            "method": "POST",
+            "body": '{"query": "mutation { issueCreate }"}',
+        }
+    )
+    assert confirmed["called"] is True
+    assert "cancelled" in result
