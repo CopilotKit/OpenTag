@@ -1,8 +1,8 @@
 /**
- * A single shared headless Chromium for local chart/diagram rendering.
+ * A single shared headless Chromium for local diagram rendering.
  *
  * The rendering happens entirely in-process (our own browser) — only the
- * charting *library* is fetched from a CDN; the user's data never leaves the
+ * Mermaid is fetched from a CDN; the user's diagram source never leaves the
  * host. Reuse one browser across renders so we don't pay a launch per call;
  * `closeBrowser()` is wired into the bridge's shutdown.
  *

@@ -1,4 +1,4 @@
-"""Optional PostHog, Linear, and Notion MCP integrations."""
+"""Optional GitHub, PostHog, Linear, and Notion MCP integrations."""
 
 import asyncio
 import logging
@@ -14,6 +14,15 @@ from write_confirmation import WriteConfirmationInterceptor
 
 
 MCP_SERVERS = {
+    "github": {
+        "token_env": "GITHUB_PERSONAL_ACCESS_TOKEN",
+        "url_env": "GITHUB_MCP_URL",
+        "default_url": "https://api.githubcopilot.com/mcp/readonly",
+        "headers": {
+            "X-MCP-Readonly": "true",
+            "X-MCP-Toolsets": "repos,issues,pull_requests",
+        },
+    },
     "posthog": {
         "token_env": "POSTHOG_PERSONAL_API_KEY",
         "url_env": "POSTHOG_MCP_URL",
@@ -83,10 +92,14 @@ def _configured_connections(
             )
             continue
 
+        headers = {
+            "Authorization": f"Bearer {token}",
+            **config.get("headers", {}),
+        }
         connections[name] = {
             "transport": "streamable_http",
             "url": url,
-            "headers": {"Authorization": f"Bearer {token}"},
+            "headers": headers,
         }
     return connections
 

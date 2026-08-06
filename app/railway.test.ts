@@ -68,6 +68,8 @@ describe("Railway deployment graph", () => {
     expect(agent?.variables).toMatchObject({
       OPENAI_API_KEY: { type: "preserve" },
       TAVILY_API_KEY: { type: "preserve" },
+      GITHUB_PERSONAL_ACCESS_TOKEN: { type: "preserve" },
+      GITHUB_MCP_URL: { type: "preserve" },
       POSTHOG_PERSONAL_API_KEY: { type: "preserve" },
       POSTHOG_MCP_URL: { type: "preserve" },
       LINEAR_API_KEY: { type: "preserve" },

@@ -1,9 +1,7 @@
 /**
- * Covers the `render_chart` and `render_diagram` tools (render-chart.tsx /
- * render-diagram.tsx) — the agent-facing tools that render a Chart.js config
- * or Mermaid source to a PNG and post it via `thread.postFile`, plus a small
- * JSX caption card posted via `thread.post` only after the upload succeeds
- * (so a failed upload never leaves an orphaned caption in the thread). The
+ * Covers the `render_chart` component and `render_diagram` tool
+ * (render-chart.tsx / render-diagram.tsx) — the agent-facing definitions that
+ * render a native Slack data visualization or a Mermaid PNG. The
  * `issue_card` / `issue_list` / `page_list` render-tool wrappers are covered
  * separately in render-tools.test.tsx.
  */
@@ -11,157 +9,142 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { renderToIR } from "@copilotkit/channels";
 import { renderSlackMessage } from "@copilotkit/channels/slack";
 
-// The exact PNG buffer instance `renderChart` resolves with, so tests can
-// assert `postFile` was handed the real render output — not just a filename.
-const CHART_PNG = Buffer.from("CHARTPNG");
 const DIAGRAM_PNG = Buffer.from("DIAGRAMPNG");
 
 // Mock the local renderers so no headless browser is launched.
-const renderChart = vi.fn(async () => CHART_PNG);
 const renderDiagram = vi.fn(async () => DIAGRAM_PNG);
-vi.mock("../../render/chart.js", () => ({ renderChart }));
 vi.mock("../../render/diagram.js", () => ({ renderDiagram }));
 
-const { renderChartTool } = await import("../render-chart.js");
+const { RenderChart } = await import("../render-chart.js");
 const { renderDiagramTool } = await import("../render-diagram.js");
 
 /** The ctx a ChannelTool handler receives. */
-type HandlerCtx = Parameters<typeof renderChartTool.handler>[1];
+type HandlerCtx = Parameters<typeof renderDiagramTool.handler>[1];
 
 function makeCtx(opts?: {
   postFileResult?: { ok: boolean; fileId?: string; error?: string };
 }) {
   const postFileResult = opts?.postFileResult ?? { ok: true, fileId: "F1" };
   const postFile = vi.fn(async () => postFileResult);
-  const posts: unknown[] = [];
   const thread = {
-    post: vi.fn(async (ui: unknown) => {
-      posts.push(ui);
-      return { id: "m1" };
-    }),
+    post: vi.fn(async () => ({ id: "m1" })),
     postFile,
   };
-  const ctx = { thread } as unknown as HandlerCtx;
-  return { ctx, postFile, thread, posts };
+  const ctx = { thread, platform: "slack" } as unknown as HandlerCtx;
+  return { ctx, postFile, thread };
 }
 
 beforeEach(() => {
-  renderChart.mockClear();
   renderDiagram.mockClear();
 });
 
-describe("render_chart tool", () => {
-  it("renders a config object and posts the PNG", async () => {
-    const { ctx, postFile, posts, thread } = makeCtx();
-    const out = (await renderChartTool.handler(
-      {
-        title: "Revenue Q2",
-        chartSpec: {
-          type: "bar",
-          data: { labels: ["a"], datasets: [{ data: [1] }] },
-        },
-      },
-      ctx,
-    )) as string;
-    expect(renderChart).toHaveBeenCalledWith(
-      expect.objectContaining({ type: "bar" }),
-    );
-    expect(postFile).toHaveBeenCalledWith(
-      expect.objectContaining({
-        bytes: CHART_PNG,
-        filename: "revenue-q2.png",
-        title: "Revenue Q2",
-      }),
-    );
-    expect(out).toBe("Rendered and posted the chart image to the thread.");
-    // The caption card was posted after the upload succeeded.
-    expect(posts).toHaveLength(1);
-    const { blocks } = renderSlackMessage(renderToIR(posts[0] as never));
-    expect(JSON.stringify(blocks)).toContain("📊");
-    expect(JSON.stringify(blocks)).toContain("Revenue Q2");
-    expect(postFile.mock.invocationCallOrder[0]!).toBeLessThan(
-      thread.post.mock.invocationCallOrder[0]!,
-    );
-  });
-
-  it("returns ok:false (not a throw) when rendering fails", async () => {
-    const { ctx, postFile } = makeCtx();
-    renderChart.mockRejectedValueOnce(
-      new Error("Chart.js render failed: bad type"),
-    );
-    const out = (await renderChartTool.handler(
-      {
-        chartSpec: {
-          type: "nope",
-          data: { labels: [], datasets: [{ data: [] }] },
-        },
-      },
-      ctx,
-    )) as string;
-    expect(out).toContain("Chart render failed");
-    expect(out).toContain("Chart.js render failed");
-    expect(postFile).not.toHaveBeenCalled();
-  });
-
-  it("tells the agent when postFile rejects the upload (res.ok === false)", async () => {
-    const { ctx } = makeCtx({
-      postFileResult: { ok: false, error: "file too large" },
+describe("render_chart component", () => {
+  it("is defined as an agent-rendered Channel component", () => {
+    expect(RenderChart).toMatchObject({
+      name: "render_chart",
+      parameters: expect.any(Object),
+      render: expect.any(Function),
     });
-    const out = (await renderChartTool.handler(
-      {
-        title: "Too Big",
-        chartSpec: {
-          type: "bar",
-          data: { labels: ["a"], datasets: [{ data: [1] }] },
-        },
-      },
-      ctx,
-    )) as string;
-    expect(out).toContain("Chart render failed");
-    expect(out).toContain("file too large");
   });
 
-  it("does not post the caption when postFile rejects the upload", async () => {
-    const { ctx, thread } = makeCtx({
-      postFileResult: { ok: false, error: "file too large" },
-    });
-    await renderChartTool.handler(
-      {
-        title: "Too Big",
-        chartSpec: {
-          type: "bar",
-          data: { labels: ["a"], datasets: [{ data: [1] }] },
-        },
-      },
-      ctx,
-    );
-    // No orphaned caption promising an image that never landed.
-    expect(thread.post).not.toHaveBeenCalled();
-  });
-
-  it("still resolves with the success string when the image posted but the caption post rejects", async () => {
-    const { ctx, thread } = makeCtx();
-    thread.post.mockRejectedValueOnce(new Error("caption post exploded"));
-    const out = (await renderChartTool.handler(
+  it("renders a native Slack series chart", async () => {
+    const ui = await RenderChart.render(
       {
         title: "Revenue Q2",
-        chartSpec: {
+        chart: {
           type: "bar",
-          data: { labels: ["a"], datasets: [{ data: [1] }] },
+          series: [
+            {
+              name: "Revenue",
+              data: [
+                { label: "April", value: 12 },
+                { label: "May", value: 18 },
+              ],
+            },
+          ],
+          axis_config: {
+            categories: ["April", "May"],
+            y_label: "USD (thousands)",
+          },
         },
       },
-      ctx,
-    )) as string;
-    // The image already landed — a caption-only failure must not make the
-    // tool report failure and cause the agent to apologize / re-render.
-    expect(out).toBe("Rendered and posted the chart image to the thread.");
-    expect(out).not.toContain("failed");
+      { platform: "slack", signal: new AbortController().signal },
+    );
+    const { blocks } = renderSlackMessage(renderToIR(ui as never));
+    expect(blocks[0]).toMatchObject({
+      type: "data_visualization",
+      title: "Revenue Q2",
+      chart: {
+        type: "bar",
+        series: [
+          {
+            name: "Revenue",
+            data: [
+              { label: "April", value: 12 },
+              { label: "May", value: 18 },
+            ],
+          },
+        ],
+        axis_config: {
+          categories: ["April", "May"],
+          y_label: "USD (thousands)",
+        },
+      },
+    });
+  });
+
+  it("renders a native Slack pie chart", async () => {
+    const ui = await RenderChart.render(
+      {
+        title: "Incidents by severity",
+        chart: {
+          type: "pie",
+          segments: [
+            { label: "SEV1", value: 2 },
+            { label: "SEV2", value: 5 },
+          ],
+        },
+      },
+      { platform: "slack", signal: new AbortController().signal },
+    );
+
+    const { blocks } = renderSlackMessage(renderToIR(ui as never));
+    expect(blocks[0]).toMatchObject({
+      type: "data_visualization",
+      title: "Incidents by severity",
+      chart: {
+        type: "pie",
+        segments: [
+          { label: "SEV1", value: 2 },
+          { label: "SEV2", value: 5 },
+        ],
+      },
+    });
+  });
+
+  it("renders an explicit portable fallback outside Slack", async () => {
+    const ui = await RenderChart.render(
+      {
+        title: "Incidents",
+        chart: {
+          type: "pie",
+          segments: [{ label: "SEV1", value: 2 }],
+        },
+      },
+      { platform: "teams", signal: new AbortController().signal },
+    );
+
+    const ir = renderToIR(ui as never);
+    expect(ir[0]?.type).toBe("section");
+    expect(JSON.stringify(ir)).toContain(
+      "Native data visualizations are currently only available in Slack.",
+    );
   });
 });
 
 describe("render_diagram tool", () => {
   it("renders Mermaid and posts the PNG", async () => {
-    const { ctx, postFile, posts, thread } = makeCtx();
+    const { ctx, postFile, thread } = makeCtx();
     const out = (await renderDiagramTool.handler(
       { title: "Flow", mermaid: "flowchart TD\n A-->B" },
       ctx,
@@ -171,14 +154,7 @@ describe("render_diagram tool", () => {
       expect.objectContaining({ bytes: DIAGRAM_PNG, filename: "flow.png" }),
     );
     expect(out).toBe("Rendered and posted the diagram image to the thread.");
-    // The caption card was posted after the upload succeeded.
-    expect(posts).toHaveLength(1);
-    const { blocks } = renderSlackMessage(renderToIR(posts[0] as never));
-    expect(JSON.stringify(blocks)).toContain("📐");
-    expect(JSON.stringify(blocks)).toContain("Flow");
-    expect(postFile.mock.invocationCallOrder[0]!).toBeLessThan(
-      thread.post.mock.invocationCallOrder[0]!,
-    );
+    expect(thread.post).not.toHaveBeenCalled();
   });
 
   it("surfaces a render error for the agent to repair", async () => {
@@ -217,16 +193,4 @@ describe("render_diagram tool", () => {
     expect(thread.post).not.toHaveBeenCalled();
   });
 
-  it("still resolves with the success string when the image posted but the caption post rejects", async () => {
-    const { ctx, thread } = makeCtx();
-    thread.post.mockRejectedValueOnce(new Error("caption post exploded"));
-    const out = (await renderDiagramTool.handler(
-      { title: "Flow", mermaid: "flowchart TD\n A-->B" },
-      ctx,
-    )) as string;
-    // The image already landed — a caption-only failure must not make the
-    // tool report failure and cause the agent to apologize / re-render.
-    expect(out).toBe("Rendered and posted the diagram image to the thread.");
-    expect(out).not.toContain("failed");
-  });
 });

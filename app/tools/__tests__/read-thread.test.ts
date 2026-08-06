@@ -19,12 +19,12 @@ describe("read_thread tool", () => {
   it("returns the thread messages in a normalized shape", async () => {
     const ctx = makeCtx([
       {
-        user: { id: "UALICE", name: "Alice" },
+        user: { id: "UALICE", kind: "human", name: "Alice" },
         text: "checkout is 500ing",
         ts: "1700000000.000100",
       },
       {
-        user: { id: "UBOT", name: "Triage Bot" },
+        user: { id: "UBOT", kind: "bot", name: "Triage Bot" },
         text: "looking into it",
         ts: "1700000000.000200",
         isBot: true,
@@ -78,7 +78,7 @@ describe("read_thread tool", () => {
   it("falls back to the handle when the user has no name", async () => {
     const ctx = makeCtx([
       {
-        user: { id: "UBOB", handle: "bob" },
+        user: { id: "UBOB", kind: "human", handle: "bob" },
         text: "on it",
         ts: "1700000000.000400",
       },

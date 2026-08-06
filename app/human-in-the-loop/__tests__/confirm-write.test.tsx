@@ -84,7 +84,7 @@ describe("ConfirmWrite", () => {
       | { elements: { text: string }[] }
       | undefined;
     expect(context?.elements[0]?.text).toContain(
-      "Nothing is written until you click",
+      "Nothing is changed until you click",
     );
     // "Create" is authored as Markdown bold (`**Create**`) so the IR→mrkdwn
     // transform renders it as Slack bold (`*Create*`), matching the old card.
@@ -106,6 +106,135 @@ describe("ConfirmWrite", () => {
     expect(blocks.some((b) => b.type === "section")).toBe(false);
   });
 
+  it("labels the confirm button with the action's own verb", () => {
+    const ir = renderToIR(<ConfirmWrite action="Delete customer" />);
+    const { blocks } = renderSlackMessage(ir);
+
+    const actions = blocks.find((b) => b.type === "actions") as
+      | { elements: { text: { text: string } }[] }
+      | undefined;
+    expect(actions?.elements.map((e) => e.text.text)).toEqual([
+      "Delete",
+      "Cancel",
+    ]);
+  });
+
+  it("does not label both buttons the same when the verb collides with Cancel", () => {
+    const ir = renderToIR(<ConfirmWrite action="Cancel subscription" />);
+    const { blocks } = renderSlackMessage(ir);
+
+    const actions = blocks.find((b) => b.type === "actions") as
+      | { elements: { text: { text: string } }[] }
+      | undefined;
+    const labels = actions?.elements.map((e) => e.text.text);
+
+    // "Cancel subscription" would otherwise render Cancel/Cancel, where one of
+    // the two identical buttons destroys the subscription.
+    expect(labels).toEqual(["Confirm", "Cancel"]);
+    expect(new Set(labels).size).toBe(2);
+
+    // Relabelling must not cost the destructive styling — the action is still
+    // a cancellation, whatever the button ends up reading.
+    const styled = blocks.find((b) => b.type === "actions") as
+      | { elements: { style?: string }[] }
+      | undefined;
+    expect(styled?.elements[0]?.style).toBe("danger");
+  });
+
+  it("styles a destructive action's confirm button as dangerous", () => {
+    const ir = renderToIR(<ConfirmWrite action="Delete customer" />);
+    const { blocks } = renderSlackMessage(ir);
+
+    const actions = blocks.find((b) => b.type === "actions") as
+      | { elements: { style?: string }[] }
+      | undefined;
+    // The destructive button carries the warning colour; Cancel becomes the
+    // neutral escape hatch rather than the red one.
+    expect(actions?.elements[0]?.style).toBe("danger");
+    expect(actions?.elements[1]?.style).toBeUndefined();
+  });
+
+  it("names the derived verb in the lock context", () => {
+    const ir = renderToIR(<ConfirmWrite action="Delete customer" />);
+    const { blocks } = renderSlackMessage(ir);
+
+    const context = blocks.find((b) => b.type === "context") as
+      | { elements: { text: string }[] }
+      | undefined;
+    expect(context?.elements[0]?.text).toContain("*Delete*");
+    expect(context?.elements[0]?.text).not.toContain("Create");
+  });
+
+  it("renders fields as a headerless Slack table", () => {
+    const ir = renderToIR(
+      <ConfirmWrite
+        action="Save project"
+        fields={[
+          { label: "Name", value: "OpenTag" },
+          { label: "Description", value: "Project for OpenTag work." },
+        ]}
+      />,
+    );
+    const { blocks } = renderSlackMessage(ir);
+
+    const table = blocks.find((b) => b.type === "table") as
+      | { rows: { text: string }[][]; column_settings?: unknown }
+      | undefined;
+    expect(table).toBeDefined();
+
+    // No `columns` prop, so no header row is emitted — the first row is data.
+    expect(table?.column_settings).toBeUndefined();
+    expect(table?.rows.map((row) => row.map((cell) => cell.text))).toEqual([
+      ["Name", "OpenTag"],
+      ["Description", "Project for OpenTag work."],
+    ]);
+  });
+
+  it("prefers the fields table over a legacy detail string", () => {
+    const ir = renderToIR(
+      <ConfirmWrite
+        action="Save project"
+        fields={[{ label: "Name", value: "OpenTag" }]}
+        detail='{"name": "OpenTag"}'
+      />,
+    );
+    const { blocks } = renderSlackMessage(ir);
+
+    expect(blocks.some((b) => b.type === "table")).toBe(true);
+    expect(JSON.stringify(blocks)).not.toContain('{\\"name\\"');
+  });
+
+  it("falls back to the detail section when fields is empty", () => {
+    const ir = renderToIR(
+      <ConfirmWrite action="Save project" fields={[]} detail="CPK-9: ..." />,
+    );
+    const { blocks } = renderSlackMessage(ir);
+
+    expect(blocks.some((b) => b.type === "table")).toBe(false);
+    const section = blocks.find((b) => b.type === "section") as
+      | { text: { text: string } }
+      | undefined;
+    expect(section?.text.text).toContain("CPK-9");
+  });
+
+  it("renders fields as a Teams Adaptive Card table without a header row", () => {
+    const card = renderAdaptiveCard(
+      renderToIR(
+        <ConfirmWrite
+          action="Save project"
+          fields={[{ label: "Name", value: "OpenTag" }]}
+        />,
+      ),
+    );
+
+    const table = (
+      card.body as { type: string; firstRowAsHeader?: boolean }[]
+    ).find((el) => el.type === "Table");
+    expect(table).toBeDefined();
+    expect(table?.firstRowAsHeader).toBe(false);
+    expect(JSON.stringify(card)).toContain("OpenTag");
+  });
+
   it("renders Create and Cancel actions as a Teams Adaptive Card", () => {
     const card = renderAdaptiveCard(
       renderToIR(
@@ -122,6 +251,77 @@ describe("ConfirmWrite", () => {
     expect(json).toContain("Create");
     expect(json).toContain("Cancel");
     expect(json).toContain("Action.Submit");
+  });
+
+  it("says nothing about retries on a first attempt", () => {
+    const { blocks } = renderSlackMessage(
+      renderToIR(<ConfirmWrite action="Save project" />),
+    );
+
+    expect(JSON.stringify(blocks)).not.toMatch(/Attempt|failed/i);
+  });
+
+  it("names the attempt and the previous failure when re-asking", () => {
+    const { blocks } = renderSlackMessage(
+      renderToIR(
+        <ConfirmWrite
+          action="Save project"
+          fields={[{ label: "Set teams", value: "Growth & Partnerships" }]}
+          attempt={2}
+          previousError={'Team "Growth" not found'}
+        />,
+      ),
+    );
+
+    const contexts = blocks.filter((b) => b.type === "context") as {
+      elements: { text: string }[];
+    }[];
+    // The retry banner leads, so the reason for the second ask is visible
+    // before the arguments the approver is being asked to re-approve.
+    expect(contexts[0]?.elements[0]?.text).toContain("Attempt 2");
+    expect(contexts[0]?.elements[0]?.text).toContain('Team "Growth" not found');
+    expect(blocks.findIndex((b) => b.type === "context")).toBeLessThan(
+      blocks.findIndex((b) => b.type === "table"),
+    );
+    // The buttons and their lock note survive the extra block.
+    expect(
+      contexts[contexts.length - 1]?.elements[0]?.text,
+    ).toContain("Nothing is changed until you click");
+  });
+
+  it("still flags a retry when the failure text is missing", () => {
+    const { blocks } = renderSlackMessage(
+      renderToIR(<ConfirmWrite action="Save project" attempt={3} />),
+    );
+
+    const context = blocks.find((b) => b.type === "context") as
+      | { elements: { text: string }[] }
+      | undefined;
+    expect(context?.elements[0]?.text).toContain("Attempt 3");
+    expect(context?.elements[0]?.text).not.toContain("undefined");
+  });
+
+  it("treats attempt 1 as a first ask, not a retry", () => {
+    const { blocks } = renderSlackMessage(
+      renderToIR(<ConfirmWrite action="Save project" attempt={1} />),
+    );
+
+    expect(JSON.stringify(blocks)).not.toMatch(/Attempt/i);
+  });
+
+  it("renders the retry banner on a Teams Adaptive Card too", () => {
+    const card = renderAdaptiveCard(
+      renderToIR(
+        <ConfirmWrite
+          action="Save project"
+          attempt={2}
+          previousError="Team not found"
+        />,
+      ),
+    );
+
+    expect(JSON.stringify(card)).toContain("Attempt 2");
+    expect(JSON.stringify(card)).toContain("Team not found");
   });
 
   it("approve onClick updates the picker and resumes the interrupted agent", async () => {
@@ -163,6 +363,33 @@ describe("ConfirmWrite", () => {
       | { elements: { text: string }[] }
       | undefined;
     expect(context?.elements[0]?.text).toContain("Approved");
+  });
+
+  it("the approved card does not claim a write that may still fail", async () => {
+    const ir = renderToIR(<ConfirmWrite action="Save project" />);
+    const save = buttonByText(ir, "Save");
+    const update = vi.fn(async () => ({ id: "m1" }));
+    const ctx = {
+      thread: { update, resume: vi.fn(async () => ({ id: "m2" })) },
+      message: { ref: { id: "m1" } },
+    } as unknown as InteractionContext;
+
+    await (save.props.onClick as ClickHandler)(ctx);
+
+    const [, renderable] = update.mock.calls[0] as unknown as [
+      { id: string },
+      Parameters<typeof renderToIR>[0],
+    ];
+    const { blocks } = renderSlackMessage(renderToIR(renderable));
+    const context = blocks.find((b) => b.type === "context") as
+      | { elements: { text: string }[] }
+      | undefined;
+
+    // This card is never revisited: the agent, not the click handler, learns
+    // the outcome. It must therefore claim only that the write was started —
+    // a card reading "writing now" outlives a write that Linear rejected.
+    expect(context?.elements[0]?.text).toContain("running the write");
+    expect(context?.elements[0]?.text).not.toMatch(/written|wrote|saved|done/i);
   });
 
   it("does not resume approval when the status update fails", async () => {

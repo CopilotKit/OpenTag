@@ -3,7 +3,7 @@ import type {
   ChannelTool,
   ContextEntry,
   IncomingMessage,
-  PlatformUser,
+  ProviderActor,
 } from "@copilotkit/channels";
 import {
   defaultSlackContext,
@@ -28,13 +28,13 @@ export function promptFromMessage(
 export function managedRunInput(message: IncomingMessage) {
   return {
     prompt: promptFromMessage(message),
-    ...platformRunInput(message.platform, message.user),
+    ...platformRunInput(message.platform, message.actor),
   };
 }
 
 export function platformRunInput(
   platform: string,
-  user: PlatformUser | undefined,
+  actor: ProviderActor | undefined,
 ): {
   tools?: ChannelTool[];
   context: ContextEntry[];
@@ -45,7 +45,7 @@ export function platformRunInput(
     ...(slack ? { tools: [...defaultSlackTools] } : {}),
     context: [
       ...(slack ? defaultSlackContext : []),
-      ...senderContext(user, platform),
+      ...senderContext(actor, platform),
     ],
   };
 }

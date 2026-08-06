@@ -10,7 +10,7 @@ import {
 const environment: AppEnvironment = {
   agentUrl: "http://agent.internal",
   agentAuthHeader: "Bearer agent-secret",
-  intelligenceApiKey: "intelligence-secret",
+  intelligenceApiKey: "cpk-1_test-secret",
   intelligenceApiUrl: "https://intelligence.example.test",
   intelligenceGatewayWsUrl: "wss://gateway.example.test",
   channelName: "open-tag",
@@ -31,6 +31,13 @@ describe("createOpenTagRuntime", () => {
     const { intelligence, listener, runtime } = createOpenTagRuntime({
       environment,
       channels,
+      __channelEngine: async (_config, declaredChannel) => {
+        await declaredChannel.ɵruntime.start();
+        return {
+          metadata: {},
+          stop: () => declaredChannel.ɵruntime.stop(),
+        };
+      },
     });
 
     expect(runtime.mode).toBe("intelligence");

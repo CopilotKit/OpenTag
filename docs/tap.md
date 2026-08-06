@@ -61,6 +61,7 @@ For the stock integrations, connect:
 
 | Credential name | Host pin           | Notes |
 | --------------- | ------------------ | ----- |
+| `github`        | `api.github.com`   | GitHub personal access token |
 | `linear`        | `api.linear.app`   | Linear personal API key; the agent speaks GraphQL to `/graphql` |
 | `notion`        | `api.notion.com`   | Notion internal-integration token |
 | `posthog`       | `us.posthog.com` (or your region) | PostHog personal API key. Note: direct mode is server-enforced read-only; TAP mode exposes the full REST API behind the write gate — consider a require-approval TAP policy for it |

@@ -51,7 +51,7 @@ export function issueFromValues(values: Record<string, unknown>) {
 export const fileIssueSubmit: ModalSubmitHandler = async ({
   values,
   thread,
-  user,
+  actor,
   privateMetadata,
 }) => {
   const issue = issueFromValues(values);
@@ -70,7 +70,7 @@ export const fileIssueSubmit: ModalSubmitHandler = async ({
         `Call the Linear create tool with these exact details. Its protected ` +
         `MCP handler emits confirm_write and files only after approval. Then ` +
         `show the issue card.`,
-      ...platformRunInput(privateMetadata ?? thread.platform, user),
+      ...platformRunInput(privateMetadata ?? thread.platform, actor),
     })
     .catch(async (error) => {
       try {

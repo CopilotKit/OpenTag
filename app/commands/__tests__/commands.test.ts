@@ -44,6 +44,8 @@ const ctx = (over: Partial<CommandContext>): CommandContext =>
     text: "",
     options: {},
     platform: "slack",
+    user: { id: "U1", name: "Ada" },
+    actor: { id: "U1", kind: "human", name: "Ada" },
     ...over,
   }) as CommandContext;
 
@@ -177,6 +179,7 @@ describe("example slash commands", () => {
           thread: thread as never,
           platform: "slack",
           user: { id: "U1", name: "Ada" },
+          actor: { id: "U1", kind: "human", name: "Ada" },
         }),
       );
 
@@ -206,11 +209,12 @@ describe("example slash commands", () => {
       text: "Login button is broken",
       options: {},
       user: { id: "U1", name: "Ada" },
+      actor: { id: "U1", kind: "human", name: "Ada" },
       platform: "slack",
     } as never);
     expect(postEphemeral).toHaveBeenCalledTimes(1);
-    const [user, , opts] = postEphemeral.mock.calls[0]!;
-    expect(user).toEqual({ id: "U1", name: "Ada" });
+    const [actor, , opts] = postEphemeral.mock.calls[0]!;
+    expect(actor).toEqual({ id: "U1", kind: "human", name: "Ada" });
     expect(opts).toEqual({ fallbackToDM: true });
     // Native path (ok, no fallback) is silent — no follow-up narration post.
     expect(post).not.toHaveBeenCalled();
@@ -226,13 +230,14 @@ describe("example slash commands", () => {
       text: "",
       options: {},
       user: { id: "U1" },
+      actor: { id: "U1", kind: "human" },
       platform: "slack",
     } as never);
     expect(post).toHaveBeenCalledWith(expect.stringContaining("Usage"));
     expect(postEphemeral).not.toHaveBeenCalled();
   });
 
-  it("/preview with no user says it can't tell who you are", async () => {
+  it("/preview with no provider actor says it can't tell who you are", async () => {
     const preview = byName("preview");
     const postEphemeral = vi.fn();
     const post = vi.fn().mockResolvedValue({ id: "1" });
@@ -241,7 +246,8 @@ describe("example slash commands", () => {
       command: "preview",
       text: "Login broken",
       options: {},
-      user: undefined,
+      user: null,
+      actor: { id: "", kind: "unknown" },
       platform: "slack",
     } as never);
     expect(postEphemeral).not.toHaveBeenCalled();
@@ -260,6 +266,7 @@ describe("example slash commands", () => {
       text: "",
       options: {},
       user: { id: "U1" },
+      actor: { id: "U1", kind: "human" },
       platform: "slack",
       openModal,
     } as never);
@@ -283,6 +290,7 @@ describe("example slash commands", () => {
       text: "",
       options: {},
       user: { id: "U1" },
+      actor: { id: "U1", kind: "human" },
       platform: "teams",
       openModal: undefined,
     } as never);
@@ -311,6 +319,7 @@ describe("example slash commands", () => {
       text: "",
       options: {},
       user: { id: "U1" },
+      actor: { id: "U1", kind: "human" },
       platform: "slack",
       openModal,
     } as never);
@@ -333,6 +342,7 @@ describe("example slash commands", () => {
       text: "Login broken",
       options: {},
       user: { id: "U1", name: "Ada" },
+      actor: { id: "U1", kind: "human", name: "Ada" },
       platform: "teams",
     } as never);
     expect(postEphemeral).toHaveBeenCalledTimes(1);
@@ -352,6 +362,7 @@ describe("example slash commands", () => {
       text: "Login broken",
       options: {},
       user: { id: "U1", name: "Ada" },
+      actor: { id: "U1", kind: "human", name: "Ada" },
       platform: "teams",
     } as never);
     expect(postEphemeral).toHaveBeenCalledTimes(1);
