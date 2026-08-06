@@ -456,9 +456,13 @@ def test_will_hold_method_gated_post(monkeypatch):
 
 
 def test_will_hold_auto_approve_url_override_wins_over_method_rule(monkeypatch):
+    """URL-override rules carry methods as the literal string "ANY" in TAP's
+    /agent/services rendering (not a list) — this test mirrors the real
+    shape. Iterating the string as a list would drop the rule and predict a
+    hold that TAP will not enforce: a write with no human gate anywhere."""
     monkeypatch.setenv("TAP_AGENT_KEY", "tap_test")
     rules = [
-        {"decision": "proceeds_immediately", "methods": ["POST"], "target": "api.linear.app/graphql"},
+        {"decision": "proceeds_immediately", "methods": "ANY", "target": "api.linear.app/graphql"},
         *METHOD_GATED,
     ]
     monkeypatch.setattr(tap_tools, "_http", lambda *a, **k: (200, _services_payload(rules)))
@@ -468,8 +472,8 @@ def test_will_hold_auto_approve_url_override_wins_over_method_rule(monkeypatch):
 def test_will_hold_require_url_override_wins_over_auto_url_override(monkeypatch):
     monkeypatch.setenv("TAP_AGENT_KEY", "tap_test")
     rules = [
-        {"decision": "proceeds_immediately", "methods": ["POST"], "target": "/graphql"},
-        {"decision": "pauses_for_human", "methods": ["POST"], "target": "api.linear.app/graphql"},
+        {"decision": "proceeds_immediately", "methods": "ANY", "target": "/graphql"},
+        {"decision": "pauses_for_human", "methods": "ANY", "target": "api.linear.app/graphql"},
     ]
     monkeypatch.setattr(tap_tools, "_http", lambda *a, **k: (200, _services_payload(rules)))
     assert tap_tools._tap_will_hold("linear", "POST", "https://api.linear.app/graphql") is True

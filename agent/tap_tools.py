@@ -182,6 +182,17 @@ def _pattern_matches(pattern: str, target: str) -> bool:
     )
 
 
+def _rule_covers_method(rule: dict, normalized: str) -> bool:
+    """TAP renders method rules with a list of methods, but URL-override
+    rules with the literal string "ANY" — iterating that string as a list
+    would yield characters and silently drop the rule."""
+    methods = rule.get("methods", "ANY")
+    if isinstance(methods, str):
+        return methods.upper() in ("ANY", normalized)
+    upper = [str(m).upper() for m in methods]
+    return normalized in upper or "ANY" in upper
+
+
 def _tap_will_hold(credential: str, method: str, target: str) -> bool:
     """True only when TAP's declared policy for this credential provably
     pauses this call for a human.
@@ -213,7 +224,7 @@ def _tap_will_hold(credential: str, method: str, target: str) -> bool:
             rule_target = str(rule.get("target", "*"))
             if rule_target == "*":
                 continue  # method rules are evaluated after URL overrides
-            if normalized not in [str(m).upper() for m in rule.get("methods", [])]:
+            if not _rule_covers_method(rule, normalized):
                 continue
             if not _pattern_matches(rule_target, target):
                 continue
@@ -226,7 +237,7 @@ def _tap_will_hold(credential: str, method: str, target: str) -> bool:
         for rule in rules:
             if str(rule.get("target", "*")) != "*":
                 continue
-            if normalized in [str(m).upper() for m in rule.get("methods", [])]:
+            if _rule_covers_method(rule, normalized):
                 return rule.get("decision") == "pauses_for_human"
         return False
     except Exception:
