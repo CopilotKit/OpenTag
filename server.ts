@@ -91,11 +91,20 @@ export async function startOpenTagServer(
   }
 
   let server: HttpServerLike | undefined;
+  let readinessPending = false;
 
   try {
-    await controls.ready({
-      timeoutMs: options.readinessTimeoutMs ?? 15_000,
-    });
+    try {
+      await controls.ready({
+        timeoutMs: options.readinessTimeoutMs ?? 15_000,
+      });
+    } catch (error) {
+      const status = controls.status().overall;
+      if (status !== "connecting" && status !== "reconnecting") {
+        throw error;
+      }
+      readinessPending = true;
+    }
 
     const createHttpServer =
       options.createHttpServer ??
@@ -152,6 +161,21 @@ export async function startOpenTagServer(
   };
   signalTarget.once("SIGINT", onSignal);
   signalTarget.once("SIGTERM", onSignal);
+
+  if (readinessPending) {
+    void controls.ready().catch((error: unknown) => {
+      void shutdown().then(
+        () => onShutdownError(error),
+        (shutdownError: unknown) =>
+          onShutdownError(
+            new AggregateError(
+              [error, shutdownError],
+              "Channel recovery and shutdown failed",
+            ),
+          ),
+      );
+    });
+  }
 
   return { server: startedServer, shutdown };
 }
