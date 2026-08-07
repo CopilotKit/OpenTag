@@ -1,6 +1,7 @@
 """OpenTag's triage-first Deep Agent."""
 
 import os
+from collections.abc import Mapping
 from pathlib import Path
 
 from copilotkit import CopilotKitMiddleware
@@ -30,6 +31,21 @@ VALID_REASONING_EFFORTS = frozenset(
 )
 VALID_VERBOSITY_LEVELS = frozenset({"low", "medium", "high"})
 
+# Super-steps the graph may take in one turn -- NOT a tool-call budget. The
+# middleware chain makes one tool call cost four super-steps (model ->
+# TodoListMiddleware.after_model -> CopilotKitMiddleware.after_model -> tools)
+# on top of a six-step baseline, so the usable budget is about (limit - 6) / 4.
+#
+# Measured, not estimated: see test_one_tool_call_costs_four_super_steps and
+# test_the_old_limit_allowed_only_four_tool_calls. The previous value of 25
+# completed at most FOUR tool calls in a turn, which is why research questions
+# died mid-answer. 60 completes thirteen.
+DEFAULT_RECURSION_LIMIT = 60
+
+# Below this the agent cannot complete a single tool call and every research
+# turn dies; treat it as a misconfiguration rather than a tuning choice.
+MIN_RECURSION_LIMIT = 10
+
 # Deep Agents adds shell execution and a general-purpose delegation tool by
 # default. OpenTag has no sandbox for execute, and delegating routine turns to
 # another agent adds latency without improving triage.
@@ -53,6 +69,36 @@ def _validated_openai_setting(
     if value not in allowed:
         choices = ", ".join(sorted(allowed))
         raise RuntimeError(f"Invalid {name}: expected one of {choices}")
+    return value
+
+
+# A turn with no tool calls costs six super-steps, and each tool call four.
+# Both measured; see test_one_tool_call_costs_four_super_steps.
+_TURN_BASELINE_STEPS = 6
+_STEPS_PER_TOOL_CALL = 4
+
+
+def tool_call_budget(limit: int) -> int:
+    """Tool calls a super-step limit actually buys, which is what people mean."""
+    return max(0, (limit - _TURN_BASELINE_STEPS) // _STEPS_PER_TOOL_CALL)
+
+
+def recursion_limit(env: Mapping[str, str] = os.environ) -> int:
+    """Read AGENT_RECURSION_LIMIT, or fall back to the tuned default."""
+    raw = env.get("AGENT_RECURSION_LIMIT")
+    if raw is None or not raw.strip():
+        return DEFAULT_RECURSION_LIMIT
+    try:
+        value = int(raw)
+    except ValueError as error:
+        raise RuntimeError(
+            f'Invalid AGENT_RECURSION_LIMIT: "{raw}" — must be an integer'
+        ) from error
+    if value < MIN_RECURSION_LIMIT:
+        raise RuntimeError(
+            f"Invalid AGENT_RECURSION_LIMIT: {value} — must be at least "
+            f"{MIN_RECURSION_LIMIT}, or the agent cannot finish a tool call"
+        )
     return value
 
 
@@ -111,4 +157,10 @@ def build_agent():
     print(f"[AGENT] internal-source tools: {len(internal_tools)}")
     print(f"[AGENT] Main tools: {[t.name for t in main_tools]}")
 
-    return agent_graph.with_config({"recursion_limit": 25})
+    limit = recursion_limit()
+    print(
+        f"[AGENT] recursion limit: {limit} "
+        f"({tool_call_budget(limit)} tool calls per turn)"
+    )
+
+    return agent_graph.with_config({"recursion_limit": limit})

@@ -7,7 +7,9 @@ import pytest
 from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, ToolMessage
 from langchain_core.outputs import ChatGeneration, ChatResult
+from langchain_core.tools import tool
 from langchain_openai import ChatOpenAI as RealChatOpenAI
+from langgraph.errors import GraphRecursionError
 from pydantic import Field
 
 
@@ -97,9 +99,180 @@ def test_build_agent_rejects_invalid_openai_tuning(monkeypatch, name, value):
 
 
 def test_build_agent_bounds_graph_recursion(monkeypatch):
+    monkeypatch.delenv("AGENT_RECURSION_LIMIT", raising=False)
     _, captured = build_with_captured_configuration(monkeypatch)
 
-    assert captured["config"] == {"recursion_limit": 25}
+    assert captured["config"] == {
+        "recursion_limit": agent_mod.DEFAULT_RECURSION_LIMIT
+    }
+
+
+class ScriptedModel(BaseChatModel):
+    """Makes exactly `budget` tool calls, one per turn, then answers."""
+
+    model_name: str = "gpt-5.5"
+    budget: int = 0
+    made: int = Field(default=0)
+
+    @property
+    def _llm_type(self):
+        return "scripted"
+
+    def _get_ls_params(self, **_kwargs):
+        return {
+            "ls_provider": "openai",
+            "ls_model_name": self.model_name,
+            "ls_model_type": "chat",
+        }
+
+    def bind_tools(self, tools, **_kwargs):
+        del tools
+        return self
+
+    def _generate(self, messages, stop=None, run_manager=None, **_kwargs):
+        del messages, stop, run_manager
+        if self.made >= self.budget:
+            return ChatResult(
+                generations=[ChatGeneration(message=AIMessage(content="done"))]
+            )
+        self.made += 1
+        return ChatResult(
+            generations=[
+                ChatGeneration(
+                    message=AIMessage(
+                        content="",
+                        tool_calls=[
+                            {
+                                "name": "lookup",
+                                "args": {"query": f"q{self.made}"},
+                                "id": f"call-{self.made}",
+                            }
+                        ],
+                    )
+                )
+            ]
+        )
+
+
+def graph_making_tool_calls(monkeypatch, count, limit=None):
+    """The real agent graph, driven by a model that makes `count` tool calls."""
+
+    @tool
+    def lookup(query: str) -> str:
+        """Look something up."""
+        return f"result for {query}"
+
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
+    for name in (
+        "TAVILY_API_KEY",
+        "GITHUB_PERSONAL_ACCESS_TOKEN",
+        "POSTHOG_PERSONAL_API_KEY",
+        "LINEAR_API_KEY",
+        "NOTION_MCP_AUTH_TOKEN",
+    ):
+        monkeypatch.delenv(name, raising=False)
+    if limit is None:
+        monkeypatch.delenv("AGENT_RECURSION_LIMIT", raising=False)
+    else:
+        monkeypatch.setenv("AGENT_RECURSION_LIMIT", str(limit))
+
+    monkeypatch.setattr(
+        agent_mod, "ChatOpenAI", lambda **_kwargs: ScriptedModel(budget=count)
+    )
+    monkeypatch.setattr(agent_mod, "internal_source_tools", lambda: [lookup])
+    return agent_mod.build_agent()
+
+
+def super_steps_for(monkeypatch, count):
+    graph = graph_making_tool_calls(monkeypatch, count, limit=1000)
+    return sum(
+        1
+        for _ in graph.stream(
+            {"messages": [{"role": "user", "content": "go"}]},
+            config={"configurable": {"thread_id": f"steps-{count}"}},
+            stream_mode="updates",
+        )
+    )
+
+
+def completes(monkeypatch, count, limit):
+    graph = graph_making_tool_calls(monkeypatch, count, limit=limit)
+    try:
+        graph.invoke(
+            {"messages": [{"role": "user", "content": "go"}]},
+            config={"configurable": {"thread_id": f"survive-{count}-{limit}"}},
+        )
+        return True
+    except GraphRecursionError:
+        return False
+
+
+def test_one_tool_call_costs_four_super_steps(monkeypatch):
+    """The limit counts super-steps, and the middleware chain multiplies them.
+
+    model -> TodoListMiddleware.after_model -> CopilotKitMiddleware.after_model
+    -> tools. Measuring it here keeps the budget arithmetic honest: if a
+    middleware is added or removed, the cost per tool call changes and the
+    limit has to move with it.
+    """
+    baseline = super_steps_for(monkeypatch, 0)
+    one = super_steps_for(monkeypatch, 1)
+    five = super_steps_for(monkeypatch, 5)
+
+    assert one - baseline == 4
+    assert five - baseline == 20
+
+
+def test_the_old_limit_allowed_only_four_tool_calls(monkeypatch):
+    """Why 25 was failing real turns -- it was never a 25-tool-call budget."""
+    assert completes(monkeypatch, 4, limit=25) is True
+    assert completes(monkeypatch, 5, limit=25) is False
+
+
+@pytest.mark.parametrize("limit", [25, 40, 60, 100])
+def test_the_reported_tool_call_budget_is_the_real_one(monkeypatch, limit):
+    """What startup prints has to match what the graph actually completes.
+
+    The startup line is the only place an operator learns what a limit buys,
+    so it must not drift from the graph -- including if a middleware changes
+    the per-tool-call cost.
+    """
+    budget = agent_mod.tool_call_budget(limit)
+
+    assert completes(monkeypatch, budget, limit=limit) is True
+    assert completes(monkeypatch, budget + 1, limit=limit) is False
+
+
+def test_the_default_limit_covers_a_research_turn(monkeypatch):
+    """A GitHub search, pagination, and a chart must fit in one turn."""
+    assert completes(
+        monkeypatch, 12, limit=agent_mod.DEFAULT_RECURSION_LIMIT
+    ) is True
+
+
+def test_recursion_limit_is_configurable(monkeypatch):
+    monkeypatch.setenv("AGENT_RECURSION_LIMIT", "120")
+    _, captured = build_with_captured_configuration(monkeypatch)
+
+    assert captured["config"] == {"recursion_limit": 120}
+
+
+def test_a_blank_recursion_limit_falls_back_to_the_default():
+    assert (
+        agent_mod.recursion_limit({"AGENT_RECURSION_LIMIT": "   "})
+        == agent_mod.DEFAULT_RECURSION_LIMIT
+    )
+    assert agent_mod.recursion_limit({}) == agent_mod.DEFAULT_RECURSION_LIMIT
+
+
+def test_a_nonsense_recursion_limit_is_rejected():
+    with pytest.raises(RuntimeError, match="AGENT_RECURSION_LIMIT"):
+        agent_mod.recursion_limit({"AGENT_RECURSION_LIMIT": "lots"})
+
+
+def test_a_recursion_limit_too_low_to_finish_a_tool_call_is_rejected():
+    with pytest.raises(RuntimeError, match="at least"):
+        agent_mod.recursion_limit({"AGENT_RECURSION_LIMIT": "4"})
 
 
 def test_build_agent_refreshes_current_date_before_each_model_call(monkeypatch):
