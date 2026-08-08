@@ -58,8 +58,8 @@ OpenTag's channel can run two ways:
    and concurrency. Free plan available; this quick start uses it.
 2. **Your own channel runner** — build and operate one on the open-source
    Channels SDK. See the
-   [Channels SDK docs](https://docs.copilotkit.ai/channels) for what that
-   involves.
+   [Channels SDK docs](https://docs.copilotkit.ai/channels) for how to do
+   that.
 
 ### 1. Install dependencies
 
