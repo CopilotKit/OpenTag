@@ -51,10 +51,15 @@ Prerequisites: Node.js 22+, pnpm, Python 3.12,
 [`uv`](https://docs.astral.sh/uv/), a CopilotKit account, an OpenAI API key,
 and a Slack workspace you can install an app into.
 
-OpenTag is built on the
-[CopilotKit Channels SDK](https://docs.copilotkit.ai/channels) — read the
-Channels docs for the full picture of how channels run. This quick start uses
-the managed Intelligence path, available on a free plan.
+OpenTag's channel can run two ways:
+
+1. **Managed channel runner** — an Enterprise Intelligence Channel runs the
+   connection and takes care of the durable-data concerns: delivery, state,
+   and concurrency. Free plan available; this quick start uses it.
+2. **Your own channel runner** — build and operate one on the open-source
+   Channels SDK. See the
+   [Channels SDK docs](https://docs.copilotkit.ai/channels) for what that
+   involves.
 
 ### 1. Install dependencies
 
