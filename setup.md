@@ -34,7 +34,8 @@ Prerequisites:
 - pnpm
 - Python 3.12
 - [`uv`](https://docs.astral.sh/uv/)
-- A CopilotKit Intelligence project, Channel, and runtime API key
+- A CopilotKit Intelligence project, Channel, and runtime API key (free plan
+  available)
 - An OpenAI API key for the Python agent
 
 ```bash
