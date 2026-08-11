@@ -21,6 +21,7 @@ import { appContext } from "./context/app-context.js";
 import { appTools } from "./tools/index.js";
 import { RenderChart } from "./tools/render-chart.js";
 import { createOpenTagChannel } from "./channel.js";
+import type { AppTelemetry } from "./telemetry.js";
 
 class CapturingAgent extends FakeAgent {
   readonly calls: Array<RunAgentParameters | undefined>;
@@ -55,6 +56,26 @@ class CapturingAgent extends FakeAgent {
 }
 
 const channels: Channel[] = [];
+
+function makeTestTelemetry(): AppTelemetry {
+  return {
+    enabled: false,
+    logger: {
+      log: vi.fn(),
+      debug: vi.fn(),
+      info: vi.fn(),
+      warn: vi.fn(),
+      error: vi.fn(),
+    },
+    metrics: {
+      increment: vi.fn(),
+      timing: vi.fn(),
+      gauge: vi.fn(),
+    },
+    startRuntimeMetrics: vi.fn(),
+    close: vi.fn(async () => undefined),
+  };
+}
 
 function confirmWriteEnvelope(
   action = "Create Linear issue",
@@ -128,20 +149,23 @@ afterEach(async () => {
   vi.restoreAllMocks();
 });
 
-function makeChannel(options: { agent?: FakeAgent } = {}) {
+function makeChannel(
+  options: { agent?: FakeAgent; telemetry?: AppTelemetry } = {},
+) {
   const adapter = new FakeAdapter({ platform: "intelligence" });
   const stateStore = new MemoryStore();
   adapter.stateStore = stateStore;
   const agent = options.agent ?? new CapturingAgent();
-  const channel = createOpenTagChannel("opentag", agent);
+  const telemetry = options.telemetry ?? makeTestTelemetry();
+  const channel = createOpenTagChannel("opentag", agent, telemetry);
   channel.ɵruntime.addAdapter(adapter);
   channels.push(channel);
-  return { adapter, agent, channel, stateStore };
+  return { adapter, agent, channel, stateStore, telemetry };
 }
 
 describe("createOpenTagChannel", () => {
   it("subscribes when Kite is mentioned and handles a later managed delivery", async () => {
-    const { adapter, agent, channel, stateStore } = makeChannel();
+    const { adapter, agent, channel, stateStore, telemetry } = makeChannel();
 
     await channel.ɵruntime.start();
     await adapter.getSink().onTurn({
@@ -176,6 +200,19 @@ describe("createOpenTagChannel", () => {
     });
 
     expect((agent as CapturingAgent).calls).toHaveLength(2);
+    expect(telemetry.metrics.increment).toHaveBeenCalledWith(
+      "kite.channel.turns",
+      { handler: "mention", outcome: "success" },
+    );
+    expect(telemetry.metrics.increment).toHaveBeenCalledWith(
+      "kite.channel.turns",
+      { handler: "message", outcome: "success" },
+    );
+    expect(telemetry.metrics.timing).toHaveBeenCalledWith(
+      "kite.channel.turn.duration_ms",
+      expect.any(Number),
+      { handler: "mention", outcome: "success" },
+    );
   });
 
   it.each(["bot", "app"] as const)(
@@ -400,10 +437,7 @@ describe("createOpenTagChannel", () => {
   });
 
   it("surfaces a structured recoverable error when suggested prompts fail", async () => {
-    const consoleError = vi
-      .spyOn(console, "error")
-      .mockImplementation(() => undefined);
-    const { adapter, channel } = makeChannel();
+    const { adapter, channel, telemetry } = makeChannel();
     adapter.setSuggestedPrompts = vi.fn(async () => {
       throw new Error("suggested prompts unavailable");
     });
@@ -415,25 +449,19 @@ describe("createOpenTagChannel", () => {
       actor: { id: "U1", kind: "human", name: "Ada" },
     });
 
-    expect(consoleError).toHaveBeenCalledWith(
-      "[channel] recoverable error",
+    expect(telemetry.logger.error).toHaveBeenCalledWith(
+      "channel_recoverable_error",
       expect.objectContaining({
         error: expect.any(Error),
-        context: {
-          operation: "set_suggested_prompts",
-          recovery: "continue_without_suggested_prompts",
-        },
-        timestamp: expect.any(String),
+        operation: "set_suggested_prompts",
+        recovery: "continue_without_suggested_prompts",
       }),
     );
   });
 
   it("posts a user-facing error when the agent run fails", async () => {
     const error = new Error("agent unavailable");
-    const consoleError = vi
-      .spyOn(console, "error")
-      .mockImplementation(() => undefined);
-    const { adapter, channel } = makeChannel({
+    const { adapter, channel, telemetry } = makeChannel({
       agent: new FakeAgent([
         () => {
           throw error;
@@ -451,16 +479,21 @@ describe("createOpenTagChannel", () => {
     });
 
     expect(JSON.stringify(adapter.posted)).toMatch(/sorry.*error/i);
-    expect(consoleError).toHaveBeenCalledWith(
-      "[channel] recoverable error",
+    expect(telemetry.logger.error).toHaveBeenCalledWith(
+      "channel_recoverable_error",
       expect.objectContaining({
         error,
-        context: {
-          operation: "run_agent",
-          recovery: "posted_user_facing_error",
-        },
-        timestamp: expect.any(String),
+        operation: "run_agent",
+        recovery: "posted_user_facing_error",
       }),
+    );
+    expect(telemetry.metrics.increment).toHaveBeenCalledWith(
+      "kite.channel.turn.errors",
+      { handler: "mention" },
+    );
+    expect(telemetry.metrics.increment).toHaveBeenCalledWith(
+      "kite.channel.turns",
+      { handler: "mention", outcome: "error" },
     );
   });
 

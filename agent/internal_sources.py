@@ -10,6 +10,7 @@ from typing import Any
 from langchain_mcp_adapters.client import MultiServerMCPClient
 
 from write_confirmation import WriteConfirmationInterceptor
+from telemetry import get_agent_telemetry
 
 
 MCP_SERVERS = {
@@ -118,7 +119,10 @@ async def _load_tools(connections: dict[str, dict[str, Any]]) -> list:
             )
             confirmation.register_tools(tools)
             loaded.extend(tools)
-            print(f"[TOOLS] loaded {len(tools)} tool(s) from {name}")
+            get_agent_telemetry().logger.info(
+                "internal_source_tools_loaded",
+                {"source": name, "tool_count": len(tools)},
+            )
         except asyncio.TimeoutError as error:
             _emit_internal_source_error(
                 error,

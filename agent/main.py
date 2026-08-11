@@ -1,8 +1,10 @@
 """FastAPI server for the OpenTag triage agent."""
 
 from collections.abc import Mapping
+from contextlib import asynccontextmanager
 import os
 import sys
+import time
 
 from ag_ui_langgraph import add_langgraph_fastapi_endpoint
 from copilotkit import LangGraphAGUIAgent
@@ -10,11 +12,29 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from agent import build_agent
+from telemetry import (
+    close_agent_telemetry,
+    get_agent_telemetry,
+    normalize_http_method,
+    status_class,
+)
+
+telemetry = get_agent_telemetry()
+
+
+@asynccontextmanager
+async def lifespan(_app):
+    telemetry.start_runtime_metrics()
+    try:
+        yield
+    finally:
+        close_agent_telemetry()
 
 app = FastAPI(
     title="OpenTag Agent",
     description="An on-call triage assistant powered by Deep Agents and CopilotKit",
     version="0.1.0",
+    lifespan=lifespan,
 )
 
 AGENT_NAME = "opentag_research"
@@ -36,6 +56,28 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+@app.middleware("http")
+async def record_http_metrics(request, call_next):
+    """Record bounded request metrics without affecting request handling."""
+    started_at = time.perf_counter()
+    status_code = 500
+    try:
+        response = await call_next(request)
+        status_code = response.status_code
+        return response
+    finally:
+        tags = {
+            "method": normalize_http_method(request.method),
+            "status_class": status_class(status_code),
+        }
+        telemetry.increment("kite.http.requests", tags)
+        telemetry.timing(
+            "kite.http.request.duration_ms",
+            (time.perf_counter() - started_at) * 1000,
+            tags,
+        )
 
 
 @app.get("/health")
@@ -71,11 +113,10 @@ try:
         path="/",
     )
 
-    print("[SERVER] OpenTag Agent registered at /")
+    telemetry.logger.info("agent_endpoint_registered", {"path": "/"})
 except Exception as error:
-    print(f"[ERROR] Failed to build agent: {error}", file=sys.stderr)
+    telemetry.logger.error("agent_build_failed", {"error": error})
     raise
-
 
 def main():
     """Run the local development server."""
@@ -86,11 +127,11 @@ def main():
     try:
         port = local_server_port()
     except ValueError as error:
-        print(f"[ERROR] {error}", file=sys.stderr)
+        telemetry.logger.error("agent_port_invalid", {"error": error})
         sys.exit(1)
     reload = os.getenv("AGENT_RELOAD", "").lower() in ("1", "true", "yes")
 
-    print(f"[SERVER] Starting on {host}:{port}")
+    telemetry.logger.info("agent_server_starting", {"host": host, "port": port})
     uvicorn.run(
         "main:app",
         host=host,

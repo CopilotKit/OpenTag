@@ -8,6 +8,11 @@ import { pathToFileURL } from "node:url";
 import type { ChannelsControl } from "@copilotkit/runtime/v2";
 import { createOpenTagApplication } from "./app/index.js";
 import { closeBrowser } from "./app/render/browser.js";
+import {
+  getTelemetry,
+  instrumentHttpListener,
+  type AppTelemetry,
+} from "./app/telemetry.js";
 
 export type RuntimeListener = RequestListener & {
   channels?: ChannelsControl;
@@ -39,6 +44,7 @@ export interface StartOpenTagServerOptions {
   signalTarget?: SignalTarget;
   readinessTimeoutMs?: number;
   onShutdownError?: (error: unknown) => void;
+  telemetry?: AppTelemetry;
 }
 
 function listen(server: HttpServerLike, port: number): Promise<void> {
@@ -69,13 +75,14 @@ function close(server: HttpServerLike): Promise<void> {
 
 async function settleCleanup(
   operations: ReadonlyArray<() => Promise<void>>,
+  onError: (error: unknown) => void,
 ): Promise<void> {
   const results = await Promise.allSettled(
     operations.map((operation) => operation()),
   );
   for (const result of results) {
     if (result.status === "rejected") {
-      console.error("[opentag] startup cleanup failed", result.reason);
+      onError(result.reason);
     }
   }
 }
@@ -83,6 +90,7 @@ async function settleCleanup(
 export async function startOpenTagServer(
   options: StartOpenTagServerOptions,
 ): Promise<RunningOpenTagServer> {
+  const telemetry = options.telemetry ?? getTelemetry();
   const controls = options.listener.channels;
   if (!controls) {
     throw new Error(
@@ -100,15 +108,26 @@ export async function startOpenTagServer(
     const createHttpServer =
       options.createHttpServer ??
       ((listener: RequestListener): Server => createServer(listener));
-    server = createHttpServer(options.listener);
+    telemetry.startRuntimeMetrics();
+    server = createHttpServer(
+      instrumentHttpListener(options.listener, telemetry),
+    );
     await listen(server, options.port);
   } catch (error) {
     const failedServer = server;
-    await settleCleanup([
-      () => controls.stop(),
-      ...(failedServer ? [() => close(failedServer)] : []),
-      options.closeBrowser,
-    ]);
+    await settleCleanup(
+      [
+        () => controls.stop(),
+        ...(failedServer ? [() => close(failedServer)] : []),
+        options.closeBrowser,
+        () => telemetry.close(),
+      ],
+      (cleanupError) => {
+        telemetry.logger.error("opentag_startup_cleanup_failed", {
+          error: cleanupError,
+        });
+      },
+    );
     throw error;
   }
 
@@ -117,7 +136,7 @@ export async function startOpenTagServer(
   const onShutdownError =
     options.onShutdownError ??
     ((error: unknown) => {
-      console.error("[opentag] shutdown failed", error);
+      telemetry.logger.error("opentag_shutdown_failed", { error });
       process.exitCode = 1;
     });
   let shutdownPromise: Promise<void> | undefined;
@@ -133,6 +152,7 @@ export async function startOpenTagServer(
         controls.stop(),
         close(startedServer),
         options.closeBrowser(),
+        telemetry.close(),
       ]);
       const errors = results.flatMap((result) =>
         result.status === "rejected" ? [result.reason] : [],
@@ -157,18 +177,19 @@ export async function startOpenTagServer(
 }
 
 export async function main(): Promise<RunningOpenTagServer> {
-  const application = createOpenTagApplication();
+  const telemetry = getTelemetry();
+  const application = createOpenTagApplication(undefined, telemetry);
   const running = await startOpenTagServer({
     listener: application.listener,
     port: application.environment.port,
     closeBrowser,
+    telemetry,
   });
 
-  console.log(
-    `[opentag] channels ${application.channels
-      .map(({ name }) => `"${name}"`)
-      .join(", ")} listening on [::]:${application.environment.port}`,
-  );
+  telemetry.logger.info("opentag_runtime_listening", {
+    channel_count: application.channels.length,
+    port: application.environment.port,
+  });
   return running;
 }
 
@@ -180,7 +201,7 @@ if (isMain) {
   try {
     await main();
   } catch (error) {
-    console.error("[opentag] startup failed", error);
+    getTelemetry().logger.error("opentag_startup_failed", { error });
     process.exitCode = 1;
   }
 }

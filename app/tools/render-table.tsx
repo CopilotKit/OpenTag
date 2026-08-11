@@ -20,6 +20,7 @@ import {
   Cell,
   Context,
 } from "@copilotkit/channels";
+import { getTelemetry } from "../telemetry.js";
 import { defineChannelTool } from "@copilotkit/channels";
 
 const schema = z.object({
@@ -160,10 +161,10 @@ export const renderTableTool = defineChannelTool({
       // Native Table block not accepted (platform unsupported) — post the same
       // data as a monospace code-fenced table via a platform-neutral <Message>
       // so it still lands on any adapter.
-      console.error(
-        "[render-table] native table post failed, falling back to monospace",
-        err,
-      );
+      getTelemetry().logger.warn("render_table_native_post_failed", {
+        error: err,
+        recovery: "try_monospace_fallback",
+      });
       const mono = toMonospaceTable(cols, dataRows);
       const fallback = (
         <Message>
@@ -180,10 +181,10 @@ export const renderTableTool = defineChannelTool({
         // likely the same transient/platform failure hit both posts. Return a
         // clear status string instead of letting the handler throw, so the
         // agent gets an actionable message rather than an opaque tool error.
-        console.error(
-          "[render-table] monospace fallback post also failed",
-          fallbackErr,
-        );
+        getTelemetry().logger.error("render_table_fallback_post_failed", {
+          error: fallbackErr,
+          recovery: "return_actionable_status",
+        });
         return `The table couldn't be posted (both native and monospace rendering failed).${noteSuffix}`;
       }
     }

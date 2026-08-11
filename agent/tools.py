@@ -5,11 +5,14 @@ from typing import Any
 
 from langchain_core.tools import tool
 from tavily import TavilyClient
+from telemetry import get_agent_telemetry
 
 
 def _search_tavily(query: str, max_results: int = 5) -> list[dict[str, Any]]:
     """Search Tavily and normalize its results."""
-    print(f"[TOOL] web_search: query='{query}', max_results={max_results}")
+    get_agent_telemetry().logger.info(
+        "web_search_started", {"max_results": max_results}
+    )
 
     tavily_key = os.environ.get("TAVILY_API_KEY")
     if not tavily_key:
@@ -34,7 +37,9 @@ def _search_tavily(query: str, max_results: int = 5) -> list[dict[str, Any]]:
                 }
             )
 
-        print(f"[TOOL] web_search: found {len(formatted_results)} results")
+        get_agent_telemetry().logger.info(
+            "web_search_completed", {"result_count": len(formatted_results)}
+        )
         return formatted_results
 
     except Exception as error:
