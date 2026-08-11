@@ -6,7 +6,6 @@ import {
 } from "@copilotkit/channels/slack";
 import { appCommands } from "../index.js";
 import type { CommandContext } from "@copilotkit/channels";
-import { getTelemetry } from "../../telemetry.js";
 
 function tags(node: ChannelNode | unknown, acc: string[] = []): string[] {
   if (!node || typeof node !== "object") return acc;
@@ -87,9 +86,7 @@ describe("example slash commands", () => {
   it("/agent reports a recoverable error after posting an apology", async () => {
     const thread = fakeThread();
     thread.runAgent.mockRejectedValueOnce(new Error("backend unavailable"));
-    const telemetryError = vi
-      .spyOn(getTelemetry().logger, "error")
-      .mockImplementation(() => undefined);
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
 
     await byName("agent").handler(
       ctx({
@@ -99,19 +96,22 @@ describe("example slash commands", () => {
       }),
     );
 
-    expect(telemetryError).toHaveBeenCalledWith(
-      "channel_recoverable_error",
+    expect(consoleError).toHaveBeenCalledWith(
+      "[channel] recoverable error",
       expect.objectContaining({
         error: expect.any(Error),
-        operation: "command_agent_run_agent",
-        recovery: "posted_user_facing_error",
+        context: {
+          operation: "command_agent_run_agent",
+          recovery: "posted_user_facing_error",
+        },
+        timestamp: expect.any(String),
       }),
     );
     expect(thread.post).toHaveBeenCalledWith(
       expect.stringMatching(/sorry.*error/i),
     );
 
-    telemetryError.mockRestore();
+    consoleError.mockRestore();
   });
 
   it("/agent rejects loudly when its run and apology both fail", async () => {

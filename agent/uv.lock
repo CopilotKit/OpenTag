@@ -363,18 +363,6 @@ wheels = [
 ]
 
 [[package]]
-name = "datadog"
-version = "0.53.0"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "requests" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/77/4a/8c61a6bd82be61a7b2a1f9dd77104f52299aa81d377fe6a35f9477167361/datadog-0.53.0.tar.gz", hash = "sha256:9f69a18089c852e20edff7e55226a6f4ca9749e162cfa4ae88c949dd722ebef8", size = 378021, upload-time = "2026-07-24T15:11:56.572Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/da/83/1fda660aef15fa7f80fc9ad0f056d45dbe8dd09b1774a9cd6c4cfc6cf24d/datadog-0.53.0-py2.py3-none-any.whl", hash = "sha256:e42467bad752c4739a232986e4ebdb8e4690134e901965557f2eaff0f40eb177", size = 138980, upload-time = "2026-07-24T15:11:55.221Z" },
-]
-
-[[package]]
 name = "deepagents"
 version = "0.6.12"
 source = { registry = "https://pypi.org/simple" }
@@ -927,7 +915,6 @@ source = { virtual = "." }
 dependencies = [
     { name = "ag-ui-langgraph" },
     { name = "copilotkit" },
-    { name = "datadog" },
     { name = "deepagents" },
     { name = "fastapi" },
     { name = "langchain" },
@@ -948,7 +935,6 @@ dev = [
 requires-dist = [
     { name = "ag-ui-langgraph", specifier = ">=0.0.23" },
     { name = "copilotkit", specifier = ">=0.1.76" },
-    { name = "datadog", specifier = ">=0.53.0" },
     { name = "deepagents", specifier = ">=0.6.12" },
     { name = "fastapi", specifier = ">=0.115.14" },
     { name = "langchain", specifier = ">=1.2.4" },

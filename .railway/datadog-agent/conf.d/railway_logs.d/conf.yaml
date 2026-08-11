@@ -1,0 +1,9 @@
+init_config:
+
+instances:
+  - min_collection_interval: 15
+
+logs:
+  - type: integration
+    source: railway
+    service: kite

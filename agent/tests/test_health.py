@@ -60,8 +60,8 @@ def test_build_agent_without_tavily(monkeypatch, capsys):
     monkeypatch.delenv("NOTION_MCP_AUTH_TOKEN", raising=False)
     graph = agent_mod.build_agent()
     assert graph is not None
-    output = capsys.readouterr().err
-    assert '"web_search":"disabled"' in output
+    out = capsys.readouterr().out
+    assert "[AGENT] web search: disabled" in out
 
 
 def test_build_agent_with_tavily(monkeypatch, capsys):
@@ -73,8 +73,8 @@ def test_build_agent_with_tavily(monkeypatch, capsys):
     monkeypatch.delenv("NOTION_MCP_AUTH_TOKEN", raising=False)
     graph = agent_mod.build_agent()
     assert graph is not None
-    output = capsys.readouterr().err
-    assert '"web_search":"enabled"' in output
+    out = capsys.readouterr().out
+    assert "[AGENT] web search: enabled" in out
 
 
 def test_build_agent_requires_openai(monkeypatch):

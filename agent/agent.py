@@ -22,7 +22,6 @@ from prompts import (
     current_date_prompt,
 )
 from tools import web_search
-from telemetry import get_agent_telemetry
 
 load_dotenv(Path(__file__).resolve().parent.parent / ".env")
 
@@ -104,16 +103,12 @@ def build_agent():
         checkpointer=MemorySaver(),
     )
 
-    get_agent_telemetry().logger.info(
-        "agent_created",
-        {
-            "model": model_name,
-            "reasoning": reasoning_effort,
-            "verbosity": verbosity,
-            "web_search": "enabled" if has_web_search else "disabled",
-            "internal_tool_count": len(internal_tools),
-            "tool_count": len(main_tools),
-        },
+    print(
+        "[AGENT] OpenTag Agent created "
+        f"with model={model_name}, reasoning={reasoning_effort}, verbosity={verbosity}"
     )
+    print(f"[AGENT] web search: {'enabled' if has_web_search else 'disabled'}")
+    print(f"[AGENT] internal-source tools: {len(internal_tools)}")
+    print(f"[AGENT] Main tools: {[t.name for t in main_tools]}")
 
     return agent_graph.with_config({"recursion_limit": 25})

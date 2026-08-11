@@ -1,13 +1,14 @@
 import {
   github,
   service,
+  volume,
   type RailwayContext,
-  type ServiceNode,
+  type ResourceNode,
   type VariableValue,
 } from "railway/iac";
 
-// WARNING: Changing this to false makes Railway plan deletion of the
-// Datadog Agent and Kite's DD_* variables in every environment subsequently applied.
+// WARNING: Applying with this set to false deletes only the Datadog Agent and
+// its cursor volume. Kite's runtime and agent services are never modified.
 export const DD_ENABLED = true;
 
 const DATADOG_ENVIRONMENTS = {
@@ -19,18 +20,18 @@ const DATADOG_ENVIRONMENTS = {
 export type DatadogEnvironment =
   (typeof DATADOG_ENVIRONMENTS)[keyof typeof DATADOG_ENVIRONMENTS];
 
-type EnvironmentFragment = Record<string, string | VariableValue>;
-
 export interface DatadogTopology {
-  resources: ServiceNode[];
-  runtimeEnv: EnvironmentFragment;
-  agentEnv: EnvironmentFragment;
+  resources: ResourceNode[];
 }
 
 export interface DatadogTopologyOptions {
   enabled?: boolean;
   repository: string;
   branch: string;
+  targets: {
+    runtimeServiceId: string | VariableValue;
+    agentServiceId: string | VariableValue;
+  };
 }
 
 export function datadogEnvironmentFor(
@@ -52,36 +53,16 @@ export function datadogEnvironmentFor(
   return environment;
 }
 
-function applicationEnvironment(
-  privateDomain: VariableValue,
-  environment: DatadogEnvironment,
-  component: "runtime" | "agent",
-  syslogPort: 514 | 515,
-): EnvironmentFragment {
-  return {
-    DD_TELEMETRY_ENABLED: "true",
-    DD_AGENT_HOST: privateDomain,
-    DD_AGENT_STATSD_PORT: "8125",
-    DD_AGENT_SYSLOG_PORT: String(syslogPort),
-    DD_ENV: environment,
-    DD_SERVICE: "kite",
-    DD_COMPONENT: component,
-    DD_PLATFORM: "railway",
-    DD_VERSION: "${{RAILWAY_DEPLOYMENT_ID}}",
-  };
-}
-
 export function createDatadogTopology(
   context: RailwayContext,
   options: DatadogTopologyOptions,
 ): DatadogTopology {
-  if (options.enabled === false) {
-    return { resources: [], runtimeEnv: {}, agentEnv: {} };
-  }
+  if (options.enabled === false) return { resources: [] };
 
   const environment = datadogEnvironmentFor(
     context.environmentName ?? context.environment,
   );
+  const cursorVolume = volume("datadog-agent-state", { sizeMB: 100 });
   const datadogAgent = service("datadog-agent", {
     source: github(options.repository, {
       branch: options.branch,
@@ -89,35 +70,37 @@ export function createDatadogTopology(
     }),
     build: { builder: "DOCKERFILE" },
     deploy: {
+      numReplicas: 1,
       restartPolicyType: "ON_FAILURE",
       restartPolicyMaxRetries: 5,
     },
+    volumeMounts: {
+      "/opt/datadog-agent/run": cursorVolume,
+    },
     env: {
       DD_API_KEY: context.shared.DD_API_KEY,
+      RAILWAY_LOGS_TOKEN: context.shared.RAILWAY_LOGS_TOKEN,
+      RAILWAY_RUNTIME_SERVICE_ID: options.targets.runtimeServiceId,
+      RAILWAY_AGENT_SERVICE_ID: options.targets.agentServiceId,
       DD_SITE: "datadoghq.com",
-      DD_HOSTNAME: `kite-${environment}-datadog-agent`,
+      DD_HOSTNAME: `kite-${environment}-railway-logs`,
       DD_ENV: environment,
-      DD_TAGS: "platform:railway",
+      DD_SERVICE: "kite",
+      DD_TAGS: `service:kite env:${environment} platform:railway`,
       DD_LOGS_ENABLED: "true",
+      DD_LOGS_CONFIG_FORCE_USE_HTTP: "true",
+      DD_LOGS_CONFIG_USE_COMPRESSION: "true",
       DD_APM_ENABLED: "false",
-      DD_DOGSTATSD_NON_LOCAL_TRAFFIC: "true",
-      DD_BIND_HOST: "::",
+      DD_ENABLE_PAYLOADS_EVENTS: "false",
+      DD_ENABLE_PAYLOADS_SERIES: "false",
+      DD_ENABLE_PAYLOADS_SERVICE_CHECKS: "false",
+      DD_ENABLE_PAYLOADS_SKETCHES: "false",
+      DD_PROCESS_AGENT_ENABLED: "false",
+      DD_PROCESS_CONFIG_CONTAINER_COLLECTION_ENABLED: "false",
+      DD_PROCESS_CONFIG_PROCESS_COLLECTION_ENABLED: "false",
+      DD_REMOTE_CONFIGURATION_ENABLED: "false",
     },
   });
 
-  return {
-    resources: [datadogAgent],
-    runtimeEnv: applicationEnvironment(
-      datadogAgent.env.RAILWAY_PRIVATE_DOMAIN,
-      environment,
-      "runtime",
-      514,
-    ),
-    agentEnv: applicationEnvironment(
-      datadogAgent.env.RAILWAY_PRIVATE_DOMAIN,
-      environment,
-      "agent",
-      515,
-    ),
-  };
+  return { resources: [datadogAgent, cursorVolume] };
 }

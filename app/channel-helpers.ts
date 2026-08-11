@@ -10,7 +10,6 @@ import {
   defaultSlackTools,
 } from "@copilotkit/channels/slack";
 import { senderContext } from "./sender-context.js";
-import { getTelemetry, type AppTelemetry } from "./telemetry.js";
 
 /**
  * Managed history does not include the in-flight turn, so pass it explicitly.
@@ -54,11 +53,10 @@ export function platformRunInput(
 export function reportRecoverableError(
   error: unknown,
   context: { operation: string; recovery: string },
-  telemetry: AppTelemetry = getTelemetry(),
 ): void {
-  telemetry.logger.error("channel_recoverable_error", {
-    error,
-    operation: context.operation,
-    recovery: context.recovery,
+  console.error("[channel] recoverable error", {
+    error: error instanceof Error ? error : new Error(String(error)),
+    context,
+    timestamp: new Date().toISOString(),
   });
 }

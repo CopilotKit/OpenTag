@@ -1,85 +1,38 @@
 import { execFileSync } from "node:child_process";
 import { describe, expect, it } from "vitest";
-import { createRailwayContext } from "railway/iac";
+import {
+  createRailwayContext,
+  projectDefinitionToGraph,
+  type RailwayGraph,
+} from "railway/iac";
 import {
   createDatadogTopology,
   datadogEnvironmentFor,
 } from "../.railway/datadog.js";
+import { createOpenTagProject } from "../.railway/railway.js";
 
-interface RailwayVariable {
-  type: "literal" | "preserve" | "reference" | "sharedReference";
-  value?: string;
-  name?: string;
-  resource?: string;
-  output?: string;
-}
-
-interface RailwayResource {
-  name: string;
-  source?: {
-    repo?: string;
-    branch?: string;
-    rootDirectory?: string;
-  };
-  build?: {
-    builder?: string;
-    buildCommand?: string;
-    watchPatterns?: string[] | null;
-  };
-  deploy?: {
-    startCommand?: string;
-    healthcheckPath?: string;
-  };
-  networking?: unknown;
-  domains?: unknown;
-  variables?: Record<string, RailwayVariable>;
-}
-
-function evaluateRailwayGraph(): RailwayResource[] {
-  const stdout = execFileSync(
-    process.execPath,
-    ["node_modules/railway/dist/iac/bin.js"],
-    {
-      cwd: process.cwd(),
-      encoding: "utf8",
+const ORIGINAL_KITE_RESOURCES = [
+  {
+    address: "service.agent",
+    type: "service",
+    kind: "github",
+    name: "agent",
+    source: {
+      type: "github",
+      repo: "CopilotKit/OpenTag",
+      branch: "main",
+      rootDirectory: "agent",
     },
-  );
-  const result = JSON.parse(stdout) as {
-    ok: boolean;
-    diagnostics: unknown[];
-    graph: { resources: RailwayResource[] };
-  };
-  expect(result.ok).toBe(true);
-  expect(result.diagnostics).toEqual([]);
-  return result.graph.resources;
-}
-
-describe("Railway deployment graph", () => {
-  it("ships both Kite services and the private Datadog Agent", () => {
-    const resources = evaluateRailwayGraph();
-    expect(resources.map(({ name }) => name).sort()).toEqual([
-      "agent",
-      "datadog-agent",
-      "runtime",
-    ]);
-
-    const agent = resources.find(({ name }) => name === "agent");
-    expect(agent).toMatchObject({
-      source: {
-        repo: "CopilotKit/OpenTag",
-        branch: "main",
-        rootDirectory: "agent",
-      },
-      build: {
-        builder: "RAILPACK",
-      },
-      deploy: {
-        startCommand:
-          'uvicorn main:app --host "" --port ${PORT:-8123}',
-        healthcheckPath: "/health",
-      },
-    });
-    expect(agent?.variables).toMatchObject({
+    build: { builder: "RAILPACK" },
+    deploy: {
+      startCommand: 'uvicorn main:app --host "" --port ${PORT:-8123}',
+      healthcheckPath: "/health",
+      healthcheckTimeout: 300,
+      restartPolicyType: "ON_FAILURE",
+      restartPolicyMaxRetries: 5,
+    },
+    variables: {
+      PORT: { type: "literal", value: "8123" },
       OPENAI_API_KEY: { type: "preserve" },
       TAVILY_API_KEY: { type: "preserve" },
       GITHUB_PERSONAL_ACCESS_TOKEN: { type: "preserve" },
@@ -89,78 +42,106 @@ describe("Railway deployment graph", () => {
       LINEAR_API_KEY: { type: "preserve" },
       NOTION_MCP_URL: { type: "preserve" },
       NOTION_MCP_AUTH_TOKEN: { type: "preserve" },
-      DD_AGENT_HOST: {
-        type: "reference",
-        resource: "service.datadog-agent",
-        output: "RAILWAY_PRIVATE_DOMAIN",
-      },
-      DD_AGENT_STATSD_PORT: { type: "literal", value: "8125" },
-      DD_AGENT_SYSLOG_PORT: { type: "literal", value: "515" },
-      DD_SERVICE: { type: "literal", value: "kite" },
-      DD_COMPONENT: { type: "literal", value: "agent" },
-      DD_PLATFORM: { type: "literal", value: "railway" },
-    });
-
-    const runtime = resources.find(({ name }) => name === "runtime");
-    expect(runtime).toMatchObject({
-      source: {
-        repo: "CopilotKit/OpenTag",
-        branch: "main",
-      },
-      build: {
-        builder: "RAILPACK",
-        buildCommand: "pnpm exec playwright install chromium",
-      },
-      deploy: {
-        startCommand: "pnpm runtime",
-        healthcheckPath: "/api/copilotkit/info",
-      },
-      variables: {
-        AGENT_URL: { type: "preserve" },
-        CI: { type: "preserve" },
-        DISCORD_APP_ID: { type: "preserve" },
-        DISCORD_BOT_TOKEN: { type: "preserve" },
-        DISCORD_GUILD_ID: { type: "preserve" },
-        INTELLIGENCE_API_KEY: { type: "preserve" },
-        INTELLIGENCE_API_URL: { type: "preserve" },
-        INTELLIGENCE_GATEWAY_WS_URL: { type: "preserve" },
-        INTELLIGENCE_CHANNEL_NAME: { type: "preserve" },
-        LEFTHOOK: { type: "preserve" },
-        LINEAR_API_KEY: { type: "preserve" },
-        LINEAR_TEAM_KEY: { type: "preserve" },
-        OPENAI_API_KEY: { type: "preserve" },
-        PLAYWRIGHT_BROWSERS_PATH: { type: "preserve" },
-        RAILPACK_DEPLOY_APT_PACKAGES: { type: "preserve" },
-        SLACK_APP_TOKEN: { type: "preserve" },
-        SLACK_BOT_TOKEN: { type: "preserve" },
-        TELEGRAM_BOT_TOKEN: { type: "preserve" },
-        WHATSAPP_ACCESS_TOKEN: { type: "preserve" },
-        WHATSAPP_APP_SECRET: { type: "preserve" },
-        WHATSAPP_PATH: { type: "preserve" },
-        WHATSAPP_PHONE_NUMBER_ID: { type: "preserve" },
-        WHATSAPP_PORT: { type: "preserve" },
-        WHATSAPP_VERIFY_TOKEN: { type: "preserve" },
-        npm_config_ignore_scripts: { type: "preserve" },
-      },
-    });
-    expect(runtime?.variables).toMatchObject({
-      DD_AGENT_HOST: {
-        type: "reference",
-        resource: "service.datadog-agent",
-        output: "RAILWAY_PRIVATE_DOMAIN",
-      },
-      DD_AGENT_STATSD_PORT: { type: "literal", value: "8125" },
-      DD_AGENT_SYSLOG_PORT: { type: "literal", value: "514" },
-      DD_SERVICE: { type: "literal", value: "kite" },
-      DD_COMPONENT: { type: "literal", value: "runtime" },
-      DD_PLATFORM: { type: "literal", value: "railway" },
-      DD_VERSION: {
+    },
+  },
+  {
+    address: "service.runtime",
+    type: "service",
+    kind: "github",
+    name: "runtime",
+    source: {
+      type: "github",
+      repo: "CopilotKit/OpenTag",
+      branch: "main",
+    },
+    build: {
+      builder: "RAILPACK",
+      buildCommand: "pnpm exec playwright install chromium",
+      watchPatterns: [],
+    },
+    deploy: {
+      healthcheckPath: "/api/copilotkit/info",
+      healthcheckTimeout: 300,
+      restartPolicyType: "ON_FAILURE",
+      restartPolicyMaxRetries: 5,
+      startCommand: "pnpm runtime",
+    },
+    variables: {
+      PORT: { type: "literal", value: "3000" },
+      AGENT_URL: {
         type: "literal",
-        value: "${{RAILWAY_DEPLOYMENT_ID}}",
+        value: "http://${{agent.RAILWAY_PRIVATE_DOMAIN}}:${{agent.PORT}}/",
       },
-    });
+      INTELLIGENCE_API_KEY: { type: "preserve" },
+      INTELLIGENCE_API_URL: {
+        type: "literal",
+        value: "https://api.intelligence.copilotkit.ai",
+      },
+      INTELLIGENCE_GATEWAY_WS_URL: {
+        type: "literal",
+        value: "wss://realtime.intelligence.copilotkit.ai",
+      },
+      INTELLIGENCE_CHANNEL_NAME: { type: "literal", value: "open-tag" },
+      PLAYWRIGHT_BROWSERS_PATH: { type: "literal", value: "0" },
+      RAILPACK_DEPLOY_APT_PACKAGES: {
+        type: "literal",
+        value:
+          "fonts-liberation fonts-noto-color-emoji fonts-unifont libasound2 libatk-bridge2.0-0 libatk1.0-0 libatspi2.0-0 libcairo2 libcups2 libdbus-1-3 libdrm2 libexpat1 libfontconfig1 libfreetype6 libgbm1 libglib2.0-0 libnspr4 libnss3 libpango-1.0-0 libx11-6 libx11-xcb1 libxcb1 libxcomposite1 libxdamage1 libxext6 libxfixes3 libxkbcommon0 libxrandr2 libxrender1 libxshmfence1",
+      },
+    },
+  },
+] as const;
 
+function graphFor(enabled: boolean): RailwayGraph {
+  const context = createRailwayContext({ environmentName: "staging" });
+  return projectDefinitionToGraph(createOpenTagProject(context, enabled));
+}
+
+function evaluateDefaultRailwayFile(): void {
+  const stdout = execFileSync(
+    process.execPath,
+    ["node_modules/railway/dist/iac/bin.js"],
+    { cwd: process.cwd(), encoding: "utf8" },
+  );
+  const result = JSON.parse(stdout) as {
+    ok: boolean;
+    diagnostics: unknown[];
+  };
+  expect(result.ok).toBe(true);
+  expect(result.diagnostics).toEqual([]);
+}
+
+describe("Railway deployment graph", () => {
+  it("keeps the origin/main Kite graph identical when Datadog is enabled", () => {
+    const graph = graphFor(true);
+    expect(
+      graph.resources.filter(({ name }) => name === "agent" || name === "runtime"),
+    ).toEqual(ORIGINAL_KITE_RESOURCES);
+    expect(graph.resources.map(({ name }) => name).sort()).toEqual([
+      "agent",
+      "datadog-agent",
+      "datadog-agent-state",
+      "runtime",
+    ]);
+  });
+
+  it("omits only Datadog resources when disabled", () => {
+    const graph = graphFor(false);
+    expect(graph.resources).toEqual(ORIGINAL_KITE_RESOURCES);
+    expect(graph.edges).toEqual([]);
+  });
+
+  it("evaluates the committed enabled Railway file without diagnostics", () => {
+    evaluateDefaultRailwayFile();
+  });
+
+  it("creates an isolated logs-only Agent and private cursor volume", () => {
+    const resources = graphFor(true).resources;
     const datadog = resources.find(({ name }) => name === "datadog-agent");
+    expect(datadog?.type).toBe("service");
+    if (!datadog || datadog.type !== "service") {
+      throw new Error("datadog-agent service missing from Railway graph");
+    }
     expect(datadog).toMatchObject({
       source: {
         repo: "CopilotKit/OpenTag",
@@ -168,13 +149,38 @@ describe("Railway deployment graph", () => {
         rootDirectory: ".railway/datadog-agent",
       },
       build: { builder: "DOCKERFILE" },
+      deploy: { numReplicas: 1 },
       variables: {
         DD_API_KEY: { type: "sharedReference", name: "DD_API_KEY" },
-        DD_APM_ENABLED: { type: "literal", value: "false" },
+        RAILWAY_LOGS_TOKEN: {
+          type: "sharedReference",
+          name: "RAILWAY_LOGS_TOKEN",
+        },
+        RAILWAY_RUNTIME_SERVICE_ID: {
+          type: "reference",
+          resource: "service.runtime",
+          output: "RAILWAY_SERVICE_ID",
+        },
+        RAILWAY_AGENT_SERVICE_ID: {
+          type: "reference",
+          resource: "service.agent",
+          output: "RAILWAY_SERVICE_ID",
+        },
+        DD_SITE: { type: "literal", value: "datadoghq.com" },
         DD_LOGS_ENABLED: { type: "literal", value: "true" },
-        DD_DOGSTATSD_NON_LOCAL_TRAFFIC: {
+        DD_APM_ENABLED: { type: "literal", value: "false" },
+        DD_ENABLE_PAYLOADS_SERIES: { type: "literal", value: "false" },
+        DD_ENABLE_PAYLOADS_EVENTS: { type: "literal", value: "false" },
+        DD_ENABLE_PAYLOADS_SERVICE_CHECKS: {
           type: "literal",
-          value: "true",
+          value: "false",
+        },
+        DD_ENABLE_PAYLOADS_SKETCHES: { type: "literal", value: "false" },
+      },
+      volumeAttachments: {
+        "datadog-agent-state": {
+          volume: "volume.datadog-agent-state",
+          mountPath: "/opt/datadog-agent/run",
         },
       },
     });
@@ -182,6 +188,10 @@ describe("Railway deployment graph", () => {
     expect(datadog).not.toHaveProperty("domains");
     expect(JSON.stringify(datadog)).not.toContain("RAILWAY_PUBLIC_DOMAIN");
     expect(datadog?.variables?.DD_API_KEY).not.toHaveProperty("value");
+    expect(datadog?.variables?.RAILWAY_LOGS_TOKEN).not.toHaveProperty("value");
+    expect(
+      resources.find(({ name }) => name === "datadog-agent-state"),
+    ).toMatchObject({ type: "volume", config: { sizeMB: 100 } });
   });
 
   it.each([
@@ -192,22 +202,25 @@ describe("Railway deployment graph", () => {
     expect(datadogEnvironmentFor(railway)).toBe(datadog);
   });
 
-  it("rejects an environment that would create incorrectly tagged telemetry", () => {
+  it("rejects an environment that would create incorrectly tagged logs", () => {
     expect(() => datadogEnvironmentFor("preview-123")).toThrow(
       "Datadog is not configured",
     );
   });
 
-  it("omits the Agent and all Kite DD_* variables when disabled", () => {
+  it("the disabled topology itself contains no resources", () => {
     const topology = createDatadogTopology(
       createRailwayContext({ environmentName: "staging" }),
       {
         enabled: false,
         repository: "CopilotKit/OpenTag",
         branch: "main",
+        targets: {
+          runtimeServiceId: "runtime-1",
+          agentServiceId: "agent-1",
+        },
       },
     );
-
-    expect(topology).toEqual({ resources: [], runtimeEnv: {}, agentEnv: {} });
+    expect(topology).toEqual({ resources: [] });
   });
 });

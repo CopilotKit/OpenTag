@@ -1,8 +1,0 @@
-bind_host: "::"
-dogstatsd_non_local_traffic: true
-
-apm_config:
-  enabled: false
-
-logs_config:
-  force_use_http: true

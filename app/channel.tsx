@@ -16,7 +16,6 @@ import { FILE_ISSUE_CALLBACK, fileIssueSubmit } from "./modals/file-issue.js";
 import { IncidentCard } from "./tools/showcase-tools.js";
 import { RenderChart } from "./tools/render-chart.js";
 import { appTools } from "./tools/index.js";
-import { getTelemetry, type AppTelemetry } from "./telemetry.js";
 
 type ChannelAgent = NonNullable<CreateChannelOptions["agent"]>;
 
@@ -24,7 +23,6 @@ type ChannelAgent = NonNullable<CreateChannelOptions["agent"]>;
 export function createOpenTagChannel(
   name: string,
   agent: ChannelAgent,
-  telemetry: AppTelemetry = getTelemetry(),
 ): Channel {
   const channel = createChannel({
     name,
@@ -43,36 +41,22 @@ export function createOpenTagChannel(
     ],
   });
 
-  type MessageEvent = Parameters<Parameters<typeof channel.onMessage>[0]>[0];
-  const runAgentSafely = async (
-    { thread, message }: MessageEvent,
-    handler: "mention" | "message",
-  ): Promise<void> => {
-    const startedAt = performance.now();
-    let outcome = "success";
+  const runAgentSafely: Parameters<typeof channel.onMessage>[0] = async ({
+    thread,
+    message,
+  }) => {
     try {
       await thread.runAgent(managedRunInput(message));
     } catch (error) {
-      outcome = "error";
-      telemetry.metrics.increment("kite.channel.turn.errors", { handler });
       try {
         await thread.post(
           "Sorry — I hit an error handling that. Please try again.",
         );
       } catch (postError) {
-        const aggregate = new AggregateError(
+        throw new AggregateError(
           [error, postError],
           "The agent run and its user-facing error reply both failed",
         );
-        reportRecoverableError(
-          aggregate,
-          {
-            operation: "run_agent",
-            recovery: "user_facing_error_post_failed",
-          },
-          telemetry,
-        );
-        throw aggregate;
       }
 
       // A failed turn is isolated from future turns. Once the user receives an
@@ -80,34 +64,20 @@ export function createOpenTagChannel(
       reportRecoverableError(error, {
         operation: "run_agent",
         recovery: "posted_user_facing_error",
-      }, telemetry);
-    } finally {
-      const durationMs = performance.now() - startedAt;
-      const tags = { handler, outcome };
-      telemetry.metrics.increment("kite.channel.turns", tags);
-      telemetry.metrics.timing(
-        "kite.channel.turn.duration_ms",
-        durationMs,
-        tags,
-      );
-      telemetry.logger.info("channel_turn_completed", {
-        handler,
-        outcome,
-        duration_ms: durationMs,
       });
     }
   };
 
   channel.onMention(async ({ thread, message }) => {
     await thread.subscribe();
-    await runAgentSafely({ thread, message }, "mention");
+    await runAgentSafely({ thread, message });
   });
 
   channel.onMessage(async ({ thread, message }) => {
     if (message.actor.kind === "bot" || message.actor.kind === "app") return;
 
     if (await thread.isSubscribed()) {
-      await runAgentSafely({ thread, message }, "message");
+      await runAgentSafely({ thread, message });
     }
   });
 
@@ -146,7 +116,7 @@ export function createOpenTagChannel(
       reportRecoverableError(error, {
         operation: "set_suggested_prompts",
         recovery: "continue_without_suggested_prompts",
-      }, telemetry);
+      });
     }
   });
 

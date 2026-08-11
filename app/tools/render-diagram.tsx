@@ -7,7 +7,6 @@
 import { z } from "zod";
 import { defineChannelTool } from "@copilotkit/channels";
 import { renderDiagram } from "../render/diagram.js";
-import { getTelemetry } from "../telemetry.js";
 
 const schema = z.object({
   title: z
@@ -54,7 +53,7 @@ export const renderDiagramTool = defineChannelTool({
       return "Rendered and posted the diagram image to the thread.";
     } catch (e) {
       // Surface the Mermaid parse error so the agent can repair the source.
-      getTelemetry().logger.error("render_diagram_failed", { error: e });
+      console.error("[render-diagram] render/upload failed", e);
       return `Diagram render failed: ${(e as Error).message}. Fix the Mermaid syntax and retry.`;
     }
   },

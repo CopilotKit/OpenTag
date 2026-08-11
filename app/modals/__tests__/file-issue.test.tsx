@@ -10,7 +10,6 @@ import {
   issueFromValues,
   FILE_ISSUE_CALLBACK,
 } from "../file-issue.js";
-import { getTelemetry } from "../../telemetry.js";
 
 function tags(node: ChannelNode | unknown, acc: string[] = []): string[] {
   if (!node || typeof node !== "object") return acc;
@@ -166,8 +165,8 @@ describe("fileIssueSubmit", () => {
   });
 
   it("posts and reports a recoverable failure when runAgent rejects", async () => {
-    const telemetryError = vi
-      .spyOn(getTelemetry().logger, "error")
+    const consoleError = vi
+      .spyOn(console, "error")
       .mockImplementation(() => undefined);
     const post = vi.fn().mockResolvedValue({ id: "m1" });
     const thread = {
@@ -184,20 +183,23 @@ describe("fileIssueSubmit", () => {
     expect(post).toHaveBeenCalledWith(
       expect.stringMatching(/couldn.t file|try again/i),
     );
-    expect(telemetryError).toHaveBeenCalledWith(
-      "channel_recoverable_error",
+    expect(consoleError).toHaveBeenCalledWith(
+      "[channel] recoverable error",
       expect.objectContaining({
         error: expect.any(Error),
-        operation: "file_issue_modal_run_agent",
-        recovery: "posted_user_facing_error",
+        context: {
+          operation: "file_issue_modal_run_agent",
+          recovery: "posted_user_facing_error",
+        },
+        timestamp: expect.any(String),
       }),
     );
-    telemetryError.mockRestore();
+    consoleError.mockRestore();
   });
 
   it("reports a structured terminal error when the apology also fails", async () => {
-    const telemetryError = vi
-      .spyOn(getTelemetry().logger, "error")
+    const consoleError = vi
+      .spyOn(console, "error")
       .mockImplementation(() => undefined);
     const runError = new Error("LLM timeout");
     const postError = new Error("Slack unavailable");
@@ -213,16 +215,19 @@ describe("fileIssueSubmit", () => {
     } as never);
     await new Promise((resolve) => setTimeout(resolve, 0));
 
-    expect(telemetryError).toHaveBeenCalledWith(
-      "channel_recoverable_error",
+    expect(consoleError).toHaveBeenCalledWith(
+      "[channel] recoverable error",
       expect.objectContaining({
         error: expect.objectContaining({
           errors: [runError, postError],
         }),
-        operation: "file_issue_modal_run_agent",
-        recovery: "terminal_failure",
+        context: {
+          operation: "file_issue_modal_run_agent",
+          recovery: "terminal_failure",
+        },
+        timestamp: expect.any(String),
       }),
     );
-    telemetryError.mockRestore();
+    consoleError.mockRestore();
   });
 });
