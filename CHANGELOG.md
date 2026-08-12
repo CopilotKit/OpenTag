@@ -1,3 +1,5 @@
+# Changelog
+
 ## v0.2.0
 
 - Merge pull request #45 from CopilotKit/port-kite-to-aws-cdk (26f1fa7)

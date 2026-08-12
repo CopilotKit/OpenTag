@@ -223,6 +223,18 @@ jobs:
             git tag -a "$RELEASE_VERSION" "$SOURCE_COMMIT" -m "Release $RELEASE_VERSION"
             git push origin "$RELEASE_VERSION"
           fi
+      - name: Extract this version's release notes
+        env:
+          RELEASE_VERSION: ${{ needs.metadata.outputs.release_version }}
+        run: |
+          set -euo pipefail
+          awk -v heading="## $RELEASE_VERSION" '
+            $0 == heading { found = 1; next }
+            found && /^## / { exit }
+            found { print }
+            END { if (!found) exit 1 }
+          ' CHANGELOG.md > "$RUNNER_TEMP/release-notes.md"
+          test -s "$RUNNER_TEMP/release-notes.md"
       - name: Create GitHub Release idempotently
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -230,11 +242,13 @@ jobs:
         run: |
           set -euo pipefail
           if gh release view "$RELEASE_VERSION" >/dev/null 2>&1; then
-            gh release edit "$RELEASE_VERSION" --title "$RELEASE_VERSION" --notes-file release-notes.md
+            gh release edit "$RELEASE_VERSION" --title "$RELEASE_VERSION" \
+              --notes-file "$RUNNER_TEMP/release-notes.md"
             gh release upload "$RELEASE_VERSION" container-images.json --clobber
           else
             gh release create "$RELEASE_VERSION" container-images.json \
-              --title "$RELEASE_VERSION" --notes-file release-notes.md --verify-tag
+              --title "$RELEASE_VERSION" \
+              --notes-file "$RUNNER_TEMP/release-notes.md" --verify-tag
           fi
 
   prod:
