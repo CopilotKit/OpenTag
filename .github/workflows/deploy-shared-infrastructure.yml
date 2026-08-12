@@ -1,0 +1,51 @@
+name: Deploy / shared infrastructure
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: kite-shared-infrastructure
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    environment: kite-infrastructure
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6.0.9
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22.x
+          cache: pnpm
+          cache-dependency-path: deployment/aws/pnpm-lock.yaml
+      - run: pnpm --dir deployment/aws install --frozen-lockfile
+      - uses: aws-actions/configure-aws-credentials@e6de054238d6b7531b4efff3b6587d9aade6a06c # v6.2.3
+        with:
+          aws-region: ${{ vars.AWS_REGION }}
+          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
+          role-session-name: opentag-infrastructure-${{ github.run_id }}
+      - name: Deploy shared stack
+        working-directory: deployment/aws
+        env:
+          VPC_ID: ${{ vars.VPC_ID }}
+        run: |
+          set -euo pipefail
+          test -n "$VPC_ID"
+          pnpm exec cdk deploy kite-shared --exclusively \
+            -c appName=kite \
+            -c environment=staging \
+            -c sharedCluster=true \
+            -c "vpcId=$VPC_ID" \
+            -c agentImage=ghcr.io/copilotkit/opentag-agent:main \
+            -c runtimeImage=ghcr.io/copilotkit/opentag-runtime:main \
+            --require-approval never
+      - name: Verify shared cluster
+        run: |
+          test "$(aws ecs describe-clusters --clusters kite --query 'clusters[0].status' --output text)" = ACTIVE

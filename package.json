@@ -15,6 +15,7 @@
     "runtime": "tsx server.ts",
     "agent": "cd agent && uv run python main.py",
     "check-types": "tsc --noEmit -p tsconfig.json",
+    "release:prepare": "tsx scripts/release/prepare-release.ts",
     "test": "vitest run",
     "e2e": "tsx e2e/run.ts"
   },

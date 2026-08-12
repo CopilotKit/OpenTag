@@ -1,0 +1,89 @@
+name: Release / create PR
+
+on:
+  workflow_dispatch:
+    inputs:
+      bump:
+        description: Version bump
+        required: true
+        type: choice
+        options: [baseline, patch, minor, major]
+      dry_run:
+        description: Preview without creating a PR
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+  pull-requests: read
+
+concurrency:
+  group: opentag-release-pr
+  cancel-in-progress: false
+
+jobs:
+  create:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Reject concurrent release PRs
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        with:
+          script: |
+            const { owner, repo } = context.repo;
+            const { data: pulls } = await github.rest.pulls.list({ owner, repo, state: "open" });
+            const releases = pulls.filter((pull) => pull.head.ref.startsWith("release/publish/"));
+            if (releases.length > 0) {
+              core.setFailed(`An open release PR already exists: ${releases.map((pull) => pull.html_url).join(", ")}`);
+            }
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6.0.9
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22.x
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - id: prepare
+        name: Prepare release
+        env:
+          BUMP: ${{ inputs.bump }}
+          DRY_RUN: ${{ inputs.dry_run }}
+        run: |
+          args=(--bump "$BUMP")
+          test "$DRY_RUN" != true || args+=(--dry-run)
+          pnpm release:prepare -- "${args[@]}"
+      - id: app-token
+        if: inputs.dry_run != true
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: 1108748
+          private-key: ${{ secrets.DEVOPS_BOT_PRIVATE_KEY }}
+          owner: CopilotKit
+          repositories: OpenTag
+          permission-contents: write
+          permission-pull-requests: write
+      - name: Create release PR
+        if: inputs.dry_run != true
+        uses: peter-evans/create-pull-request@5f6978faf089d4d20b00c7766989d076bb2fc7f1 # v8.1.1
+        with:
+          token: ${{ steps.app-token.outputs.token }}
+          branch: release/publish/v${{ steps.prepare.outputs.version }}
+          delete-branch: true
+          commit-message: "chore: release v${{ steps.prepare.outputs.version }}"
+          title: "chore: release v${{ steps.prepare.outputs.version }}"
+          body: |
+            ## Release v${{ steps.prepare.outputs.version }}
+
+            Merging this PR publishes the `main`, commit, and versioned agent/runtime images,
+            deploys the exact digests to staging, creates the GitHub Release, and opens
+            independent production and community approval gates.
+
+            Before merging:
+            - [ ] Verify `release-notes.md`
+            - [ ] Confirm CI is green
+            - [ ] Approve the version change

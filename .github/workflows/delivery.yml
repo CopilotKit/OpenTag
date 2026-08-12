@@ -1,0 +1,255 @@
+name: Delivery / main and releases
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+  id-token: write
+  packages: write
+  pull-requests: read
+
+jobs:
+  verify:
+    permissions:
+      contents: read
+    uses: ./.github/workflows/verify.yml
+    with:
+      ref: ${{ github.sha }}
+
+  metadata:
+    needs: verify
+    runs-on: ubuntu-latest
+    outputs:
+      is_release: ${{ steps.release.outputs.is_release }}
+      release_version: ${{ steps.release.outputs.release_version }}
+      version_label: ${{ steps.release.outputs.version_label }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+      - id: pull-request
+        name: Require an associated merged pull request
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        with:
+          script: |
+            const { owner, repo } = context.repo;
+            const { data: pulls } = await github.rest.repos.listPullRequestsAssociatedWithCommit({
+              owner,
+              repo,
+              commit_sha: context.sha,
+            });
+            const pull = pulls.find((candidate) =>
+              candidate.base.ref === "main" &&
+              candidate.merged_at !== null &&
+              candidate.merge_commit_sha === context.sha
+            );
+            if (!pull) {
+              core.setFailed(`${context.sha} is not the merge commit of a reviewed PR into main`);
+              return;
+            }
+            core.setOutput("head_ref", pull.head.ref);
+      - id: release
+        name: Classify merge
+        env:
+          HEAD_REF: ${{ steps.pull-request.outputs.head_ref }}
+        run: |
+          set -euo pipefail
+          {
+            echo "is_release=false"
+            echo "version_label=main"
+          } >> "$GITHUB_OUTPUT"
+          if [[ "$HEAD_REF" =~ ^release/publish/v([0-9]+\.[0-9]+\.[0-9]+)$ ]]; then
+            version="${BASH_REMATCH[1]}"
+            package_version=$(node -p "require('./package.json').version")
+            test "$version" = "$package_version" || {
+              echo "Release branch v$version does not match package.json $package_version"
+              exit 1
+            }
+            {
+              echo "is_release=true"
+              echo "release_version=v$version"
+              echo "version_label=v$version"
+            } >> "$GITHUB_OUTPUT"
+          fi
+
+  build-agent:
+    needs: metadata
+    runs-on: ubuntu-latest
+    outputs:
+      digest: ${{ steps.build.outputs.digest }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+      - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4.2.0
+      - id: tags
+        env:
+          IS_RELEASE: ${{ needs.metadata.outputs.is_release }}
+          RELEASE_VERSION: ${{ needs.metadata.outputs.release_version }}
+        run: |
+          {
+            echo 'value<<EOF'
+            echo 'ghcr.io/copilotkit/opentag-agent:main'
+            echo "ghcr.io/copilotkit/opentag-agent:sha-${{ github.sha }}"
+            if [ "$IS_RELEASE" = true ]; then
+              echo "ghcr.io/copilotkit/opentag-agent:$RELEASE_VERSION"
+              echo "ghcr.io/copilotkit/opentag-agent:${RELEASE_VERSION%.*}"
+            fi
+            echo EOF
+          } >> "$GITHUB_OUTPUT"
+      - id: build
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
+        with:
+          context: .
+          file: deployment/docker/agent.Dockerfile
+          platforms: linux/amd64
+          push: true
+          tags: ${{ steps.tags.outputs.value }}
+          labels: |
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.version=${{ needs.metadata.outputs.version_label }}
+          cache-from: type=gha,scope=agent
+          cache-to: type=gha,mode=max,scope=agent
+
+  build-runtime:
+    needs: metadata
+    runs-on: ubuntu-latest
+    outputs:
+      digest: ${{ steps.build.outputs.digest }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+      - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4.2.0
+      - id: tags
+        env:
+          IS_RELEASE: ${{ needs.metadata.outputs.is_release }}
+          RELEASE_VERSION: ${{ needs.metadata.outputs.release_version }}
+        run: |
+          {
+            echo 'value<<EOF'
+            echo 'ghcr.io/copilotkit/opentag-runtime:main'
+            echo "ghcr.io/copilotkit/opentag-runtime:sha-${{ github.sha }}"
+            if [ "$IS_RELEASE" = true ]; then
+              echo "ghcr.io/copilotkit/opentag-runtime:$RELEASE_VERSION"
+              echo "ghcr.io/copilotkit/opentag-runtime:${RELEASE_VERSION%.*}"
+            fi
+            echo EOF
+          } >> "$GITHUB_OUTPUT"
+      - id: build
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
+        with:
+          context: .
+          file: deployment/docker/runtime.Dockerfile
+          platforms: linux/amd64
+          push: true
+          tags: ${{ steps.tags.outputs.value }}
+          labels: |
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.version=${{ needs.metadata.outputs.version_label }}
+          cache-from: type=gha,scope=runtime
+          cache-to: type=gha,mode=max,scope=runtime
+
+  staging:
+    needs: [metadata, build-agent, build-runtime]
+    permissions:
+      contents: read
+      id-token: write
+    uses: ./.github/workflows/deploy-aws.yml
+    with:
+      agent_image: ghcr.io/copilotkit/opentag-agent@${{ needs.build-agent.outputs.digest }}
+      environment: staging
+      github_environment: kite-staging
+      ref: ${{ github.sha }}
+      runtime_image: ghcr.io/copilotkit/opentag-runtime@${{ needs.build-runtime.outputs.digest }}
+
+  release:
+    if: needs.metadata.outputs.is_release == 'true'
+    needs: [metadata, build-agent, build-runtime, staging]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          ref: ${{ github.sha }}
+      - name: Create release manifest
+        env:
+          AGENT_DIGEST: ${{ needs.build-agent.outputs.digest }}
+          RELEASE_VERSION: ${{ needs.metadata.outputs.release_version }}
+          RUNTIME_DIGEST: ${{ needs.build-runtime.outputs.digest }}
+          SOURCE_COMMIT: ${{ github.sha }}
+        run: |
+          jq -n \
+            --arg version "$RELEASE_VERSION" \
+            --arg commit "$SOURCE_COMMIT" \
+            --arg agent_digest "$AGENT_DIGEST" \
+            --arg runtime_digest "$RUNTIME_DIGEST" \
+            '{version:$version,commit:$commit,images:{agent:{repository:"ghcr.io/copilotkit/opentag-agent",digest:$agent_digest,reference:("ghcr.io/copilotkit/opentag-agent@"+$agent_digest)},runtime:{repository:"ghcr.io/copilotkit/opentag-runtime",digest:$runtime_digest,reference:("ghcr.io/copilotkit/opentag-runtime@"+$runtime_digest)}}}' \
+            > container-images.json
+      - name: Create annotated tag idempotently
+        env:
+          RELEASE_VERSION: ${{ needs.metadata.outputs.release_version }}
+          SOURCE_COMMIT: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          if git rev-parse "$RELEASE_VERSION" >/dev/null 2>&1; then
+            test "$(git rev-list -n 1 "$RELEASE_VERSION")" = "$SOURCE_COMMIT"
+          else
+            git config user.name copilotkit-devops
+            git config user.email devops@copilotkit.ai
+            git tag -a "$RELEASE_VERSION" "$SOURCE_COMMIT" -m "Release $RELEASE_VERSION"
+            git push origin "$RELEASE_VERSION"
+          fi
+      - name: Create GitHub Release idempotently
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_VERSION: ${{ needs.metadata.outputs.release_version }}
+        run: |
+          set -euo pipefail
+          if gh release view "$RELEASE_VERSION" >/dev/null 2>&1; then
+            gh release edit "$RELEASE_VERSION" --title "$RELEASE_VERSION" --notes-file release-notes.md
+            gh release upload "$RELEASE_VERSION" container-images.json --clobber
+          else
+            gh release create "$RELEASE_VERSION" container-images.json \
+              --title "$RELEASE_VERSION" --notes-file release-notes.md --verify-tag
+          fi
+
+  prod:
+    if: needs.metadata.outputs.is_release == 'true' && needs.release.result == 'success'
+    needs: [metadata, build-agent, build-runtime, release]
+    permissions:
+      contents: read
+      id-token: write
+    uses: ./.github/workflows/deploy-aws.yml
+    with:
+      agent_image: ghcr.io/copilotkit/opentag-agent@${{ needs.build-agent.outputs.digest }}
+      environment: prod
+      github_environment: kite-prod
+      ref: ${{ github.sha }}
+      runtime_image: ghcr.io/copilotkit/opentag-runtime@${{ needs.build-runtime.outputs.digest }}
+
+  community:
+    if: needs.metadata.outputs.is_release == 'true' && needs.release.result == 'success'
+    needs: [metadata, build-agent, build-runtime, release]
+    permissions:
+      contents: read
+      id-token: write
+    uses: ./.github/workflows/deploy-aws.yml
+    with:
+      agent_image: ghcr.io/copilotkit/opentag-agent@${{ needs.build-agent.outputs.digest }}
+      environment: community
+      github_environment: kite-community
+      ref: ${{ github.sha }}
+      runtime_image: ghcr.io/copilotkit/opentag-runtime@${{ needs.build-runtime.outputs.digest }}
