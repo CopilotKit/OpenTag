@@ -3,12 +3,6 @@ name: CI
 on:
   pull_request:
     branches: [main]
-  workflow_call:
-    inputs:
-      ref:
-        description: Git ref to verify
-        required: false
-        type: string
 
 permissions:
   contents: read
@@ -19,8 +13,6 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          ref: ${{ inputs.ref || github.sha }}
       - uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6.0.9
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
@@ -37,8 +29,6 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          ref: ${{ inputs.ref || github.sha }}
       - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
         with:
           enable-cache: true
@@ -48,79 +38,17 @@ jobs:
         working-directory: agent
         run: uv run pytest
 
-  aws:
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          ref: ${{ inputs.ref || github.sha }}
-      - uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6.0.9
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
-        with:
-          node-version: 22.x
-          cache: pnpm
-          cache-dependency-path: deployment/aws/pnpm-lock.yaml
-      - run: pnpm --dir deployment/aws install --frozen-lockfile
-      - run: pnpm --dir deployment/aws build
-      - run: pnpm --dir deployment/aws test
-      - name: Synthesize standalone deployment
-        working-directory: deployment/aws
-        run: >-
-          pnpm exec cdk synth opentag-ci
-          -c environment=ci
-          -c environmentAgnostic=true
-          -c enableDatadog=false
-          -c agentImage=ghcr.io/copilotkit/opentag-agent:main
-          -c runtimeImage=ghcr.io/copilotkit/opentag-runtime:main
-      - name: Synthesize shared deployment
-        working-directory: deployment/aws
-        run: >-
-          pnpm exec cdk synth opentag-shared opentag-ci
-          -c environment=ci
-          -c environmentAgnostic=true
-          -c sharedCluster=true
-          -c enableDatadog=false
-          -c agentImage=ghcr.io/copilotkit/opentag-agent:main
-          -c runtimeImage=ghcr.io/copilotkit/opentag-runtime:main
-
-  containers:
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - image: agent
-            dockerfile: deployment/docker/agent.Dockerfile
-          - image: runtime
-            dockerfile: deployment/docker/runtime.Dockerfile
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          ref: ${{ inputs.ref || github.sha }}
-      - uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4.2.0
-      - name: Build ${{ matrix.image }} image
-        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
-        with:
-          context: .
-          file: ${{ matrix.dockerfile }}
-          platforms: linux/amd64
-          push: false
-          cache-from: type=gha,scope=verify-${{ matrix.image }}
-          cache-to: type=gha,mode=max,scope=verify-${{ matrix.image }}
-
   verify:
     name: verify
     if: always()
-    needs: [runtime, agent, aws, containers]
+    needs: [runtime, agent]
     runs-on: ubuntu-latest
     steps:
       - name: Require every verification job
         env:
           RESULTS: ${{ join(needs.*.result, ' ') }}
         run: |
-          test "$RESULTS" = "success success success success" || {
+          test "$RESULTS" = "success success" || {
             echo "Verification failed: $RESULTS"
             exit 1
           }

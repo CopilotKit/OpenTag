@@ -6,10 +6,10 @@ but deploy independently.
 
 ## Common paths
 
-- Change: PR → verify → merge → publish `main` and `sha-<commit>` → deploy the
-  exact digests to staging.
-- Release: run **Release** → review and merge its PR → publish `vX.Y.Z` and
-  `vX.Y` → create the GitHub Release → approve prod and community independently.
+- Change: PR → CI → merge. No image is published or deployed.
+- Release: run **Release** → review and merge its PR → publish `main`,
+  `sha-<commit>`, `vX.Y.Z`, and `vX.Y` → update staging's ECS task definition →
+  approve prod and community independently.
 - Rollback: run **Deploy** → select environment and `vX.Y.Z` →
   deploy the digests recorded in that release.
 
@@ -24,9 +24,9 @@ this repository. OpenTag's CDK application deliberately does not create or
 manage account-level GitHub trust.
 
 The only workflow interface is the resulting role ARN. Store it as
-`AWS_ROLE_ARN` in each Kite GitHub Environment. The role must trust this
-repository's three `kite-*` environments and be able to use the account and
-Region's CDK bootstrap roles.
+`AWS_ROLE_ARN` in each Kite GitHub Environment. The role trusts this
+repository's three `kite-*` environments and can only read task definitions,
+register a revision, and update the three Kite ECS services.
 
 ## GitHub Environments
 
@@ -44,16 +44,11 @@ Each environment requires these variables:
 | --- | --- |
 | `AWS_ROLE_ARN` | Manually supplied GitHub OIDC deployment-role ARN |
 | `AWS_REGION` | Deployment Region, currently `us-west-2` |
-| `VPC_ID` | VPC containing private subnets with egress |
-| `OPENTAG_SECRET_ARN` | Complete environment application-secret ARN |
-| `DATADOG_API_KEY_SECRET_ARN` | Complete raw Datadog key-secret ARN |
-| `INTELLIGENCE_CHANNEL_NAME` | Unique managed Channel name |
-| `INTELLIGENCE_API_URL` | Environment Intelligence API |
-| `INTELLIGENCE_GATEWAY_WS_URL` | Environment Intelligence gateway |
-| `DATADOG_SITE` | Datadog site, normally `datadoghq.com` |
-| `LOG_LEVEL` | Runtime log level, normally `warn` |
 
-Secret values stay in AWS Secrets Manager; GitHub stores only their ARNs.
+The workflow copies the current ECS task definition and changes only the
+`agent` and `runtime` image digests. Environment variables, secrets, IAM roles,
+CPU, memory, networking, logs, and every other task setting remain unchanged.
+Configuration changes are separate, intentional CDK deployments.
 
 Community's application secret must keep GitHub, PostHog, Linear, and Notion
 credentials empty. Its only optional research credential is `TAVILY_API_KEY`.

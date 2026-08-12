@@ -22,17 +22,8 @@ permissions:
   pull-requests: read
 
 jobs:
-  verify:
-    if: github.event_name == 'push'
-    permissions:
-      contents: read
-    uses: ./.github/workflows/ci.yml
-    with:
-      ref: ${{ github.sha }}
-
   metadata:
     if: github.event_name == 'push'
-    needs: verify
     runs-on: ubuntu-latest
     outputs:
       is_release: ${{ steps.release.outputs.is_release }}
@@ -88,7 +79,7 @@ jobs:
           fi
 
   build-agent:
-    if: github.event_name == 'push'
+    if: needs.metadata.outputs.is_release == 'true'
     needs: metadata
     runs-on: ubuntu-latest
     outputs:
@@ -133,7 +124,7 @@ jobs:
           cache-to: type=gha,mode=max,scope=agent
 
   build-runtime:
-    if: github.event_name == 'push'
+    if: needs.metadata.outputs.is_release == 'true'
     needs: metadata
     runs-on: ubuntu-latest
     outputs:
@@ -178,7 +169,7 @@ jobs:
           cache-to: type=gha,mode=max,scope=runtime
 
   staging:
-    if: github.event_name == 'push'
+    if: needs.metadata.outputs.is_release == 'true'
     needs: [metadata, build-agent, build-runtime]
     permissions:
       contents: read
@@ -188,7 +179,6 @@ jobs:
       agent_image: ghcr.io/copilotkit/opentag-agent@${{ needs.build-agent.outputs.digest }}
       environment: staging
       github_environment: kite-staging
-      ref: ${{ github.sha }}
       runtime_image: ghcr.io/copilotkit/opentag-runtime@${{ needs.build-runtime.outputs.digest }}
 
   release:
@@ -253,7 +243,6 @@ jobs:
       agent_image: ghcr.io/copilotkit/opentag-agent@${{ needs.build-agent.outputs.digest }}
       environment: prod
       github_environment: kite-prod
-      ref: ${{ github.sha }}
       runtime_image: ghcr.io/copilotkit/opentag-runtime@${{ needs.build-runtime.outputs.digest }}
 
   community:
@@ -267,7 +256,6 @@ jobs:
       agent_image: ghcr.io/copilotkit/opentag-agent@${{ needs.build-agent.outputs.digest }}
       environment: community
       github_environment: kite-community
-      ref: ${{ github.sha }}
       runtime_image: ghcr.io/copilotkit/opentag-runtime@${{ needs.build-runtime.outputs.digest }}
 
   resolve-version:
@@ -301,5 +289,4 @@ jobs:
       agent_image: ${{ needs.resolve-version.outputs.agent_image }}
       environment: ${{ inputs.environment }}
       github_environment: kite-${{ inputs.environment }}
-      ref: ${{ github.sha }}
       runtime_image: ${{ needs.resolve-version.outputs.runtime_image }}

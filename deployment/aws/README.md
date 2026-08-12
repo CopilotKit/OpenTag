@@ -191,12 +191,11 @@ GitHub Actions publishes:
 - `ghcr.io/copilotkit/opentag-agent`
 - `ghcr.io/copilotkit/opentag-runtime`
 
-Every reviewed merge publishes mutable `main` and immutable `sha-<commit>` tags.
-Staging follows `main` but deploys the resolved digest so ECS always registers a
-new task definition. Merging a generated release PR also publishes `vX.Y.Z` and
-`vX.Y` aliases for the same manifests. New GHCR packages start private; after
-the first publication, an organization owner must change both packages to
-public. No registry credentials are needed after that.
+Merging a generated release PR publishes mutable `main`, immutable
+`sha-<commit>`, `vX.Y.Z`, and `vX.Y` tags for the same manifests. Ordinary
+merges do not publish images. New GHCR packages start private; after the first
+publication, an organization owner must change both packages to public. No
+registry credentials are needed after that.
 
 Test the same images locally:
 

@@ -12,9 +12,6 @@ on:
       github_environment:
         required: true
         type: string
-      ref:
-        required: true
-        type: string
       runtime_image:
         required: true
         type: string
@@ -33,86 +30,71 @@ jobs:
     timeout-minutes: 30
     environment: ${{ inputs.github_environment }}
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          ref: ${{ inputs.ref }}
-      - uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6.0.9
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
-        with:
-          node-version: 22.x
-          cache: pnpm
-          cache-dependency-path: deployment/aws/pnpm-lock.yaml
-      - run: pnpm --dir deployment/aws install --frozen-lockfile
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@e6de054238d6b7531b4efff3b6587d9aade6a06c # v6.2.3
         with:
           aws-region: ${{ vars.AWS_REGION }}
           role-to-assume: ${{ vars.AWS_ROLE_ARN }}
           role-session-name: opentag-${{ inputs.environment }}-${{ github.run_id }}
-      - name: Validate deployment configuration
-        env:
-          AWS_REGION: ${{ vars.AWS_REGION }}
-          CHANNEL_NAME: ${{ vars.INTELLIGENCE_CHANNEL_NAME }}
-          DATADOG_SECRET_ARN: ${{ vars.DATADOG_API_KEY_SECRET_ARN }}
-          OPENTAG_SECRET_ARN: ${{ vars.OPENTAG_SECRET_ARN }}
-          VPC_ID: ${{ vars.VPC_ID }}
-        run: |
-          for name in AWS_REGION CHANNEL_NAME DATADOG_SECRET_ARN OPENTAG_SECRET_ARN VPC_ID; do
-            test -n "${!name}" || {
-              echo "Missing required GitHub Environment variable: $name"
-              exit 1
-            }
-          done
-      - name: Deploy exact images
-        working-directory: deployment/aws
-        env:
-          AGENT_IMAGE: ${{ inputs.agent_image }}
-          CHANNEL_NAME: ${{ vars.INTELLIGENCE_CHANNEL_NAME }}
-          DATADOG_SECRET_ARN: ${{ vars.DATADOG_API_KEY_SECRET_ARN }}
-          DATADOG_SITE: ${{ vars.DATADOG_SITE }}
-          DEPLOY_ENVIRONMENT: ${{ inputs.environment }}
-          INTELLIGENCE_API_URL: ${{ vars.INTELLIGENCE_API_URL }}
-          INTELLIGENCE_GATEWAY_WS_URL: ${{ vars.INTELLIGENCE_GATEWAY_WS_URL }}
-          LOG_LEVEL: ${{ vars.LOG_LEVEL }}
-          OPENTAG_SECRET_ARN: ${{ vars.OPENTAG_SECRET_ARN }}
-          RUNTIME_IMAGE: ${{ inputs.runtime_image }}
-          VPC_ID: ${{ vars.VPC_ID }}
-        run: |
-          set -euo pipefail
-          context=(
-            -c appName=kite
-            -c sharedCluster=true
-            -c "environment=$DEPLOY_ENVIRONMENT"
-            -c "serviceName=kite-$DEPLOY_ENVIRONMENT"
-            -c "vpcId=$VPC_ID"
-            -c "channelName=$CHANNEL_NAME"
-            -c "agentImage=$AGENT_IMAGE"
-            -c "runtimeImage=$RUNTIME_IMAGE"
-            -c "datadogSite=${DATADOG_SITE:-datadoghq.com}"
-          )
-          test -z "$INTELLIGENCE_API_URL" || context+=( -c "intelligenceApiUrl=$INTELLIGENCE_API_URL" )
-          test -z "$INTELLIGENCE_GATEWAY_WS_URL" || context+=( -c "intelligenceGatewayWsUrl=$INTELLIGENCE_GATEWAY_WS_URL" )
-          test -z "$LOG_LEVEL" || context+=( -c "logLevel=$LOG_LEVEL" )
-          pnpm exec cdk deploy "kite-$DEPLOY_ENVIRONMENT" --exclusively \
-            "${context[@]}" \
-            --parameters "kite-$DEPLOY_ENVIRONMENT:OpenTagSecretArn=$OPENTAG_SECRET_ARN" \
-            --parameters "kite-$DEPLOY_ENVIRONMENT:DatadogApiKeySecretArn=$DATADOG_SECRET_ARN" \
-            --require-approval never
-      - name: Verify ECS rollout and image digests
+      - name: Register images and update ECS service
         env:
           AGENT_IMAGE: ${{ inputs.agent_image }}
           DEPLOY_ENVIRONMENT: ${{ inputs.environment }}
           RUNTIME_IMAGE: ${{ inputs.runtime_image }}
         run: |
           set -euo pipefail
+          [[ "$AGENT_IMAGE" =~ @sha256:[0-9a-f]{64}$ ]]
+          [[ "$RUNTIME_IMAGE" =~ @sha256:[0-9a-f]{64}$ ]]
           service="kite-$DEPLOY_ENVIRONMENT"
-          aws ecs wait services-stable --cluster kite --services "$service"
-          task_definition=$(aws ecs describe-services \
+          current_task_definition=$(aws ecs describe-services \
             --cluster kite --services "$service" \
             --query 'services[0].taskDefinition' --output text)
-          agent=$(aws ecs describe-task-definition --task-definition "$task_definition" \
+          test "$current_task_definition" != None
+
+          current_json="$RUNNER_TEMP/current-task-definition.json"
+          next_json="$RUNNER_TEMP/next-task-definition.json"
+          aws ecs describe-task-definition \
+            --task-definition "$current_task_definition" \
+            --query taskDefinition > "$current_json"
+          current_agent=$(jq -r '.containerDefinitions[] | select(.name == "agent") | .image' "$current_json")
+          current_runtime=$(jq -r '.containerDefinitions[] | select(.name == "runtime") | .image' "$current_json")
+
+          task_definition="$current_task_definition"
+          if [ "$current_agent" != "$AGENT_IMAGE" ] || [ "$current_runtime" != "$RUNTIME_IMAGE" ]; then
+            jq --arg agent "$AGENT_IMAGE" --arg runtime "$RUNTIME_IMAGE" '
+              .containerDefinitions |= map(
+                if .name == "agent" then .image = $agent
+                elif .name == "runtime" then .image = $runtime
+                else . end
+              )
+              | del(
+                  .taskDefinitionArn,
+                  .revision,
+                  .status,
+                  .requiresAttributes,
+                  .compatibilities,
+                  .registeredAt,
+                  .registeredBy
+                )
+            ' "$current_json" > "$next_json"
+            task_definition=$(aws ecs register-task-definition \
+              --cli-input-json "file://$next_json" \
+              --query 'taskDefinition.taskDefinitionArn' --output text)
+            aws ecs update-service \
+              --cluster kite \
+              --service "$service" \
+              --task-definition "$task_definition" \
+              --force-new-deployment >/dev/null
+          fi
+
+          aws ecs wait services-stable --cluster kite --services "$service"
+          deployed_task_definition=$(aws ecs describe-services \
+            --cluster kite --services "$service" \
+            --query 'services[0].taskDefinition' --output text)
+          test "$deployed_task_definition" = "$task_definition"
+          agent=$(aws ecs describe-task-definition --task-definition "$deployed_task_definition" \
             --query "taskDefinition.containerDefinitions[?name=='agent'].image | [0]" --output text)
-          runtime=$(aws ecs describe-task-definition --task-definition "$task_definition" \
+          runtime=$(aws ecs describe-task-definition --task-definition "$deployed_task_definition" \
             --query "taskDefinition.containerDefinitions[?name=='runtime'].image | [0]" --output text)
           test "$agent" = "$AGENT_IMAGE"
           test "$runtime" = "$RUNTIME_IMAGE"
