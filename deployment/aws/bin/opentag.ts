@@ -1,6 +1,5 @@
 #!/usr/bin/env node
 import * as cdk from "aws-cdk-lib";
-import { GitHubDeploymentStack } from "../lib/github-deployment-stack.js";
 import { OpenTagInfrastructureStack } from "../lib/opentag-infrastructure-stack.js";
 import { OpenTagStack } from "../lib/opentag-stack.js";
 
@@ -42,35 +41,5 @@ if (sharedCluster) {
   new OpenTagStack(app, `${appName}-${environment}`, {
     env: stackEnvironment,
     description: "OpenTag runtime and agent on ECS Fargate with Datadog log forwarding",
-  });
-}
-
-const githubRepository = app.node.tryGetContext("githubRepository");
-const githubOidcProviderArn = app.node.tryGetContext("githubOidcProviderArn");
-if (githubRepository || githubOidcProviderArn) {
-  if (
-    typeof githubRepository !== "string" ||
-    githubRepository.length === 0 ||
-    typeof githubOidcProviderArn !== "string" ||
-    githubOidcProviderArn.length === 0
-  ) {
-    throw new Error(
-      "githubRepository and githubOidcProviderArn must be set together",
-    );
-  }
-  new GitHubDeploymentStack(app, `${appName}-github`, {
-    appName,
-    bootstrapQualifier:
-      app.node.tryGetContext("bootstrapQualifier") ?? "hnb659fds",
-    env: stackEnvironment,
-    githubEnvironments: [
-      `${appName}-staging`,
-      `${appName}-prod`,
-      `${appName}-community`,
-      `${appName}-infrastructure`,
-    ],
-    githubOidcProviderArn,
-    githubRepository,
-    description: "GitHub OIDC role for OpenTag AWS deployments",
   });
 }

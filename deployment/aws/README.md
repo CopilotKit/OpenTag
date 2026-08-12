@@ -231,11 +231,3 @@ CloudWatch Container Insights supplies cluster, service, task, CPU, memory,
 network, and storage metrics. The Forwarder supplies logs to Datadog. This stack
 does not install tracer libraries or a Datadog Agent sidecar, so Datadog APM
 request traces are not available.
-
-## GitHub Actions deployment
-
-The optional GitHub OIDC stack trusts named GitHub Environments and lets their
-workflows assume the account's CDK bootstrap roles without long-lived AWS keys.
-It is intentionally not enabled by the public deployment defaults. See
-[`../../docs/kite-gitops.md`](../../docs/kite-gitops.md) for the complete Kite
-configuration and the generic bootstrap command.

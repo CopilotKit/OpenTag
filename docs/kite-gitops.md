@@ -4,17 +4,15 @@ Kite uses the public AWS CDK module with `appName=kite` and
 `sharedCluster=true`. The three environment stacks share the `kite` ECS cluster
 but deploy independently.
 
-## Delivery model
+## Common paths
 
-- Every reviewed merge to `main` publishes `main` and `sha-<commit>` for both
-  images, then deploys the exact `main` digests to staging.
-- **Release / create PR** creates an editable version and release-notes PR.
-- Merging `release/publish/vX.Y.Z` tags those same manifests, deploys staging,
-  creates the GitHub Release and `container-images.json`, then opens independent
-  prod and community approvals.
-- **Deploy / released version** redeploys or rolls back any environment from a
-  release manifest.
-- **Deploy / shared infrastructure** is the only routine workflow that updates
+- Change: PR → verify → merge → publish `main` and `sha-<commit>` → deploy the
+  exact digests to staging.
+- Release: **Release / create PR** → review and merge → publish `vX.Y.Z` and
+  `vX.Y` → create the GitHub Release → approve prod and community independently.
+- Rollback: **Deploy / released version** → select environment and `vX.Y.Z` →
+  deploy the digests recorded in that release.
+- Infrastructure: **Deploy / shared infrastructure** → approval → update only
   `kite-shared`.
 
 The release PR uses CopilotKit's DevOps GitHub App (app ID `1108748`). Grant the
@@ -23,27 +21,14 @@ organization secret available to this repository.
 
 ## One-time AWS trust
 
-The AWS account must already contain GitHub's OIDC provider and a bootstrapped
-CDK environment. Deploy the GitHub role once with an administrator SSO session:
+The AWS account owner bootstraps GitHub OIDC and its deployment role outside
+this repository. OpenTag's CDK application deliberately does not create or
+manage account-level GitHub trust.
 
-```bash
-cd deployment/aws
-pnpm install --frozen-lockfile
-pnpm exec cdk deploy kite-github --exclusively \
-  -c appName=kite \
-  -c environment=staging \
-  -c sharedCluster=true \
-  -c vpcId=vpc-... \
-  -c agentImage=ghcr.io/copilotkit/opentag-agent:main \
-  -c runtimeImage=ghcr.io/copilotkit/opentag-runtime:main \
-  -c githubRepository=CopilotKit/OpenTag \
-  -c githubOidcProviderArn=arn:aws:iam::ACCOUNT_ID:oidc-provider/token.actions.githubusercontent.com
-```
-
-The output `GitHubDeploymentRoleArn` becomes `AWS_ROLE_ARN` in every GitHub
-Environment. The role trusts only `kite-staging`, `kite-prod`,
-`kite-community`, and `kite-infrastructure`, and can assume only the current
-account and Region's CDK bootstrap roles.
+The only workflow interface is the resulting role ARN. Store it as
+`AWS_ROLE_ARN` in each Kite GitHub Environment. The role must trust this
+repository's four `kite-*` environments and be able to use the account and
+Region's CDK bootstrap roles.
 
 ## GitHub Environments
 
@@ -60,7 +45,7 @@ Each environment requires these variables:
 
 | Variable | Meaning |
 | --- | --- |
-| `AWS_ROLE_ARN` | Output of `kite-github` |
+| `AWS_ROLE_ARN` | Manually supplied GitHub OIDC deployment-role ARN |
 | `AWS_REGION` | Deployment Region, currently `us-west-2` |
 | `VPC_ID` | VPC containing private subnets with egress |
 | `OPENTAG_SECRET_ARN` | Complete environment application-secret ARN |

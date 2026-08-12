@@ -4,7 +4,6 @@ import * as cdk from "aws-cdk-lib";
 import { Match, Template } from "aws-cdk-lib/assertions";
 import * as ec2 from "aws-cdk-lib/aws-ec2";
 import * as ecs from "aws-cdk-lib/aws-ecs";
-import { GitHubDeploymentStack } from "../lib/github-deployment-stack.js";
 import { OpenTagInfrastructureStack } from "../lib/opentag-infrastructure-stack.js";
 import { OpenTagStack } from "../lib/opentag-stack.js";
 
@@ -58,53 +57,6 @@ test("accepts a shared cluster without creating another cluster", () => {
 
   template.resourceCountIs("AWS::ECS::Cluster", 0);
   template.resourceCountIs("AWS::ECS::Service", 1);
-});
-
-test("limits the GitHub deployment role to named environments and CDK roles", () => {
-  const app = new cdk.App();
-  const stack = new GitHubDeploymentStack(app, "kite-github", {
-    appName: "kite",
-    env: { account: "123456789012", region: "us-west-2" },
-    githubEnvironments: ["kite-staging", "kite-prod"],
-    githubOidcProviderArn:
-      "arn:aws:iam::123456789012:oidc-provider/token.actions.githubusercontent.com",
-    githubRepository: "CopilotKit/OpenTag",
-  });
-  const template = Template.fromStack(stack);
-  const json = JSON.stringify(template.toJSON());
-
-  template.hasResourceProperties("AWS::IAM::Role", {
-    AssumeRolePolicyDocument: {
-      Statement: Match.arrayWith([
-        Match.objectLike({
-          Action: "sts:AssumeRoleWithWebIdentity",
-          Condition: {
-            StringEquals: {
-              "token.actions.githubusercontent.com:aud": "sts.amazonaws.com",
-            },
-            StringLike: {
-              "token.actions.githubusercontent.com:sub": [
-                "repo:CopilotKit/OpenTag:environment:kite-staging",
-                "repo:CopilotKit/OpenTag:environment:kite-prod",
-              ],
-            },
-          },
-        }),
-      ]),
-    },
-    RoleName: "kite-github-deploy",
-  });
-  template.hasResourceProperties("AWS::IAM::Policy", {
-    PolicyDocument: {
-      Statement: Match.arrayWith([
-        Match.objectLike({ Action: "sts:AssumeRole", Effect: "Allow" }),
-      ]),
-    },
-  });
-  assert.match(json, /cdk-hnb659fds-deploy-role-/);
-  assert.match(json, /cdk-hnb659fds-file-publishing-role-/);
-  assert.match(json, /cdk-hnb659fds-image-publishing-role-/);
-  assert.match(json, /cdk-hnb659fds-lookup-role-/);
 });
 
 test("creates one private singleton environment service containing both containers", () => {
