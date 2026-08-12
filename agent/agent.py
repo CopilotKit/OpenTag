@@ -1,4 +1,4 @@
-"""OpenTag's triage-first Deep Agent."""
+"""OpenTag's general-purpose knowledge-work Deep Agent."""
 
 import os
 from pathlib import Path
@@ -32,7 +32,7 @@ VALID_VERBOSITY_LEVELS = frozenset({"low", "medium", "high"})
 
 # Deep Agents adds shell execution and a general-purpose delegation tool by
 # default. OpenTag has no sandbox for execute, and delegating routine turns to
-# another agent adds latency without improving triage.
+# another agent adds latency without improving routine work.
 register_harness_profile(
     "openai",
     HarnessProfile(
@@ -57,7 +57,7 @@ def _validated_openai_setting(
 
 
 def build_agent():
-    """Build the OpenTag triage graph."""
+    """Build the OpenTag knowledge-work graph."""
     api_key = os.environ.get("OPENAI_API_KEY")
     if not api_key:
         raise RuntimeError("Missing OPENAI_API_KEY environment variable")

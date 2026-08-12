@@ -3,10 +3,7 @@ import {
   type Channel,
   type CreateChannelOptions,
 } from "@copilotkit/channels";
-import {
-  managedRunInput,
-  reportRecoverableError,
-} from "./channel-helpers.js";
+import { managedRunInput, reportRecoverableError } from "./channel-helpers.js";
 import { appCommands } from "./commands/index.js";
 import { IssueCard, IssueList, PageList } from "./components/index.js";
 import { appContext } from "./context/app-context.js";

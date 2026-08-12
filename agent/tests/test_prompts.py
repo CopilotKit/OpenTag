@@ -8,15 +8,34 @@ from prompts import (
 )
 
 
-def test_prompt_uses_triage_first_behavior():
-    assert "on-call triage assistant" in BASE_SYSTEM_PROMPT
+def test_prompt_uses_general_knowledge_work_behavior():
+    assert "general-purpose team knowledge-work agent" in BASE_SYSTEM_PROMPT
+    assert "understand context" in BASE_SYSTEM_PROMPT
+    assert "incident response" in BASE_SYSTEM_PROMPT
+    assert "on-call triage assistant" not in BASE_SYSTEM_PROMPT
+    assert "unprocessed tool results" in BASE_SYSTEM_PROMPT
+    assert "Use code blocks only when" in BASE_SYSTEM_PROMPT
     assert "CRITICAL:" in BASE_SYSTEM_PROMPT
+    assert "CRITICAL: Rich UI is a core output capability" in BASE_SYSTEM_PROMPT
     assert "Linear or Notion mutation" in BASE_SYSTEM_PROMPT
     assert "Answer ordinary requests directly" in BASE_SYSTEM_PROMPT
     assert "substantial, multi-step work" in BASE_SYSTEM_PROMPT
     assert "Do not write a report by default" in BASE_SYSTEM_PROMPT
     assert "Always start by creating a research plan" not in BASE_SYSTEM_PROMPT
     assert "/reports/final_report.md" not in BASE_SYSTEM_PROMPT
+
+
+def test_prompt_is_proactive_only_after_invocation():
+    assert "Once invoked" in BASE_SYSTEM_PROMPT
+    assert "complete reasonable next steps" in BASE_SYSTEM_PROMPT
+    assert "Do not join unrelated conversations" in BASE_SYSTEM_PROMPT
+    assert "stop responding" in BASE_SYSTEM_PROMPT
+
+
+def test_prompt_completes_useful_work_when_a_capability_is_unavailable():
+    assert "tool or connection is unavailable" in BASE_SYSTEM_PROMPT
+    assert "complete any useful part" in BASE_SYSTEM_PROMPT
+    assert "Never invent access" in BASE_SYSTEM_PROMPT
 
 
 def test_prompt_describes_read_only_github_search():

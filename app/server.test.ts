@@ -152,9 +152,7 @@ describe("createOpenTagApplication", () => {
         name: channel.name,
         adapters: channel.adapters,
       })),
-    ).toEqual([
-      { name: "open-tag", adapters: [] },
-    ]);
+    ).toEqual([{ name: "open-tag", adapters: [] }]);
     expect(application.runtime.channels).toEqual(application.channels);
   });
 });
