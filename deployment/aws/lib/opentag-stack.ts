@@ -11,6 +11,7 @@ import * as logs from "aws-cdk-lib/aws-logs";
 import * as destinations from "aws-cdk-lib/aws-logs-destinations";
 import * as secretsmanager from "aws-cdk-lib/aws-secretsmanager";
 import type { Construct } from "constructs";
+import { resolveVpc } from "./vpc.js";
 
 const currentDirectory = path.dirname(fileURLToPath(import.meta.url));
 const repositoryRoot = path.resolve(currentDirectory, "../../..");
@@ -80,15 +81,25 @@ function optionalEnvironment(
   return value.length > 0 ? { [name]: value } : {};
 }
 
+export interface OpenTagStackProps extends cdk.StackProps {
+  cluster?: ecs.ICluster;
+}
+
 export class OpenTagStack extends cdk.Stack {
-  constructor(scope: Construct, id: string, props: cdk.StackProps = {}) {
-    super(scope, id, props);
+  constructor(scope: Construct, id: string, props: OpenTagStackProps = {}) {
+    const { cluster, ...stackProps } = props;
+    super(scope, id, stackProps);
 
     const appName = contextString(this, "appName", "opentag");
     const environmentName = contextString(
       this,
       "environment",
       "production",
+    );
+    const serviceName = contextString(
+      this,
+      "serviceName",
+      `${appName}-${environmentName}`,
     );
     const channelName = contextString(this, "channelName", "open-tag");
     const intelligenceApiUrl = contextString(
@@ -162,31 +173,10 @@ export class OpenTagStack extends cdk.Stack {
       applicationSecretArn.valueAsString,
     );
 
-    const configuredVpcId = this.node.tryGetContext("vpcId");
-    const vpc = configuredVpcId
-      ? ec2.Vpc.fromLookup(this, "Vpc", { vpcId: String(configuredVpcId) })
-      : new ec2.Vpc(this, "Vpc", {
-          maxAzs: 2,
-          natGateways: 1,
-          subnetConfiguration: [
-            {
-              cidrMask: 24,
-              name: "public",
-              subnetType: ec2.SubnetType.PUBLIC,
-            },
-            {
-              cidrMask: 24,
-              name: "application",
-              subnetType: ec2.SubnetType.PRIVATE_WITH_EGRESS,
-            },
-          ],
-        });
-
-    const cluster = new ecs.Cluster(this, "Cluster", {
-      clusterName: `${appName}-${environmentName}`,
-      containerInsightsV2: ecs.ContainerInsights.ENABLED,
-      vpc,
-    });
+    const serviceCluster = cluster ?? this.createStandaloneCluster(
+      appName,
+      environmentName,
+    );
 
     const resolvedRetention = logRetentionDays as logs.RetentionDays;
     const agentLogGroup = new logs.LogGroup(this, "AgentLogGroup", {
@@ -325,12 +315,12 @@ export class OpenTagStack extends cdk.Stack {
     const securityGroup = new ec2.SecurityGroup(this, "ServiceSecurityGroup", {
       allowAllOutbound: true,
       description: "OpenTag outbound traffic only",
-      vpc,
+      vpc: serviceCluster.vpc,
     });
     const service = new ecs.FargateService(this, "Service", {
       assignPublicIp: false,
       circuitBreaker: { rollback: true },
-      cluster,
+      cluster: serviceCluster,
       desiredCount: 1,
       enableECSManagedTags: true,
       enableExecuteCommand: true,
@@ -338,7 +328,7 @@ export class OpenTagStack extends cdk.Stack {
       minHealthyPercent: 0,
       propagateTags: ecs.PropagatedTagSource.SERVICE,
       securityGroups: [securityGroup],
-      serviceName: `${appName}-${environmentName}`,
+      serviceName,
       taskDefinition: task,
       vpcSubnets: { subnetType: ec2.SubnetType.PRIVATE_WITH_EGRESS },
     });
@@ -357,7 +347,9 @@ export class OpenTagStack extends cdk.Stack {
     cdk.Tags.of(this).add("Environment", environmentName);
     cdk.Tags.of(this).add("ManagedBy", "aws-cdk");
 
-    new cdk.CfnOutput(this, "ClusterName", { value: cluster.clusterName });
+    new cdk.CfnOutput(this, "ClusterName", {
+      value: serviceCluster.clusterName,
+    });
     new cdk.CfnOutput(this, "ServiceName", { value: service.serviceName });
     new cdk.CfnOutput(this, "RuntimeToAgentUrl", {
       value: "http://127.0.0.1:8123/",
@@ -367,6 +359,19 @@ export class OpenTagStack extends cdk.Stack {
     });
     new cdk.CfnOutput(this, "AgentLogGroupName", {
       value: agentLogGroup.logGroupName,
+    });
+  }
+
+  private createStandaloneCluster(
+    appName: string,
+    environmentName: string,
+  ): ecs.ICluster {
+    const vpc = resolveVpc(this);
+
+    return new ecs.Cluster(this, "Cluster", {
+      clusterName: `${appName}-${environmentName}`,
+      containerInsightsV2: ecs.ContainerInsights.ENABLED,
+      vpc,
     });
   }
 
@@ -381,7 +386,7 @@ export class OpenTagStack extends cdk.Stack {
       parameters: {
         DdApiKeySecretArn: apiKeySecretArn,
         DdSite: site,
-        DdTags: `application:${appName},env:${environmentName}`,
+        DdTags: `service:${appName},application:${appName},env:${environmentName}`,
         FunctionName: `${appName}-${environmentName}-datadog-forwarder`,
       },
       templateUrl: DATADOG_FORWARDER_TEMPLATE_URL,

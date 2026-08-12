@@ -2,10 +2,14 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import * as cdk from "aws-cdk-lib";
 import { Match, Template } from "aws-cdk-lib/assertions";
+import * as ec2 from "aws-cdk-lib/aws-ec2";
+import * as ecs from "aws-cdk-lib/aws-ecs";
+import { OpenTagInfrastructureStack } from "../lib/opentag-infrastructure-stack.js";
 import { OpenTagStack } from "../lib/opentag-stack.js";
 
 function stackWithContext(
   context: Record<string, string | boolean> = {},
+  shared = false,
 ): OpenTagStack {
   const app = new cdk.App({
     context: {
@@ -15,10 +19,47 @@ function stackWithContext(
       ...context,
     },
   });
-  return new OpenTagStack(app, "test-stack");
+  if (!shared) return new OpenTagStack(app, "test-stack");
+
+  const infrastructure = new cdk.Stack(app, "test-infrastructure");
+  const vpc = new ec2.Vpc(infrastructure, "Vpc", {
+    maxAzs: 2,
+    natGateways: 1,
+  });
+  const cluster = new ecs.Cluster(infrastructure, "Cluster", { vpc });
+  return new OpenTagStack(app, "test-stack", { cluster });
 }
 
-test("creates one private singleton service containing both containers", () => {
+test("creates one shared cluster independently of environment services", () => {
+  const app = new cdk.App({ context: { appName: "kite" } });
+  const stack = new OpenTagInfrastructureStack(app, "kite-shared", {
+    appName: "kite",
+  });
+  const template = Template.fromStack(stack);
+
+  template.resourceCountIs("AWS::ECS::Cluster", 1);
+  template.hasResourceProperties("AWS::ECS::Cluster", {
+    ClusterName: "kite",
+  });
+});
+
+test("keeps the standalone cluster as the public default", () => {
+  const template = Template.fromStack(stackWithContext());
+
+  template.resourceCountIs("AWS::ECS::Cluster", 1);
+  template.hasResourceProperties("AWS::ECS::Cluster", {
+    ClusterName: "opentag-test",
+  });
+});
+
+test("accepts a shared cluster without creating another cluster", () => {
+  const template = Template.fromStack(stackWithContext({}, true));
+
+  template.resourceCountIs("AWS::ECS::Cluster", 0);
+  template.resourceCountIs("AWS::ECS::Service", 1);
+});
+
+test("creates one private singleton environment service containing both containers", () => {
   const template = Template.fromStack(stackWithContext());
 
   template.resourceCountIs("AWS::ECS::Service", 1);
@@ -110,6 +151,7 @@ test("forwards both awslogs groups through the official Datadog Forwarder", () =
     Parameters: Match.objectLike({
       DdApiKeySecretArn: { Ref: "DatadogApiKeySecretArn" },
       DdSite: "datadoghq.com",
+      DdTags: "service:opentag,application:opentag,env:test",
       FunctionName: "opentag-test-datadog-forwarder",
     }),
     TemplateURL:

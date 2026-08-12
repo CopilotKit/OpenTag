@@ -1,0 +1,122 @@
+name: Kite / Create release PR
+
+on:
+  workflow_dispatch:
+    inputs:
+      bump:
+        description: Version bump
+        required: true
+        type: choice
+        options: [baseline, patch, minor, major]
+      dry_run:
+        description: Preview without creating a PR
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+  pull-requests: read
+
+concurrency:
+  group: opentag-release-pr
+  cancel-in-progress: false
+
+jobs:
+  create:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Reject concurrent release PRs
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        with:
+          script: |
+            const { owner, repo } = context.repo;
+            const { data: pulls } = await github.rest.pulls.list({ owner, repo, state: "open" });
+            const releases = pulls.filter((pull) => pull.head.ref.startsWith("release/publish/"));
+            if (releases.length > 0) {
+              core.setFailed(`An open release PR already exists: ${releases.map((pull) => pull.html_url).join(", ")}`);
+            }
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - id: prepare
+        name: Update version and release notes
+        env:
+          BUMP: ${{ inputs.bump }}
+          DRY_RUN: ${{ inputs.dry_run }}
+        run: |
+          set -euo pipefail
+          current=$(node -p "require('./package.json').version")
+
+          if [ "$BUMP" = baseline ]; then
+            test "$current" = 0.2.0 || {
+              echo "baseline is only valid for v0.2.0"
+              exit 1
+            }
+            test -z "$(git tag --list 'v[0-9]*.[0-9]*.[0-9]*')" || {
+              echo "baseline is only valid before the first stable release"
+              exit 1
+            }
+          else
+            git rev-parse --verify "refs/tags/v$current" >/dev/null || {
+              echo "v$current must be released before creating the next version"
+              exit 1
+            }
+            npm version "$BUMP" --no-git-tag-version --ignore-scripts >/dev/null
+          fi
+
+          version=$(node -p "require('./package.json').version")
+          previous=$(git tag --list 'v[0-9]*.[0-9]*.[0-9]*' \
+            --sort=-version:refname | sed -n '1p')
+          range=HEAD
+          test -z "$previous" || range="$previous..HEAD"
+          {
+            echo "## v$version"
+            echo
+            git log "$range" --pretty='- %s (%h)'
+            echo
+            echo '### Container images'
+            echo
+            echo "- \`ghcr.io/copilotkit/opentag-agent:v$version\`"
+            echo "- \`ghcr.io/copilotkit/opentag-runtime:v$version\`"
+          } > release-notes.md
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+          if [ "$DRY_RUN" = true ]; then
+            git diff -- package.json
+            sed -n '1,160p' release-notes.md
+          fi
+      - id: app-token
+        if: inputs.dry_run != true
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: 1108748
+          private-key: ${{ secrets.DEVOPS_BOT_PRIVATE_KEY }}
+          owner: CopilotKit
+          repositories: OpenTag
+          permission-contents: write
+          permission-pull-requests: write
+      - name: Create release PR
+        if: inputs.dry_run != true
+        uses: peter-evans/create-pull-request@5f6978faf089d4d20b00c7766989d076bb2fc7f1 # v8.1.1
+        with:
+          token: ${{ steps.app-token.outputs.token }}
+          branch: release/publish/v${{ steps.prepare.outputs.version }}
+          delete-branch: true
+          labels: kite-release
+          commit-message: "chore: release v${{ steps.prepare.outputs.version }}"
+          title: "chore: release v${{ steps.prepare.outputs.version }}"
+          body: |
+            ## Release v${{ steps.prepare.outputs.version }}
+
+            Merging this PR publishes the `main`, commit, and versioned agent/runtime images,
+            deploys the exact digests to staging, creates the GitHub Release, and opens
+            independent production and community approval gates.
+
+            Before merging:
+            - [ ] Verify `release-notes.md`
+            - [ ] Confirm CI is green
+            - [ ] Approve the version change
