@@ -22,7 +22,7 @@ already is.
 
 </div>
 
-## The complete Channels SDK application
+## The Channels SDK starter application
 
 [Channels SDK](https://github.com/CopilotKit/channels-sdk) brings any AG-UI agent
 into Slack and Microsoft Teams. Its README shows you the pieces. **OpenTag is
