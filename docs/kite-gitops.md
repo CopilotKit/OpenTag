@@ -66,10 +66,11 @@ deletion, and administrator bypass. Workflow and AWS deployment files are owned
 by `@CopilotKit/engineering` in `.github/CODEOWNERS`.
 
 Configure the protected environments with approved maintainers, one approval,
-self-approval disabled, and administrator bypass disabled. Set the repository's
-default workflow token to read-only, prevent Actions from approving pull
-requests, require Actions to use full commit SHAs, and enable secret scanning,
-push protection, and Dependabot security updates.
+self-approval disabled, and administrator bypass enabled. This lets repository
+administrators unblock a deployment without removing the normal reviewer gate.
+Set the repository's default workflow token to read-only, prevent Actions from
+approving pull requests, require Actions to use full commit SHAs, and enable
+secret scanning, push protection, and Dependabot security updates.
 
 ## Observability
 
