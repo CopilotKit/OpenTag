@@ -20,6 +20,7 @@ supported; Discord, Telegram, and WhatsApp are coming soon.
 | Environment contract | [`app/env.ts`](./app/env.ts) | Required variables and in-code defaults |
 | Python agent | [`agent/`](./agent) | LangGraph deep agent served over AG-UI |
 | Railway topology | [`.railway/railway.ts`](./.railway/railway.ts) | Two services sourced from OpenTag `main` |
+| AWS topology | [`deployment/aws/`](./deployment/aws) | One private Fargate task, images, secrets, and Datadog log forwarding |
 
 The host always uses the Intelligence-owned runtime. It declares one
 adapter-free Channel using the configured name. The Slack and Microsoft Teams
@@ -78,8 +79,10 @@ without a checked-in file.
 | `LINEAR_MCP_URL` | No | Overrides the hosted Linear MCP URL |
 | `NOTION_MCP_AUTH_TOKEN` | No | Bearer token for a remote Notion MCP; requires `NOTION_MCP_URL` |
 | `NOTION_MCP_URL` | No | Remote Notion MCP endpoint; requires `NOTION_MCP_AUTH_TOKEN` |
+| `CORS_ALLOW_ORIGINS` | No | Comma-separated allowed origins; defaults to `*` |
 | `SERVER_HOST` | No | Local bind host; defaults to `0.0.0.0` |
-| `SERVER_PORT` / `PORT` | No | Local port; defaults to `8123` |
+| `SERVER_PORT` | No | Local/container port; defaults to `8123` |
+| `AGENT_RELOAD` | No | Local development reload; disabled by default |
 
 Only `OPENAI_API_KEY` is required. Without Tavily or internal-source
 credentials the agent still chats, triages, and renders supported UI
@@ -107,6 +110,7 @@ The AG-UI endpoint is `http://localhost:8123/`; `/health` reports the
 | `AGENT_AUTH_HEADER` | No | Authorization header forwarded to the agent |
 | `PORT` | No | Channel HTTP port; defaults to `3000` |
 | `LOG_LEVEL` | No | Defaults to `error`; use `debug` to see Channel lifecycle breadcrumbs |
+| `MERMAID_URL` | No | Overrides the Mermaid browser bundle URL used by diagram rendering |
 
 The API key selects a project; the Channel name selects a Channel inside it.
 Legacy organization, project, Channel ID, and runtime-instance ID variables are
