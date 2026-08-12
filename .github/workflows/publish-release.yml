@@ -1,30 +1,18 @@
-name: Deploy
+name: Kite / Publish release
 
 on:
   push:
     branches: [main]
-  workflow_dispatch:
-    inputs:
-      environment:
-        description: Environment to redeploy or roll back
-        required: true
-        type: choice
-        options: [staging, prod, community]
-      version:
-        description: Exact released version, for example v0.2.0
-        required: true
-        type: string
 
 permissions:
-  contents: write
-  id-token: write
-  packages: write
-  pull-requests: read
+  contents: read
 
 jobs:
   metadata:
-    if: github.event_name == 'push'
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
     outputs:
       is_release: ${{ steps.release.outputs.is_release }}
       release_version: ${{ steps.release.outputs.release_version }}
@@ -34,7 +22,7 @@ jobs:
         with:
           ref: ${{ github.sha }}
       - id: pull-request
-        name: Require an associated merged pull request
+        name: Verify release pull request provenance
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         with:
           script: |
@@ -53,11 +41,22 @@ jobs:
               core.setFailed(`${context.sha} is not the merge commit of a reviewed PR into main`);
               return;
             }
+
+            const expectedRepository = `${owner}/${repo}`;
+            const isReleaseBranch = /^release\/publish\/v\d+\.\d+\.\d+$/.test(pull.head.ref);
+            const hasReleaseLabel = pull.labels.some((label) => label.name === "kite-release");
+            const isTrustedRelease =
+              isReleaseBranch &&
+              pull.head.repo?.full_name === expectedRepository &&
+              hasReleaseLabel;
+
             core.setOutput("head_ref", pull.head.ref);
+            core.setOutput("is_trusted_release", String(isTrustedRelease));
       - id: release
         name: Classify merge
         env:
           HEAD_REF: ${{ steps.pull-request.outputs.head_ref }}
+          IS_TRUSTED_RELEASE: ${{ steps.pull-request.outputs.is_trusted_release }}
         run: |
           set -euo pipefail
           {
@@ -65,6 +64,10 @@ jobs:
             echo "version_label=main"
           } >> "$GITHUB_OUTPUT"
           if [[ "$HEAD_REF" =~ ^release/publish/v([0-9]+\.[0-9]+\.[0-9]+)$ ]]; then
+            test "$IS_TRUSTED_RELEASE" = true || {
+              echo "Release PR must originate in $GITHUB_REPOSITORY and carry the kite-release label"
+              exit 1
+            }
             version="${BASH_REMATCH[1]}"
             package_version=$(node -p "require('./package.json').version")
             test "$version" = "$package_version" || {
@@ -82,6 +85,9 @@ jobs:
     if: needs.metadata.outputs.is_release == 'true'
     needs: metadata
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
     outputs:
       digest: ${{ steps.build.outputs.digest }}
     steps:
@@ -96,17 +102,14 @@ jobs:
       - uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4.2.0
       - id: tags
         env:
-          IS_RELEASE: ${{ needs.metadata.outputs.is_release }}
           RELEASE_VERSION: ${{ needs.metadata.outputs.release_version }}
         run: |
           {
             echo 'value<<EOF'
             echo 'ghcr.io/copilotkit/opentag-agent:main'
             echo "ghcr.io/copilotkit/opentag-agent:sha-${{ github.sha }}"
-            if [ "$IS_RELEASE" = true ]; then
-              echo "ghcr.io/copilotkit/opentag-agent:$RELEASE_VERSION"
-              echo "ghcr.io/copilotkit/opentag-agent:${RELEASE_VERSION%.*}"
-            fi
+            echo "ghcr.io/copilotkit/opentag-agent:$RELEASE_VERSION"
+            echo "ghcr.io/copilotkit/opentag-agent:${RELEASE_VERSION%.*}"
             echo EOF
           } >> "$GITHUB_OUTPUT"
       - id: build
@@ -127,6 +130,9 @@ jobs:
     if: needs.metadata.outputs.is_release == 'true'
     needs: metadata
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
     outputs:
       digest: ${{ steps.build.outputs.digest }}
     steps:
@@ -141,17 +147,14 @@ jobs:
       - uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4.2.0
       - id: tags
         env:
-          IS_RELEASE: ${{ needs.metadata.outputs.is_release }}
           RELEASE_VERSION: ${{ needs.metadata.outputs.release_version }}
         run: |
           {
             echo 'value<<EOF'
             echo 'ghcr.io/copilotkit/opentag-runtime:main'
             echo "ghcr.io/copilotkit/opentag-runtime:sha-${{ github.sha }}"
-            if [ "$IS_RELEASE" = true ]; then
-              echo "ghcr.io/copilotkit/opentag-runtime:$RELEASE_VERSION"
-              echo "ghcr.io/copilotkit/opentag-runtime:${RELEASE_VERSION%.*}"
-            fi
+            echo "ghcr.io/copilotkit/opentag-runtime:$RELEASE_VERSION"
+            echo "ghcr.io/copilotkit/opentag-runtime:${RELEASE_VERSION%.*}"
             echo EOF
           } >> "$GITHUB_OUTPUT"
       - id: build
@@ -174,17 +177,19 @@ jobs:
     permissions:
       contents: read
       id-token: write
-    uses: ./.github/workflows/_deploy-environment.yml
+    uses: ./.github/workflows/_deploy-kite-environment.yml
     with:
       agent_image: ghcr.io/copilotkit/opentag-agent@${{ needs.build-agent.outputs.digest }}
       environment: staging
       github_environment: kite-staging
       runtime_image: ghcr.io/copilotkit/opentag-runtime@${{ needs.build-runtime.outputs.digest }}
 
-  release:
-    if: github.event_name == 'push' && needs.metadata.outputs.is_release == 'true'
+  github-release:
+    if: needs.metadata.outputs.is_release == 'true'
     needs: [metadata, build-agent, build-runtime, staging]
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -233,12 +238,12 @@ jobs:
           fi
 
   prod:
-    if: github.event_name == 'push' && needs.metadata.outputs.is_release == 'true' && needs.release.result == 'success'
-    needs: [metadata, build-agent, build-runtime, release]
+    if: needs.metadata.outputs.is_release == 'true' && needs.github-release.result == 'success'
+    needs: [metadata, build-agent, build-runtime, github-release]
     permissions:
       contents: read
       id-token: write
-    uses: ./.github/workflows/_deploy-environment.yml
+    uses: ./.github/workflows/_deploy-kite-environment.yml
     with:
       agent_image: ghcr.io/copilotkit/opentag-agent@${{ needs.build-agent.outputs.digest }}
       environment: prod
@@ -246,47 +251,14 @@ jobs:
       runtime_image: ghcr.io/copilotkit/opentag-runtime@${{ needs.build-runtime.outputs.digest }}
 
   community:
-    if: github.event_name == 'push' && needs.metadata.outputs.is_release == 'true' && needs.release.result == 'success'
-    needs: [metadata, build-agent, build-runtime, release]
+    if: needs.metadata.outputs.is_release == 'true' && needs.github-release.result == 'success'
+    needs: [metadata, build-agent, build-runtime, github-release]
     permissions:
       contents: read
       id-token: write
-    uses: ./.github/workflows/_deploy-environment.yml
+    uses: ./.github/workflows/_deploy-kite-environment.yml
     with:
       agent_image: ghcr.io/copilotkit/opentag-agent@${{ needs.build-agent.outputs.digest }}
       environment: community
       github_environment: kite-community
       runtime_image: ghcr.io/copilotkit/opentag-runtime@${{ needs.build-runtime.outputs.digest }}
-
-  resolve-version:
-    if: github.event_name == 'workflow_dispatch'
-    runs-on: ubuntu-latest
-    outputs:
-      agent_image: ${{ steps.manifest.outputs.agent_image }}
-      runtime_image: ${{ steps.manifest.outputs.runtime_image }}
-    steps:
-      - name: Read image digests from the GitHub Release
-        id: manifest
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          RELEASE_VERSION: ${{ inputs.version }}
-        run: |
-          set -euo pipefail
-          [[ "$RELEASE_VERSION" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]
-          gh release download "$RELEASE_VERSION" \
-            --repo "$GITHUB_REPOSITORY" --pattern container-images.json
-          test "$(jq -r .version container-images.json)" = "$RELEASE_VERSION"
-          echo "agent_image=$(jq -r .images.agent.reference container-images.json)" >> "$GITHUB_OUTPUT"
-          echo "runtime_image=$(jq -r .images.runtime.reference container-images.json)" >> "$GITHUB_OUTPUT"
-
-  deploy-version:
-    needs: resolve-version
-    permissions:
-      contents: read
-      id-token: write
-    uses: ./.github/workflows/_deploy-environment.yml
-    with:
-      agent_image: ${{ needs.resolve-version.outputs.agent_image }}
-      environment: ${{ inputs.environment }}
-      github_environment: kite-${{ inputs.environment }}
-      runtime_image: ${{ needs.resolve-version.outputs.runtime_image }}

@@ -1,4 +1,4 @@
-name: _Deploy environment
+name: Kite / _Deploy environment
 
 on:
   workflow_call:
@@ -35,7 +35,7 @@ jobs:
         with:
           aws-region: ${{ vars.AWS_REGION }}
           role-to-assume: ${{ vars.AWS_ROLE_ARN }}
-          role-session-name: opentag-${{ inputs.environment }}-${{ github.run_id }}
+          role-session-name: kite-${{ inputs.environment }}-${{ github.run_id }}
       - name: Register images and update ECS service
         env:
           AGENT_IMAGE: ${{ inputs.agent_image }}
@@ -43,8 +43,9 @@ jobs:
           RUNTIME_IMAGE: ${{ inputs.runtime_image }}
         run: |
           set -euo pipefail
-          [[ "$AGENT_IMAGE" =~ @sha256:[0-9a-f]{64}$ ]]
-          [[ "$RUNTIME_IMAGE" =~ @sha256:[0-9a-f]{64}$ ]]
+          [[ "$AGENT_IMAGE" =~ ^ghcr\.io/copilotkit/opentag-agent@sha256:[0-9a-f]{64}$ ]]
+          [[ "$RUNTIME_IMAGE" =~ ^ghcr\.io/copilotkit/opentag-runtime@sha256:[0-9a-f]{64}$ ]]
+          [[ "$DEPLOY_ENVIRONMENT" =~ ^(staging|prod|community)$ ]]
           service="kite-$DEPLOY_ENVIRONMENT"
           current_task_definition=$(aws ecs describe-services \
             --cluster kite --services "$service" \

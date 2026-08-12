@@ -1,5 +1,10 @@
 # Kite GitHub delivery
 
+> [!NOTE]
+> This is CopilotKit maintainer automation for the hosted Kite environments.
+> OpenTag users deploy the public CDK application directly and do not need these
+> workflows or GitHub Environments.
+
 Kite uses the public AWS CDK module with `appName=kite` and
 `sharedCluster=true`. The three environment stacks share the `kite` ECS cluster
 but deploy independently.
@@ -7,10 +12,10 @@ but deploy independently.
 ## Common paths
 
 - Change: PR → CI → merge. No image is published or deployed.
-- Release: run **Release** → review and merge its PR → publish `main`,
+- Release: run **Kite / Create release PR** → review and merge its PR → publish `main`,
   `sha-<commit>`, `vX.Y.Z`, and `vX.Y` → update staging's ECS task definition →
   approve prod and community independently.
-- Rollback: run **Deploy** → select environment and `vX.Y.Z` →
+- Rollback: run **Kite / Deploy released version** → select environment and `vX.Y.Z` →
   deploy the digests recorded in that release.
 
 The release PR uses CopilotKit's DevOps GitHub App (app ID `1108748`). Grant the
@@ -35,8 +40,8 @@ Create these environments:
 | Environment | Deployment branch policy | Reviewers |
 | --- | --- | --- |
 | `kite-staging` | `main` | none |
-| `kite-prod` | `main` | Admin-team members |
-| `kite-community` | `main` | Admin-team members |
+| `kite-prod` | `main` | Approved maintainers |
+| `kite-community` | `main` | Approved maintainers |
 
 Each environment requires these variables:
 
@@ -60,12 +65,11 @@ review, and the required `verify` check. Block direct pushes, force pushes,
 deletion, and administrator bypass. Workflow and AWS deployment files are owned
 by `@CopilotKit/engineering` in `.github/CODEOWNERS`.
 
-GitHub currently requires environment reviewers to be configured as individual
-users for this repository; the environments use the six current Admin-team
-members, with one approval required and self-approval disabled. Keep this list
-in sync when team membership changes. In each protected environment's settings,
-also disable **Allow administrators to bypass configured protection rules**;
-GitHub does not expose that environment setting through its repository API.
+Configure the protected environments with approved maintainers, one approval,
+self-approval disabled, and administrator bypass disabled. Set the repository's
+default workflow token to read-only, prevent Actions from approving pull
+requests, require Actions to use full commit SHAs, and enable secret scanning,
+push protection, and Dependabot security updates.
 
 ## Observability
 

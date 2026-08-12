@@ -186,7 +186,7 @@ pnpm exec cdk deploy opentag-production \
 
 ## Public images
 
-GitHub Actions publishes:
+CopilotKit's maintainer-only Kite release automation publishes:
 
 - `ghcr.io/copilotkit/opentag-agent`
 - `ghcr.io/copilotkit/opentag-runtime`

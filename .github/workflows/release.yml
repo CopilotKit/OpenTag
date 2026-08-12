@@ -1,4 +1,4 @@
-name: Release
+name: Kite / Create release PR
 
 on:
   workflow_dispatch:
@@ -106,6 +106,7 @@ jobs:
           token: ${{ steps.app-token.outputs.token }}
           branch: release/publish/v${{ steps.prepare.outputs.version }}
           delete-branch: true
+          labels: kite-release
           commit-message: "chore: release v${{ steps.prepare.outputs.version }}"
           title: "chore: release v${{ steps.prepare.outputs.version }}"
           body: |

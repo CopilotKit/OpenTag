@@ -15,8 +15,7 @@ const appName = app.node.tryGetContext("appName") ?? "opentag";
 const environment = app.node.tryGetContext("environment") ?? "production";
 const account = process.env.CDK_DEFAULT_ACCOUNT;
 const region = process.env.CDK_DEFAULT_REGION;
-const environmentAgnostic = contextBoolean(app, "environmentAgnostic", false);
-const stackEnvironment = !environmentAgnostic && account && region
+const stackEnvironment = account && region
   ? { account, region }
   : undefined;
 const sharedCluster = contextBoolean(app, "sharedCluster", false);

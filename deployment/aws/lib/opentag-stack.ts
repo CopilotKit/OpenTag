@@ -11,6 +11,7 @@ import * as logs from "aws-cdk-lib/aws-logs";
 import * as destinations from "aws-cdk-lib/aws-logs-destinations";
 import * as secretsmanager from "aws-cdk-lib/aws-secretsmanager";
 import type { Construct } from "constructs";
+import { resolveVpc } from "./vpc.js";
 
 const currentDirectory = path.dirname(fileURLToPath(import.meta.url));
 const repositoryRoot = path.resolve(currentDirectory, "../../..");
@@ -365,25 +366,7 @@ export class OpenTagStack extends cdk.Stack {
     appName: string,
     environmentName: string,
   ): ecs.ICluster {
-    const configuredVpcId = this.node.tryGetContext("vpcId");
-    const vpc = configuredVpcId
-      ? ec2.Vpc.fromLookup(this, "Vpc", { vpcId: String(configuredVpcId) })
-      : new ec2.Vpc(this, "Vpc", {
-          maxAzs: 2,
-          natGateways: 1,
-          subnetConfiguration: [
-            {
-              cidrMask: 24,
-              name: "public",
-              subnetType: ec2.SubnetType.PUBLIC,
-            },
-            {
-              cidrMask: 24,
-              name: "application",
-              subnetType: ec2.SubnetType.PRIVATE_WITH_EGRESS,
-            },
-          ],
-        });
+    const vpc = resolveVpc(this);
 
     return new ecs.Cluster(this, "Cluster", {
       clusterName: `${appName}-${environmentName}`,

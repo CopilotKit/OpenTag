@@ -1,7 +1,7 @@
 import * as cdk from "aws-cdk-lib";
-import * as ec2 from "aws-cdk-lib/aws-ec2";
 import * as ecs from "aws-cdk-lib/aws-ecs";
 import type { Construct } from "constructs";
+import { resolveVpc } from "./vpc.js";
 
 export interface OpenTagInfrastructureStackProps extends cdk.StackProps {
   appName: string;
@@ -18,25 +18,7 @@ export class OpenTagInfrastructureStack extends cdk.Stack {
     const { appName, ...stackProps } = props;
     super(scope, id, stackProps);
 
-    const configuredVpcId = this.node.tryGetContext("vpcId");
-    const vpc = configuredVpcId
-      ? ec2.Vpc.fromLookup(this, "Vpc", { vpcId: String(configuredVpcId) })
-      : new ec2.Vpc(this, "Vpc", {
-          maxAzs: 2,
-          natGateways: 1,
-          subnetConfiguration: [
-            {
-              cidrMask: 24,
-              name: "public",
-              subnetType: ec2.SubnetType.PUBLIC,
-            },
-            {
-              cidrMask: 24,
-              name: "application",
-              subnetType: ec2.SubnetType.PRIVATE_WITH_EGRESS,
-            },
-          ],
-        });
+    const vpc = resolveVpc(this);
 
     this.cluster = new ecs.Cluster(this, "Cluster", {
       clusterName: appName,
