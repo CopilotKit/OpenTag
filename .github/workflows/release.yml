@@ -118,7 +118,7 @@ jobs:
           token: ${{ steps.app-token.outputs.token }}
           branch: release/publish/v${{ steps.prepare.outputs.version }}
           delete-branch: true
-          labels: kite-release
+          labels: release
           commit-message: "chore: release v${{ steps.prepare.outputs.version }}"
           title: "chore: release v${{ steps.prepare.outputs.version }}"
           body: |
