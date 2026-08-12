@@ -12,8 +12,6 @@ but deploy independently.
   `vX.Y` → create the GitHub Release → approve prod and community independently.
 - Rollback: run **Deploy** → select environment and `vX.Y.Z` →
   deploy the digests recorded in that release.
-- Infrastructure: run **Infrastructure** → approval → update only
-  `kite-shared`.
 
 The release PR uses CopilotKit's DevOps GitHub App (app ID `1108748`). Grant the
 App access to OpenTag and make the existing `DEVOPS_BOT_PRIVATE_KEY`
@@ -27,7 +25,7 @@ manage account-level GitHub trust.
 
 The only workflow interface is the resulting role ARN. Store it as
 `AWS_ROLE_ARN` in each Kite GitHub Environment. The role must trust this
-repository's four `kite-*` environments and be able to use the account and
+repository's three `kite-*` environments and be able to use the account and
 Region's CDK bootstrap roles.
 
 ## GitHub Environments
@@ -39,7 +37,6 @@ Create these environments:
 | `kite-staging` | `main` | none |
 | `kite-prod` | `main` | Admin-team members |
 | `kite-community` | `main` | Admin-team members |
-| `kite-infrastructure` | `main` | Admin-team members |
 
 Each environment requires these variables:
 
@@ -56,7 +53,6 @@ Each environment requires these variables:
 | `DATADOG_SITE` | Datadog site, normally `datadoghq.com` |
 | `LOG_LEVEL` | Runtime log level, normally `warn` |
 
-`kite-infrastructure` only needs `AWS_ROLE_ARN`, `AWS_REGION`, and `VPC_ID`.
 Secret values stay in AWS Secrets Manager; GitHub stores only their ARNs.
 
 Community's application secret must keep GitHub, PostHog, Linear, and Notion
