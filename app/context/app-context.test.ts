@@ -5,10 +5,27 @@ describe("appContext rich-rendering policy", () => {
   it("maps high-value knowledge-work shapes to render tools", () => {
     const context = appContext.map(({ value }) => value).join("\n");
 
-    expect(context).toContain("Several Linear issues -> issue_list");
+    expect(context).toContain(
+      "Identity, capability, or demo-introduction questions -> show_capabilities",
+    );
+    expect(context).toContain(
+      '"who are you", "what can you do", "how can you help", and "introduce yourself"',
+    );
+    expect(context).toContain(
+      "User-provided or Linear issue triage -> issue_list",
+    );
+    expect(context).toContain("URLs are optional; never invent them");
     expect(context).toContain("A single Linear issue -> issue_card");
     expect(context).toContain("Notion pages -> page_list");
-    expect(context).toContain("Comparisons or tabular data -> render_table");
+    expect(context).toContain(
+      "Research, discussion, or meeting synthesis -> show_knowledge_summary",
+    );
+    expect(context).toContain(
+      "Option evaluation or decision support -> show_decision_brief",
+    );
+    expect(context).toContain(
+      "Plans, reviews, rollouts, or checklists -> show_work_plan",
+    );
     expect(context).toContain(
       "Status summaries or compact metrics -> show_status",
     );
@@ -23,6 +40,12 @@ describe("appContext rich-rendering policy", () => {
     );
     expect(context).toContain(
       "Flow, architecture, or timeline -> render_diagram",
+    );
+    expect(context).toContain(
+      "Tables are structured formatting, not generative UI",
+    );
+    expect(context).toContain(
+      "Use render_table only when the user explicitly asks for a table",
     );
   });
 
@@ -39,6 +62,10 @@ describe("appContext rich-rendering policy", () => {
     expect(context).toContain("Do not render merely because");
     expect(context).toContain("key insight, recommendation, or next action");
     expect(context).toContain("Do not duplicate every field");
+    expect(context).toContain(
+      "Treat a successful render tool call as the user-facing answer",
+    );
+    expect(context).toContain("Do not post a separate confirmation");
     expect(context).not.toContain("RENDERING IS A HARD RULE");
     expect(context).not.toContain("MUST call the matching render tool");
   });
@@ -48,10 +75,13 @@ describe("appContext rich-rendering policy", () => {
 
     expect(context).toContain("CRITICAL: Rich UI is a core capability");
     expect(context).toContain(
-      "cards, tables, charts, diagrams, and actionable views",
+      "knowledge summaries, decision briefs, work plans, status cards, charts, diagrams, and actionable views",
     );
     expect(context).toContain(
       "do not merely tell the user that rich UI is available",
+    );
+    expect(context).toContain(
+      "Always call show_capabilities instead of answering those questions with prose first",
     );
   });
 });

@@ -124,7 +124,9 @@ function findIncidentButton(
 }
 
 afterEach(async () => {
-  await Promise.all(channels.splice(0).map((channel) => channel.ɵruntime.stop()));
+  await Promise.all(
+    channels.splice(0).map((channel) => channel.ɵruntime.stop()),
+  );
   vi.restoreAllMocks();
 });
 
@@ -157,9 +159,7 @@ describe("createOpenTagChannel", () => {
         mentioned: true,
       },
     });
-    expect(
-      await stateStore.kv.get<boolean>("sub:mentioned-thread"),
-    ).toBe(true);
+    expect(await stateStore.kv.get<boolean>("sub:mentioned-thread")).toBe(true);
 
     await adapter.getSink().onTurn({
       conversationKey: "mentioned-thread",
@@ -256,9 +256,13 @@ describe("createOpenTagChannel", () => {
       "read_thread",
       "render_diagram",
       "render_table",
+      "show_capabilities",
+      "show_decision_brief",
       "show_incident",
+      "show_knowledge_summary",
       "show_links",
       "show_status",
+      "show_work_plan",
     ]);
     expect(RenderChart.name).toBe("render_chart");
     expect(appTools.map(({ name }) => name)).not.toContain("confirm_write");
@@ -384,7 +388,7 @@ describe("createOpenTagChannel", () => {
     );
   });
 
-  it("personalizes suggested prompts when a thread starts", async () => {
+  it("suggests knowledge-work prompts when a thread starts", async () => {
     const { adapter, channel } = makeChannel();
 
     await channel.ɵruntime.start();
@@ -394,9 +398,18 @@ describe("createOpenTagChannel", () => {
       actor: { id: "U1", kind: "human", name: "Ada" },
     });
 
-    expect(adapter.suggestedPromptsCalls[0]?.prompts[0]?.title).toBe(
-      "Triage Ada's issues",
-    );
+    expect(adapter.suggestedPromptsCalls[0]?.prompts).toEqual([
+      {
+        title: "Synthesize this discussion",
+        message:
+          "Summarize this thread into key findings, decisions, open questions, and next steps",
+      },
+      {
+        title: "Help me make a decision",
+        message:
+          "Compare the options in this thread and recommend a path forward",
+      },
+    ]);
   });
 
   it("surfaces a structured recoverable error when suggested prompts fail", async () => {
@@ -541,8 +554,7 @@ describe("createOpenTagChannel", () => {
     expect(adapter.posted).toHaveLength(1);
     const { blocks } = renderSlackMessage(adapter.posted[0]!);
     const table = blocks.find((b) => b.type === "table") as
-      | { rows: { text: string }[][] }
-      | undefined;
+      { rows: { text: string }[][] } | undefined;
     expect(table?.rows.map((row) => row.map((cell) => cell.text))).toEqual([
       ["Name", "OpenTag"],
       ["Lead", "jerel@copilotkit.ai"],
@@ -661,8 +673,7 @@ describe("createOpenTagChannel", () => {
         } as never);
         subscriber.onRunFinishedEvent?.({ event: {} } as never);
       },
-      (subscriber) =>
-        subscriber.onRunFinishedEvent?.({ event: {} } as never),
+      (subscriber) => subscriber.onRunFinishedEvent?.({ event: {} } as never),
     ]);
     const firstChannel = createOpenTagChannel("opentag", firstAgent);
     firstChannel.ɵruntime.addAdapter(firstAdapter);
@@ -677,9 +688,8 @@ describe("createOpenTagChannel", () => {
     });
 
     const acknowledge = findIncidentButton(firstAdapter.posted[0]!, "ack");
-    const actionId = (
-      acknowledge?.props.onClick as { id?: string } | undefined
-    )?.id;
+    const actionId = (acknowledge?.props.onClick as { id?: string } | undefined)
+      ?.id;
     expect(actionId).toMatch(/^ck:/);
     await firstChannel.ɵruntime.stop();
 

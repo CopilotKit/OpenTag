@@ -1,5 +1,5 @@
 /**
- * Showcase render-tools — three small JSX `ChannelTool`s that demonstrate the
+ * Showcase render-tools — JSX `ChannelTool`s that demonstrate the
  * `@copilotkit/channels` vocabulary end-to-end:
  *
  *  - `show_incident` — an interactive card whose `Acknowledge`/`Escalate`
@@ -9,6 +9,12 @@
  *  - `show_status` — a `Fields` grid with an accent and bold field labels.
  *  - `show_links` — a `Section` of markdown links (`[label](url)` →
  *    `<url|label>` via the mrkdwn bridge).
+ *  - `show_work_plan` — a purpose-built plan/checklist card with explicit
+ *    status, ownership, and progress context.
+ *  - `show_decision_brief` — options, recommendation, rationale, risks, and
+ *    the next decision step.
+ *  - `show_knowledge_summary` — synthesized findings, decisions, actions, and
+ *    open questions from research or discussion.
  */
 import { z } from "zod";
 import {
@@ -178,5 +184,218 @@ export const showLinksTool = defineChannelTool({
   async handler(props, { thread }) {
     await thread.post(<LinksCard {...props} />);
     return "Posted the links to the user.";
+  },
+});
+
+// ── show_work_plan ────────────────────────────────────────────────────────
+
+const workPlanSchema = z.object({
+  heading: z.string().describe("Short plan, review, or checklist heading."),
+  summary: z
+    .string()
+    .optional()
+    .describe("Optional one-sentence purpose or recommendation."),
+  items: z
+    .array(
+      z.object({
+        title: z.string().describe("Concise work item or checkpoint."),
+        status: z
+          .enum(["not_started", "in_progress", "blocked", "done"])
+          .describe("Current status of the item."),
+        owner: z.string().optional().describe("Owner name, if known."),
+        detail: z
+          .string()
+          .optional()
+          .describe("Optional supporting detail, evidence, or next step."),
+      }),
+    )
+    .min(1)
+    .max(12)
+    .describe("Ordered plan items; preserve every item the user supplied."),
+});
+
+type WorkPlanProps = z.infer<typeof workPlanSchema>;
+
+const workPlanStatus = {
+  not_started: { icon: "○", label: "Not started" },
+  in_progress: { icon: "◐", label: "In progress" },
+  blocked: { icon: "⊘", label: "Blocked" },
+  done: { icon: "●", label: "Done" },
+} as const;
+
+export function WorkPlanCard({ heading, summary, items }: WorkPlanProps) {
+  const completed = items.filter(({ status }) => status === "done").length;
+
+  return (
+    <Message accent="#5E6AD2">
+      <Header>{`🗺️ ${heading}`}</Header>
+      {summary ? <Section>{summary}</Section> : null}
+      {items.map((item) => {
+        const status = workPlanStatus[item.status];
+        const metadata = [status.label, item.owner && `Owner: ${item.owner}`]
+          .filter(Boolean)
+          .join(" · ");
+        return (
+          <Section>
+            {`${status.icon} **${item.title}**\n${metadata}${item.detail ? `\n${item.detail}` : ""}`}
+          </Section>
+        );
+      })}
+      <Context>{`${completed} of ${items.length} complete`}</Context>
+    </Message>
+  );
+}
+
+export const showWorkPlanTool = defineChannelTool({
+  name: "show_work_plan",
+  description:
+    "Render a purpose-built work plan, review, rollout, or checklist card " +
+    "with status, optional owner and detail, and completion progress. Use " +
+    "this instead of render_table when the content represents work to track.",
+  parameters: workPlanSchema,
+  async handler(props, { thread }) {
+    await thread.post(<WorkPlanCard {...props} />);
+    return "The work plan is the complete user-facing answer. Do not post a separate confirmation or restatement.";
+  },
+});
+
+// ── show_decision_brief ───────────────────────────────────────────────────
+
+const decisionBriefSchema = z.object({
+  heading: z.string().describe("Concise name for the decision."),
+  question: z.string().describe("The decision to make."),
+  recommendation: z.string().describe("Recommended option or path forward."),
+  options: z
+    .array(
+      z.object({
+        name: z.string().describe("Option name."),
+        assessment: z
+          .string()
+          .describe("Concise assessment, including the key trade-off."),
+      }),
+    )
+    .min(2)
+    .max(6),
+  rationale: z.array(z.string()).min(1).max(6),
+  risks: z.array(z.string()).max(6).optional(),
+  nextStep: z
+    .string()
+    .describe("The immediate action that advances the decision."),
+});
+
+type DecisionBriefProps = z.infer<typeof decisionBriefSchema>;
+
+export function DecisionBriefCard({
+  heading,
+  question,
+  recommendation,
+  options,
+  rationale,
+  risks,
+  nextStep,
+}: DecisionBriefProps) {
+  return (
+    <Message accent="#5E6AD2">
+      <Header>{`⚖️ ${heading}`}</Header>
+      <Section>{`**Decision**\n${question}`}</Section>
+      <Section>{`**Recommendation**\n${recommendation}`}</Section>
+      <Section>
+        {`**Options considered**\n${options
+          .map(({ name, assessment }) => `• **${name}** — ${assessment}`)
+          .join("\n")}`}
+      </Section>
+      <Section>
+        {`**Why**\n${rationale.map((reason) => `• ${reason}`).join("\n")}`}
+      </Section>
+      {risks?.length ? (
+        <Section>
+          {`**Risks to watch**\n${risks.map((risk) => `• ${risk}`).join("\n")}`}
+        </Section>
+      ) : null}
+      <Section>{`**Next step**\n${nextStep}`}</Section>
+    </Message>
+  );
+}
+
+export const showDecisionBriefTool = defineChannelTool({
+  name: "show_decision_brief",
+  description:
+    "Render a decision brief with the decision question, recommendation, " +
+    "evaluated options, rationale, risks, and immediate next step. Use for " +
+    "comparisons and decision support instead of a generic table.",
+  parameters: decisionBriefSchema,
+  async handler(props, { thread }) {
+    await thread.post(<DecisionBriefCard {...props} />);
+    return "The decision brief is the complete user-facing answer. Do not post a separate confirmation or restatement.";
+  },
+});
+
+// ── show_knowledge_summary ────────────────────────────────────────────────
+
+const knowledgeSummarySchema = z.object({
+  heading: z.string().describe("Concise title for the synthesis."),
+  summary: z.string().describe("One- or two-sentence executive synthesis."),
+  findings: z.array(z.string()).min(1).max(8),
+  decisions: z.array(z.string()).max(8).optional(),
+  actions: z
+    .array(
+      z.object({
+        task: z.string().describe("Concrete follow-up action."),
+        owner: z.string().optional().describe("Owner, only when known."),
+      }),
+    )
+    .max(8)
+    .optional(),
+  openQuestions: z.array(z.string()).max(8).optional(),
+});
+
+type KnowledgeSummaryProps = z.infer<typeof knowledgeSummarySchema>;
+
+function bulletList(items: string[]): string {
+  return items.map((item) => `• ${item}`).join("\n");
+}
+
+export function KnowledgeSummaryCard({
+  heading,
+  summary,
+  findings,
+  decisions,
+  actions,
+  openQuestions,
+}: KnowledgeSummaryProps) {
+  return (
+    <Message accent="#27AE60">
+      <Header>{`🧠 ${heading}`}</Header>
+      <Section>{summary}</Section>
+      <Section>{`**Key findings**\n${bulletList(findings)}`}</Section>
+      {decisions?.length ? (
+        <Section>{`**Decisions**\n${bulletList(decisions)}`}</Section>
+      ) : null}
+      {actions?.length ? (
+        <Section>
+          {`**Action items**\n${bulletList(
+            actions.map(({ task, owner }) =>
+              owner ? `${task} — **${owner}**` : task,
+            ),
+          )}`}
+        </Section>
+      ) : null}
+      {openQuestions?.length ? (
+        <Section>{`**Open questions**\n${bulletList(openQuestions)}`}</Section>
+      ) : null}
+    </Message>
+  );
+}
+
+export const showKnowledgeSummaryTool = defineChannelTool({
+  name: "show_knowledge_summary",
+  description:
+    "Render a synthesized knowledge artifact with an executive summary, key " +
+    "findings, and optional decisions, action items, and open questions. Use " +
+    "for research summaries, meeting notes, discussion synthesis, and briefs.",
+  parameters: knowledgeSummarySchema,
+  async handler(props, { thread }) {
+    await thread.post(<KnowledgeSummaryCard {...props} />);
+    return "The knowledge summary is the complete user-facing answer. Do not post a separate confirmation or restatement.";
   },
 });
