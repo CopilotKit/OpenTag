@@ -21,6 +21,10 @@ import { appContext } from "./context/app-context.js";
 import { appTools } from "./tools/index.js";
 import { RenderChart } from "./tools/render-chart.js";
 import { createOpenTagChannel } from "./channel.js";
+import {
+  subscribeThreadTool,
+  unsubscribeThreadTool,
+} from "./tools/thread-subscription.js";
 
 class CapturingAgent extends FakeAgent {
   readonly calls: Array<RunAgentParameters | undefined>;
@@ -52,6 +56,50 @@ class CapturingAgent extends FakeAgent {
     this.messageSnapshots.push(structuredClone(this.messages));
     return super.runAgent(parameters, subscriber);
   }
+}
+
+type AgentStep = (subscriber: AgentSubscriber) => void | Promise<void>;
+
+class SharedScriptAgent extends FakeAgent {
+  constructor(
+    private readonly steps: AgentStep[],
+    readonly calls: Array<RunAgentParameters | undefined> = [],
+  ) {
+    super();
+  }
+
+  override clone(): SharedScriptAgent {
+    const cloned = new SharedScriptAgent(this.steps, this.calls);
+    cloned.threadId = this.threadId;
+    cloned.agentId = this.agentId;
+    cloned.messages = structuredClone(this.messages);
+    cloned.state = structuredClone(this.state);
+    return cloned;
+  }
+
+  override async runAgent(
+    parameters?: RunAgentParameters,
+    subscriber?: AgentSubscriber,
+  ): Promise<RunAgentResult> {
+    this.calls.push(parameters);
+    const step = this.steps.shift();
+    if (step && subscriber) await step(subscriber);
+    return { result: undefined, newMessages: [] };
+  }
+}
+
+function callTool(name: string, id: string): AgentStep {
+  return (subscriber) => {
+    subscriber.onToolCallEndEvent?.({
+      event: { toolCallId: id },
+      toolCallName: name,
+      toolCallArgs: {},
+    } as never);
+  };
+}
+
+function toolNames(call: RunAgentParameters | undefined): string[] {
+  return call?.tools?.map(({ name }) => name) ?? [];
 }
 
 const channels: Channel[] = [];
@@ -142,7 +190,7 @@ function makeChannel(options: { agent?: FakeAgent } = {}) {
 }
 
 describe("createOpenTagChannel", () => {
-  it("subscribes when Kite is mentioned and handles a later managed delivery", async () => {
+  it("subscribes a new mentioned conversation and handles a later managed delivery", async () => {
     const { adapter, agent, channel, stateStore } = makeChannel();
 
     await channel.ɵruntime.start();
@@ -160,6 +208,12 @@ describe("createOpenTagChannel", () => {
       },
     });
     expect(await stateStore.kv.get<boolean>("sub:mentioned-thread")).toBe(true);
+    expect(toolNames((agent as CapturingAgent).calls[0])).toContain(
+      unsubscribeThreadTool.name,
+    );
+    expect(toolNames((agent as CapturingAgent).calls[0])).not.toContain(
+      subscribeThreadTool.name,
+    );
 
     await adapter.getSink().onTurn({
       conversationKey: "mentioned-thread",
@@ -176,6 +230,185 @@ describe("createOpenTagChannel", () => {
     });
 
     expect((agent as CapturingAgent).calls).toHaveLength(2);
+    expect(toolNames((agent as CapturingAgent).calls[1])).toContain(
+      unsubscribeThreadTool.name,
+    );
+  });
+
+  it("keeps an existing unsubscribed conversation mention-only and offers subscribe", async () => {
+    const { adapter, agent, channel, stateStore } = makeChannel();
+    adapter.messages = [
+      { text: "existing root", ts: "1" },
+      { text: "@Kite answer this", ts: "2" },
+    ];
+
+    await channel.ɵruntime.start();
+    await adapter.getSink().onTurn({
+      conversationKey: "existing-thread",
+      replyTarget: {},
+      userText: "@Kite answer this",
+      platform: "slack",
+      actor: { id: "U1", kind: "human" },
+      operation: {
+        kind: "created",
+        logicalMessageId: "m2",
+        revisionId: "m2",
+        mentioned: true,
+      },
+    });
+
+    expect(await stateStore.kv.get<boolean>("sub:existing-thread")).toBeUndefined();
+    expect(toolNames((agent as CapturingAgent).calls[0])).toContain(
+      subscribeThreadTool.name,
+    );
+    expect(toolNames((agent as CapturingAgent).calls[0])).not.toContain(
+      unsubscribeThreadTool.name,
+    );
+  });
+
+  it("offers unsubscribe on a mention in an already subscribed conversation", async () => {
+    const { adapter, agent, channel, stateStore } = makeChannel();
+    await stateStore.kv.set("sub:subscribed-thread", true);
+
+    await channel.ɵruntime.start();
+    await adapter.getSink().onTurn({
+      conversationKey: "subscribed-thread",
+      replyTarget: {},
+      userText: "@Kite status?",
+      platform: "slack",
+      actor: { id: "U1", kind: "human" },
+      operation: {
+        kind: "created",
+        logicalMessageId: "m2",
+        revisionId: "m2",
+        mentioned: true,
+      },
+    });
+
+    expect(toolNames((agent as CapturingAgent).calls[0])).toContain(
+      unsubscribeThreadTool.name,
+    );
+    expect(toolNames((agent as CapturingAgent).calls[0])).not.toContain(
+      subscribeThreadTool.name,
+    );
+  });
+
+  it("falls back to a new conversation when history loading fails", async () => {
+    const consoleError = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => undefined);
+    const { adapter, agent, channel, stateStore } = makeChannel();
+    adapter.getMessages = vi.fn(async () => {
+      throw new Error("history unavailable");
+    });
+
+    await channel.ɵruntime.start();
+    await adapter.getSink().onTurn({
+      conversationKey: "history-failure",
+      replyTarget: {},
+      userText: "@Kite help",
+      platform: "slack",
+      actor: { id: "U1", kind: "human" },
+      operation: {
+        kind: "created",
+        logicalMessageId: "m1",
+        revisionId: "m1",
+        mentioned: true,
+      },
+    });
+
+    expect(await stateStore.kv.get<boolean>("sub:history-failure")).toBe(true);
+    expect(toolNames((agent as CapturingAgent).calls[0])).toContain(
+      unsubscribeThreadTool.name,
+    );
+    expect(consoleError).toHaveBeenCalledWith(
+      "[channel] recoverable error",
+      expect.objectContaining({
+        context: {
+          operation: "get_thread_history",
+          recovery: "treat_as_new_conversation",
+        },
+      }),
+    );
+  });
+
+  it("ignores unmentioned turns after unsubscribe and resumes them after subscribe", async () => {
+    const agent = new SharedScriptAgent([
+      callTool(unsubscribeThreadTool.name, "unsubscribe-1"),
+      () => undefined,
+      callTool(subscribeThreadTool.name, "subscribe-1"),
+      () => undefined,
+      () => undefined,
+    ]);
+    const { adapter, channel, stateStore } = makeChannel({ agent });
+
+    await channel.ɵruntime.start();
+    await adapter.getSink().onTurn({
+      conversationKey: "toggle-thread",
+      replyTarget: {},
+      userText: "@Kite only answer mentions from now on",
+      platform: "slack",
+      actor: { id: "U1", kind: "human" },
+      operation: {
+        kind: "created",
+        logicalMessageId: "m1",
+        revisionId: "m1",
+        mentioned: true,
+      },
+    });
+    expect(await stateStore.kv.get<boolean>("sub:toggle-thread")).toBeUndefined();
+    expect(toolNames(agent.calls[0])).toContain(unsubscribeThreadTool.name);
+
+    await adapter.getSink().onTurn({
+      conversationKey: "toggle-thread",
+      replyTarget: {},
+      userText: "this should be ignored",
+      platform: "slack",
+      actor: { id: "U1", kind: "human" },
+      operation: {
+        kind: "created",
+        logicalMessageId: "m2",
+        revisionId: "m2",
+        mentioned: false,
+      },
+    });
+    expect(agent.calls).toHaveLength(2);
+
+    adapter.messages = [
+      { text: "existing root", ts: "1" },
+      { text: "@Kite start following again", ts: "3" },
+    ];
+    await adapter.getSink().onTurn({
+      conversationKey: "toggle-thread",
+      replyTarget: {},
+      userText: "@Kite start following again",
+      platform: "slack",
+      actor: { id: "U1", kind: "human" },
+      operation: {
+        kind: "created",
+        logicalMessageId: "m3",
+        revisionId: "m3",
+        mentioned: true,
+      },
+    });
+    expect(await stateStore.kv.get<boolean>("sub:toggle-thread")).toBe(true);
+    expect(toolNames(agent.calls[2])).toContain(subscribeThreadTool.name);
+
+    await adapter.getSink().onTurn({
+      conversationKey: "toggle-thread",
+      replyTarget: {},
+      userText: "this should run",
+      platform: "slack",
+      actor: { id: "U1", kind: "human" },
+      operation: {
+        kind: "created",
+        logicalMessageId: "m4",
+        revisionId: "m4",
+        mentioned: false,
+      },
+    });
+    expect(agent.calls).toHaveLength(5);
+    expect(toolNames(agent.calls[4])).toContain(unsubscribeThreadTool.name);
   });
 
   it.each(["bot", "app"] as const)(
@@ -209,6 +442,20 @@ describe("createOpenTagChannel", () => {
           logicalMessageId: "m2",
           revisionId: "m2",
           mentioned: false,
+        },
+      });
+
+      await adapter.getSink().onTurn({
+        conversationKey: "bot-loop-thread",
+        replyTarget: {},
+        userText: "@Kite automated follow-up",
+        platform: "slack",
+        actor: { id: "B1", kind: actorKind },
+        operation: {
+          kind: "created",
+          logicalMessageId: "m3",
+          revisionId: "m3",
+          mentioned: true,
         },
       });
 
@@ -332,6 +579,7 @@ describe("createOpenTagChannel", () => {
         ...appTools.map(({ name }) => name),
         RenderChart.name,
         ...defaultSlackTools.map(({ name }) => name),
+        unsubscribeThreadTool.name,
       ].sort(),
     );
     expect(call?.context).toEqual([
@@ -358,7 +606,11 @@ describe("createOpenTagChannel", () => {
 
     const call = (agent as CapturingAgent).calls[0];
     expect(call?.tools?.map(({ name }) => name).sort()).toEqual(
-      [...appTools.map(({ name }) => name), RenderChart.name].sort(),
+      [
+        ...appTools.map(({ name }) => name),
+        RenderChart.name,
+        unsubscribeThreadTool.name,
+      ].sort(),
     );
     expect(call?.context).toEqual([
       ...appContext,
