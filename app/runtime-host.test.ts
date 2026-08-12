@@ -57,6 +57,13 @@ describe("createOpenTagRuntime", () => {
       channels: {
         "open-tag": "online",
       },
+      detail: {
+        "open-tag": {
+          provider: "unknown",
+          status: "online",
+          transport: "online",
+        },
+      },
     });
     expect(slackAdapter.started).toBe(true);
     expect(teamsAdapter.started).toBe(true);

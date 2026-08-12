@@ -1,0 +1,43 @@
+name: opentag
+
+services:
+  agent:
+    image: ${OPENTAG_IMAGE_REGISTRY:-local}/opentag-agent:${OPENTAG_IMAGE_TAG:-dev}
+    build:
+      context: ..
+      dockerfile: deployment/docker/agent.Dockerfile
+    env_file:
+      - ../.env
+    environment:
+      SERVER_HOST: 0.0.0.0
+      SERVER_PORT: "8123"
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8123/health', timeout=3)",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    restart: unless-stopped
+  runtime:
+    image: ${OPENTAG_IMAGE_REGISTRY:-local}/opentag-runtime:${OPENTAG_IMAGE_TAG:-dev}
+    build:
+      context: ..
+      dockerfile: deployment/docker/runtime.Dockerfile
+    env_file:
+      - ../.env
+    environment:
+      AGENT_URL: http://agent:8123/
+      PORT: "3000"
+      PLAYWRIGHT_BROWSERS_PATH: /ms-playwright
+    depends_on:
+      agent:
+        condition: service_healthy
+    ports:
+      - "3000:3000"
+    restart: unless-stopped

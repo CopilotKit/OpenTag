@@ -36,6 +36,7 @@ function makeControls(overrides: Partial<ChannelsControl> = {}) {
     status: vi.fn(() => ({
       overall: "online" as const,
       channels: { opentag: "online" as const },
+      detail: {},
     })),
     stop: vi.fn(async () => undefined),
     ...overrides,

@@ -33,6 +33,17 @@ built to be taken, not just read.
 | --- | --- | --- |
 | A working triage bot in one quick start: managed Channel, Node runtime, Python LangGraph agent, and native Slack UI. | The agent, the persona, the tools, and the UI are each one file or one directory. Point it at your own agent without touching the Channel lifecycle. | Two Railway services, pinned SDK versions, graceful shutdown, and a live Slack harness — production shape, not demo shape. |
 
+Deployment options:
+
+- **Railway:** the existing two-service deployment in
+  [`.railway/railway.ts`](./.railway/railway.ts).
+- **AWS:** one private ECS Fargate task with Secrets Manager and
+  CloudWatch-to-Datadog log forwarding. See
+  [Deploy on AWS](./deployment/aws/README.md).
+
+Release images publish as `ghcr.io/copilotkit/opentag-agent` and
+`ghcr.io/copilotkit/opentag-runtime`.
+
 Slack and Microsoft Teams are supported today. Discord, Telegram, and WhatsApp
 are coming soon.
 
