@@ -1,7 +1,7 @@
 [project]
 name = "opentag-agent"
 version = "0.1.0"
-description = "OpenTag on-call triage agent — CopilotKit Deep Agents (LangGraph) over AG-UI"
+description = "OpenTag general-purpose team knowledge-work agent — CopilotKit Deep Agents (LangGraph) over AG-UI"
 requires-python = ">=3.12"
 dependencies = [
   "ag-ui-langgraph>=0.0.23",

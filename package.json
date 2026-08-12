@@ -2,7 +2,7 @@
   "name": "opentag",
   "version": "0.2.0",
   "private": true,
-  "description": "OpenTag — an open-source, self-hosted AI agent for Slack and Microsoft Teams, powered by CopilotKit Channels.",
+  "description": "OpenTag — an open-source, self-hosted knowledge-work agent with connected tools and generative UI for Slack and Microsoft Teams.",
   "license": "MIT",
   "type": "module",
   "scripts": {

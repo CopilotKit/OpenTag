@@ -33,7 +33,9 @@ def test_server_exposes_opentag_metadata(monkeypatch):
 
     assert main.app.title == "OpenTag Agent"
     assert main.AGENT_NAME == "opentag_research"
-    assert main.AGENT_DESCRIPTION.startswith("OpenTag on-call triage assistant")
+    assert main.AGENT_DESCRIPTION.startswith(
+        "OpenTag general-purpose team knowledge-work agent"
+    )
 
 
 def test_local_agent_port_ignores_the_shared_channel_port():
@@ -121,4 +123,7 @@ def test_system_prompt_requires_confirmation_only_for_writes():
 
 
 def test_system_prompt_uses_opentag_persona():
-    assert "OpenTag, your team's on-call triage assistant" in agent_mod.BASE_SYSTEM_PROMPT
+    assert (
+        "OpenTag, a general-purpose team knowledge-work agent"
+        in agent_mod.BASE_SYSTEM_PROMPT
+    )

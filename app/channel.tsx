@@ -3,10 +3,7 @@ import {
   type Channel,
   type CreateChannelOptions,
 } from "@copilotkit/channels";
-import {
-  managedRunInput,
-  reportRecoverableError,
-} from "./channel-helpers.js";
+import { managedRunInput, reportRecoverableError } from "./channel-helpers.js";
 import { appCommands } from "./commands/index.js";
 import { IssueCard, IssueList, PageList } from "./components/index.js";
 import { appContext } from "./context/app-context.js";
@@ -102,12 +99,14 @@ export function createOpenTagChannel(
     try {
       await thread.setSuggestedPrompts([
         {
-          title: `Triage ${user.name}'s issues`,
-          message: "Triage my open issues",
+          title: "Synthesize this discussion",
+          message:
+            "Summarize this thread into key findings, decisions, open questions, and next steps",
         },
         {
-          title: "What shipped this week?",
-          message: "Summarize what shipped this week",
+          title: "Help me make a decision",
+          message:
+            "Compare the options in this thread and recommend a path forward",
         },
       ]);
     } catch (error) {

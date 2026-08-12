@@ -6,6 +6,7 @@
  * `createChannel({ tools })`.
  */
 import { readThreadTool } from "./read-thread.js";
+import { showCapabilitiesTool } from "./capabilities.js";
 import { renderDiagramTool } from "./render-diagram.js";
 import { renderTableTool } from "./render-table.js";
 import { issueCardTool, issueListTool, pageListTool } from "./render-tools.js";
@@ -13,6 +14,9 @@ import {
   showIncidentTool,
   showStatusTool,
   showLinksTool,
+  showWorkPlanTool,
+  showDecisionBriefTool,
+  showKnowledgeSummaryTool,
 } from "./showcase-tools.js";
 import type { ChannelTool } from "@copilotkit/channels";
 
@@ -26,6 +30,7 @@ import type { ChannelTool } from "@copilotkit/channels";
  */
 export const appTools: ChannelTool[] = [
   readThreadTool,
+  showCapabilitiesTool,
   renderDiagramTool,
   renderTableTool,
   issueCardTool,
@@ -34,4 +39,7 @@ export const appTools: ChannelTool[] = [
   showIncidentTool,
   showStatusTool,
   showLinksTool,
+  showWorkPlanTool,
+  showDecisionBriefTool,
+  showKnowledgeSummaryTool,
 ];

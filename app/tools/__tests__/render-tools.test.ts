@@ -143,6 +143,17 @@ describe("render_chart component", () => {
 });
 
 describe("render_diagram tool", () => {
+  it("guides the agent toward readable Slack diagram composition", () => {
+    expect(renderDiagramTool.description).toContain("Prefer top-down");
+    expect(renderDiagramTool.description).toContain("concise node labels");
+    expect(renderDiagramTool.description).toContain("larger workflows");
+    expect(renderDiagramTool.description).toContain("classDef");
+    expect(renderDiagramTool.description).toContain("semantic color");
+    expect(renderDiagramTool.description).toContain("#FFEEDB");
+    expect(renderDiagramTool.description).toContain("#FFFBDB");
+    expect(renderDiagramTool.description).toContain("#F3F3FC");
+  });
+
   it("renders Mermaid and posts the PNG", async () => {
     const { ctx, postFile, thread } = makeCtx();
     const out = (await renderDiagramTool.handler(
@@ -192,5 +203,4 @@ describe("render_diagram tool", () => {
     // No orphaned caption promising an image that never landed.
     expect(thread.post).not.toHaveBeenCalled();
   });
-
 });

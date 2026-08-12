@@ -2,30 +2,100 @@ import { describe, expect, it } from "vitest";
 import { appContext } from "./app-context.js";
 
 describe("appContext rich-rendering policy", () => {
-  it("maps every structured response shape to exactly one render tool", () => {
+  it("maps high-value knowledge-work shapes to render tools", () => {
     const context = appContext.map(({ value }) => value).join("\n");
 
-    expect(context).toContain("Several Linear issues -> issue_list");
+    expect(context).toContain(
+      "Identity, capability, or demo-introduction questions -> show_capabilities",
+    );
+    expect(context).toContain(
+      '"who are you", "what can you do", "how can you help", and "introduce yourself"',
+    );
+    expect(context).toContain(
+      "User-provided or Linear issue triage -> issue_list",
+    );
+    expect(context).toContain("URLs are optional; never invent them");
     expect(context).toContain("A single Linear issue -> issue_card");
     expect(context).toContain("Notion pages -> page_list");
-    expect(context).toContain("Tabular data -> render_table");
-    expect(context).toContain("Status or metrics -> show_status");
-    expect(context).toContain("Incident or outage -> show_incident");
-    expect(context).toContain("Links or runbooks -> show_links");
-    expect(context).toContain("Chart from data -> render_chart");
+    expect(context).toContain(
+      "Research, discussion, or meeting synthesis -> show_knowledge_summary",
+    );
+    expect(context).toContain(
+      "Option evaluation or decision support -> show_decision_brief",
+    );
+    expect(context).toContain(
+      "Plans, reviews, rollouts, or checklists -> show_work_plan",
+    );
+    expect(context).toContain(
+      "Status summaries or compact metrics -> show_status",
+    );
+    expect(context).toContain(
+      "Actionable incident or outage details -> show_incident",
+    );
+    expect(context).toContain(
+      "Curated links, resources, or runbooks -> show_links",
+    );
+    expect(context).toContain(
+      "Trends, distributions, or chart-worthy data -> render_chart",
+    );
     expect(context).toContain(
       "Flow, architecture, or timeline -> render_diagram",
     );
+    expect(context).toContain(
+      "Tables are structured formatting, not generative UI",
+    );
+    expect(context).toContain(
+      "Use render_table only when the user explicitly asks for a table",
+    );
   });
 
-  it("makes rendering mandatory and forbids duplicate prose", () => {
+  it("proactively considers GenUI for every substantive response", () => {
     const context = appContext.map(({ value }) => value).join("\n");
 
-    expect(context).toContain("CRITICAL: RENDERING IS A HARD RULE");
-    expect(context).toContain("MUST call the matching render tool");
-    expect(context).toContain("call it first");
-    expect(context).toContain("empty or one short line");
-    expect(context).toContain("Never restate");
-    expect(context).toContain("Render, then stop.");
+    expect(context).toContain("Before every substantive response");
+    expect(context).toContain("proactively call the matching render tool");
+    expect(context).toContain(
+      "easier to understand, compare, navigate, share, or act on",
+    );
+    expect(context).toContain("Default to rich UI");
+    expect(context).toContain("Prefer text");
+    expect(context).toContain("Do not render merely because");
+    expect(context).toContain("key insight, recommendation, or next action");
+    expect(context).toContain("Do not duplicate every field");
+    expect(context).toContain(
+      "Treat a successful render tool call as the user-facing answer",
+    );
+    expect(context).toContain("Do not post a separate confirmation");
+    expect(context).not.toContain("RENDERING IS A HARD RULE");
+    expect(context).not.toContain("MUST call the matching render tool");
+  });
+
+  it("presents GenUI as a core capability", () => {
+    const context = appContext.map(({ value }) => value).join("\n");
+
+    expect(context).toContain("CRITICAL: Rich UI is a core capability");
+    expect(context).toContain(
+      "knowledge summaries, decision briefs, work plans, status cards, charts, diagrams, and actionable views",
+    );
+    expect(context).toContain(
+      "do not merely tell the user that rich UI is available",
+    );
+    expect(context).toContain(
+      "Always call show_capabilities instead of answering those questions with prose first",
+    );
+  });
+});
+
+describe("appContext identity and operating behavior", () => {
+  it("uses a general knowledge-work identity without defaulting to on-call", () => {
+    const context = appContext.map(({ value }) => value).join("\n");
+
+    expect(context).toContain("general-purpose team knowledge-work agent");
+    expect(context).toContain("Once invoked");
+    expect(context).toContain("thread context");
+    expect(context).toContain("Do not join unrelated conversations");
+    expect(context).toContain("stop responding");
+    expect(context).not.toContain("on-call triage assistant");
+    expect(context).not.toContain("responders are mid-incident");
   });
 });
