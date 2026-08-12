@@ -1,9 +1,9 @@
 # Deploy on AWS
 
-OpenTag runs as one private ECS Fargate service:
+By default, OpenTag runs as one private ECS Fargate service with its own cluster:
 
 ```text
-one task
+environment cluster → one service → one task
 ├── agent container   :8123
 └── runtime container :3000 → http://127.0.0.1:8123/
 
@@ -13,6 +13,12 @@ stdout/stderr → CloudWatch Logs → Datadog Forwarder
 There is no load balancer or public ingress. The runtime connects outbound to
 CopilotKit Intelligence. The task runs in private subnets and needs outbound
 internet access for Intelligence, OpenAI, GHCR, and any configured MCP service.
+
+Set `sharedCluster=true` only when multiple environments should use one cluster.
+That creates `${appName}-shared` for the cluster and VPC integration while each
+`${appName}-${environment}` stack retains its own service, task definition, log
+groups, secrets access, and Datadog Forwarder. Environment stacks remain
+independently deployable.
 
 ## Prerequisites
 
@@ -115,14 +121,14 @@ Build and test the CDK project:
 cd deployment/aws
 pnpm build
 pnpm test
-pnpm synth -c vpcId=vpc-...
-pnpm diff -c vpcId=vpc-...
+pnpm exec cdk synth opentag-production -c vpcId=vpc-...
+pnpm exec cdk diff opentag-production -c vpcId=vpc-...
 ```
 
 Deploy a versioned public GHCR release:
 
 ```bash
-pnpm deploy \
+pnpm exec cdk deploy opentag-production \
   -c vpcId=vpc-... \
   -c agentImage=ghcr.io/copilotkit/opentag-agent:v0.2.0 \
   -c runtimeImage=ghcr.io/copilotkit/opentag-runtime:v0.2.0 \
@@ -136,6 +142,8 @@ Useful deployment settings:
 | --- | --- | --- |
 | `appName` | `opentag` | Resource-name prefix |
 | `environment` | `production` | Environment and Datadog tag |
+| `serviceName` | `${appName}-${environment}` | ECS service name |
+| `sharedCluster` | `false` | Put environment stacks on `${appName}-shared` |
 | `enableDatadog` | `true` | Forward logs to Datadog |
 | `datadogSite` | `datadoghq.com` | Datadog intake site |
 | `logRetentionDays` | `30` | CloudWatch retention |
@@ -145,12 +153,32 @@ Useful deployment settings:
 | `secretsKmsKeyArn` | unset | Customer-managed key for the OpenTag secret |
 
 Without `agentImage` and `runtimeImage`, CDK builds local Docker assets. Without
-`vpcId`, it creates a VPC and NAT gateway.
+`vpcId`, the standalone stack creates a VPC and NAT gateway.
+
+For multiple environments, include `-c sharedCluster=true` on every command.
+Deploying an environment also deploys its `${appName}-shared` dependency unless
+`--exclusively` is used. Delete all environment stacks before deleting the
+shared stack.
+
+### Move an existing environment to a shared cluster
+
+An ECS service cannot move between clusters in place. Also, two live runtimes
+using the same Channel name race for deliveries. Use a one-time replacement:
+
+1. Deploy `${appName}-shared` with `sharedCluster=true`.
+2. Scale the old service to zero and verify its task has stopped.
+3. Deploy the environment with `sharedCluster=true` and a new `serviceName`,
+   such as `${appName}-${environment}-shared`.
+4. Verify the Channel is online before removing any retained old resources.
+
+The temporary service-name change lets CloudFormation create the replacement on
+the shared cluster before deleting the old cluster. Do not run both services at
+the same time.
 
 To deploy before Datadog credentials are available:
 
 ```bash
-pnpm deploy \
+pnpm exec cdk deploy opentag-production \
   -c vpcId=vpc-... \
   -c enableDatadog=false \
   --parameters opentag-production:OpenTagSecretArn=COMPLETE_OPENTAG_SECRET_ARN
@@ -163,10 +191,12 @@ GitHub Actions publishes:
 - `ghcr.io/copilotkit/opentag-agent`
 - `ghcr.io/copilotkit/opentag-runtime`
 
-The workflow runs on `main`, `v*` tags, and manual dispatch. Version tags also
-produce immutable `sha-...` tags. New GHCR packages start private; after the
-first publication, an organization owner must change both packages to public.
-No registry credentials are needed after that.
+Every reviewed merge publishes mutable `main` and immutable `sha-<commit>` tags.
+Staging follows `main` but deploys the resolved digest so ECS always registers a
+new task definition. Merging a generated release PR also publishes `vX.Y.Z` and
+`vX.Y` aliases for the same manifests. New GHCR packages start private; after
+the first publication, an organization owner must change both packages to
+public. No registry credentials are needed after that.
 
 Test the same images locally:
 
@@ -185,8 +215,9 @@ aws logs tail /ecs/opentag/production/agent --follow
 aws logs tail /ecs/opentag/production/runtime --follow
 ```
 
-In Datadog Logs, search for `application:opentag env:production`. The log-group
-name distinguishes the agent from the runtime.
+In Datadog Logs, search for `application:opentag env:production`. The standard
+`service:opentag` tag is also attached. The log-group name distinguishes the
+agent from the runtime, and the application and service tags follow `appName`.
 
 The runtime health endpoint does not prove that the managed Channel is online.
 Check runtime logs for `setup_required`, then test a real Channel mention.
@@ -195,3 +226,16 @@ The service deliberately runs one task. Multiple runtimes using the same
 Channel name can race to claim deliveries, and the agent currently keeps graph
 checkpoints in memory. Deployments therefore accept brief downtime while
 replacing that single task.
+
+CloudWatch Container Insights supplies cluster, service, task, CPU, memory,
+network, and storage metrics. The Forwarder supplies logs to Datadog. This stack
+does not install tracer libraries or a Datadog Agent sidecar, so Datadog APM
+request traces are not available.
+
+## GitHub Actions deployment
+
+The optional GitHub OIDC stack trusts named GitHub Environments and lets their
+workflows assume the account's CDK bootstrap roles without long-lived AWS keys.
+It is intentionally not enabled by the public deployment defaults. See
+[`../../docs/kite-gitops.md`](../../docs/kite-gitops.md) for the complete Kite
+configuration and the generic bootstrap command.

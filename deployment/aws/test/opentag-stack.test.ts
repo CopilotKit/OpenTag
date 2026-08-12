@@ -2,10 +2,15 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import * as cdk from "aws-cdk-lib";
 import { Match, Template } from "aws-cdk-lib/assertions";
+import * as ec2 from "aws-cdk-lib/aws-ec2";
+import * as ecs from "aws-cdk-lib/aws-ecs";
+import { GitHubDeploymentStack } from "../lib/github-deployment-stack.js";
+import { OpenTagInfrastructureStack } from "../lib/opentag-infrastructure-stack.js";
 import { OpenTagStack } from "../lib/opentag-stack.js";
 
 function stackWithContext(
   context: Record<string, string | boolean> = {},
+  shared = false,
 ): OpenTagStack {
   const app = new cdk.App({
     context: {
@@ -15,10 +20,94 @@ function stackWithContext(
       ...context,
     },
   });
-  return new OpenTagStack(app, "test-stack");
+  if (!shared) return new OpenTagStack(app, "test-stack");
+
+  const infrastructure = new cdk.Stack(app, "test-infrastructure");
+  const vpc = new ec2.Vpc(infrastructure, "Vpc", {
+    maxAzs: 2,
+    natGateways: 1,
+  });
+  const cluster = new ecs.Cluster(infrastructure, "Cluster", { vpc });
+  return new OpenTagStack(app, "test-stack", { cluster });
 }
 
-test("creates one private singleton service containing both containers", () => {
+test("creates one shared cluster independently of environment services", () => {
+  const app = new cdk.App({ context: { appName: "kite" } });
+  const stack = new OpenTagInfrastructureStack(app, "kite-shared", {
+    appName: "kite",
+  });
+  const template = Template.fromStack(stack);
+
+  template.resourceCountIs("AWS::ECS::Cluster", 1);
+  template.hasResourceProperties("AWS::ECS::Cluster", {
+    ClusterName: "kite",
+  });
+});
+
+test("keeps the standalone cluster as the public default", () => {
+  const template = Template.fromStack(stackWithContext());
+
+  template.resourceCountIs("AWS::ECS::Cluster", 1);
+  template.hasResourceProperties("AWS::ECS::Cluster", {
+    ClusterName: "opentag-test",
+  });
+});
+
+test("accepts a shared cluster without creating another cluster", () => {
+  const template = Template.fromStack(stackWithContext({}, true));
+
+  template.resourceCountIs("AWS::ECS::Cluster", 0);
+  template.resourceCountIs("AWS::ECS::Service", 1);
+});
+
+test("limits the GitHub deployment role to named environments and CDK roles", () => {
+  const app = new cdk.App();
+  const stack = new GitHubDeploymentStack(app, "kite-github", {
+    appName: "kite",
+    env: { account: "123456789012", region: "us-west-2" },
+    githubEnvironments: ["kite-staging", "kite-prod"],
+    githubOidcProviderArn:
+      "arn:aws:iam::123456789012:oidc-provider/token.actions.githubusercontent.com",
+    githubRepository: "CopilotKit/OpenTag",
+  });
+  const template = Template.fromStack(stack);
+  const json = JSON.stringify(template.toJSON());
+
+  template.hasResourceProperties("AWS::IAM::Role", {
+    AssumeRolePolicyDocument: {
+      Statement: Match.arrayWith([
+        Match.objectLike({
+          Action: "sts:AssumeRoleWithWebIdentity",
+          Condition: {
+            StringEquals: {
+              "token.actions.githubusercontent.com:aud": "sts.amazonaws.com",
+            },
+            StringLike: {
+              "token.actions.githubusercontent.com:sub": [
+                "repo:CopilotKit/OpenTag:environment:kite-staging",
+                "repo:CopilotKit/OpenTag:environment:kite-prod",
+              ],
+            },
+          },
+        }),
+      ]),
+    },
+    RoleName: "kite-github-deploy",
+  });
+  template.hasResourceProperties("AWS::IAM::Policy", {
+    PolicyDocument: {
+      Statement: Match.arrayWith([
+        Match.objectLike({ Action: "sts:AssumeRole", Effect: "Allow" }),
+      ]),
+    },
+  });
+  assert.match(json, /cdk-hnb659fds-deploy-role-/);
+  assert.match(json, /cdk-hnb659fds-file-publishing-role-/);
+  assert.match(json, /cdk-hnb659fds-image-publishing-role-/);
+  assert.match(json, /cdk-hnb659fds-lookup-role-/);
+});
+
+test("creates one private singleton environment service containing both containers", () => {
   const template = Template.fromStack(stackWithContext());
 
   template.resourceCountIs("AWS::ECS::Service", 1);
@@ -110,6 +199,7 @@ test("forwards both awslogs groups through the official Datadog Forwarder", () =
     Parameters: Match.objectLike({
       DdApiKeySecretArn: { Ref: "DatadogApiKeySecretArn" },
       DdSite: "datadoghq.com",
+      DdTags: "service:opentag,application:opentag,env:test",
       FunctionName: "opentag-test-datadog-forwarder",
     }),
     TemplateURL:
