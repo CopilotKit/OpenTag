@@ -137,6 +137,20 @@ Note that `ready()` resolving is not proof of health. It also resolves on
 `/api/copilotkit/info` returning 200 reports license and runtime state while
 saying nothing at all about Slack.
 
+### Log export
+
+Log export is provider-neutral and disabled by default. Set
+`OPENTAG_LOG_EXPORTER=syslog` together with `OPENTAG_LOG_EXPORTER_HOST`,
+`OPENTAG_LOG_EXPORTER_PORT`, and `OPENTAG_LOG_COMPONENT` (`runtime` or `agent`)
+to duplicate that process's existing stdout and stderr over IPv6 UDP syslog.
+The bundled entrypoints assign `OPENTAG_LOG_COMPONENT` automatically (`runtime`
+for Node and `agent` for Python), so the shared root `.env` should configure
+only the exporter, host, and port. Custom installers must supply the component.
+
+Forwarding is best-effort: local output remains unchanged, and invalid
+configuration or network failures never block startup, health checks, writes,
+or shutdown. Leaving `OPENTAG_LOG_EXPORTER` unset is equivalent to `none`.
+
 ## Channel reference
 
 The Channel is created and reconciled with the public CopilotKit CLI. These

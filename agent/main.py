@@ -2,7 +2,17 @@
 
 from collections.abc import Mapping
 import os
+from pathlib import Path
 import sys
+
+from dotenv import load_dotenv
+
+load_dotenv(Path(__file__).resolve().parent.parent / ".env")
+
+from log_exporter import install_log_exporter  # noqa: E402
+
+_log_exporter_environment = {**os.environ, "OPENTAG_LOG_COMPONENT": "agent"}
+_log_exporter = install_log_exporter(env=_log_exporter_environment)
 
 from ag_ui_langgraph import add_langgraph_fastapi_endpoint
 from copilotkit import LangGraphAGUIAgent

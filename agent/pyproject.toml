@@ -24,6 +24,7 @@ packages = ["prompts"]
 py-modules = [
   "agent",
   "internal_sources",
+  "log_exporter",
   "main",
   "tools",
   "write_confirmation",

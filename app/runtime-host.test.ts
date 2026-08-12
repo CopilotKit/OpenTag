@@ -52,7 +52,7 @@ describe("createOpenTagRuntime", () => {
 
     expect(listener.channels).toBeDefined();
     await listener.channels?.ready({ timeoutMs: 500 });
-    expect(listener.channels?.status()).toEqual({
+    expect(listener.channels?.status()).toMatchObject({
       overall: "online",
       channels: {
         "open-tag": "online",

@@ -1,4 +1,4 @@
-import "dotenv/config";
+import "./app/log-exporter-init.js";
 import {
   createServer,
   type RequestListener,

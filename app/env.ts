@@ -4,6 +4,18 @@ export const DEFAULT_INTELLIGENCE_GATEWAY_WS_URL =
   "wss://realtime.intelligence.copilotkit.ai";
 export const DEFAULT_INTELLIGENCE_CHANNEL_NAME = "open-tag";
 
+export type LogComponent = "runtime" | "agent";
+
+export type LogExporterEnvironment =
+  | { exporter: "none" }
+  | { exporter: "invalid"; detail: string }
+  | {
+      exporter: "syslog";
+      host: string;
+      port: number;
+      component: LogComponent;
+    };
+
 export interface AppEnvironment {
   agentUrl: string;
   agentAuthHeader?: string;
@@ -34,6 +46,40 @@ export function parsePort(
     throw new Error(`Invalid ${name}: "${raw}"`);
   }
   return port;
+}
+
+export function readLogExporterEnvironment(
+  env: NodeJS.ProcessEnv = process.env,
+): LogExporterEnvironment {
+  const exporter = env.OPENTAG_LOG_EXPORTER ?? "none";
+  if (exporter === "none") return { exporter };
+  if (exporter !== "syslog") {
+    return {
+      exporter: "invalid",
+      detail: `invalid OPENTAG_LOG_EXPORTER "${exporter}"`,
+    };
+  }
+
+  const host = env.OPENTAG_LOG_EXPORTER_HOST?.trim();
+  const rawPort = env.OPENTAG_LOG_EXPORTER_PORT;
+  const port = Number(rawPort);
+  const component = env.OPENTAG_LOG_COMPONENT;
+  if (
+    !host ||
+    !rawPort ||
+    !Number.isInteger(port) ||
+    port < 1 ||
+    port > 65_535 ||
+    (component !== "runtime" && component !== "agent")
+  ) {
+    return {
+      exporter: "invalid",
+      detail:
+        "syslog requires a host, a valid port, and component runtime|agent",
+    };
+  }
+
+  return { exporter, host, port, component };
 }
 
 export function readEnvironment(

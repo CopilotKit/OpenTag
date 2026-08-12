@@ -5,6 +5,7 @@ import {
   DEFAULT_INTELLIGENCE_GATEWAY_WS_URL,
   parsePort,
   readEnvironment,
+  readLogExporterEnvironment,
 } from "./env.js";
 
 const requiredEnvironment = {
@@ -79,4 +80,39 @@ describe("parsePort", () => {
       expect(() => parsePort(raw)).toThrow(`Invalid PORT: "${raw}"`);
     },
   );
+});
+
+describe("readLogExporterEnvironment", () => {
+  it("defaults to disabled", () => {
+    expect(readLogExporterEnvironment({})).toEqual({ exporter: "none" });
+  });
+
+  it("reads a complete syslog configuration", () => {
+    expect(
+      readLogExporterEnvironment({
+        OPENTAG_LOG_EXPORTER: "syslog",
+        OPENTAG_LOG_EXPORTER_HOST: "::1",
+        OPENTAG_LOG_EXPORTER_PORT: "5514",
+        OPENTAG_LOG_COMPONENT: "runtime",
+      }),
+    ).toEqual({
+      exporter: "syslog",
+      host: "::1",
+      port: 5514,
+      component: "runtime",
+    });
+  });
+
+  it.each([
+    { OPENTAG_LOG_EXPORTER: "unknown" },
+    { OPENTAG_LOG_EXPORTER: "syslog" },
+    {
+      OPENTAG_LOG_EXPORTER: "syslog",
+      OPENTAG_LOG_EXPORTER_HOST: "::1",
+      OPENTAG_LOG_EXPORTER_PORT: "0",
+      OPENTAG_LOG_COMPONENT: "runtime",
+    },
+  ])("reports invalid exporter configuration for %j", (env) => {
+    expect(readLogExporterEnvironment(env).exporter).toBe("invalid");
+  });
 });
