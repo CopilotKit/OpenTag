@@ -1,8 +1,19 @@
-name: Delivery / main and releases
+name: Deploy
 
 on:
   push:
     branches: [main]
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: Environment to redeploy or roll back
+        required: true
+        type: choice
+        options: [staging, prod, community]
+      version:
+        description: Exact released version, for example v0.2.0
+        required: true
+        type: string
 
 permissions:
   contents: write
@@ -12,13 +23,15 @@ permissions:
 
 jobs:
   verify:
+    if: github.event_name == 'push'
     permissions:
       contents: read
-    uses: ./.github/workflows/verify.yml
+    uses: ./.github/workflows/ci.yml
     with:
       ref: ${{ github.sha }}
 
   metadata:
+    if: github.event_name == 'push'
     needs: verify
     runs-on: ubuntu-latest
     outputs:
@@ -75,6 +88,7 @@ jobs:
           fi
 
   build-agent:
+    if: github.event_name == 'push'
     needs: metadata
     runs-on: ubuntu-latest
     outputs:
@@ -119,6 +133,7 @@ jobs:
           cache-to: type=gha,mode=max,scope=agent
 
   build-runtime:
+    if: github.event_name == 'push'
     needs: metadata
     runs-on: ubuntu-latest
     outputs:
@@ -163,11 +178,12 @@ jobs:
           cache-to: type=gha,mode=max,scope=runtime
 
   staging:
+    if: github.event_name == 'push'
     needs: [metadata, build-agent, build-runtime]
     permissions:
       contents: read
       id-token: write
-    uses: ./.github/workflows/deploy-aws.yml
+    uses: ./.github/workflows/_deploy-environment.yml
     with:
       agent_image: ghcr.io/copilotkit/opentag-agent@${{ needs.build-agent.outputs.digest }}
       environment: staging
@@ -176,7 +192,7 @@ jobs:
       runtime_image: ghcr.io/copilotkit/opentag-runtime@${{ needs.build-runtime.outputs.digest }}
 
   release:
-    if: needs.metadata.outputs.is_release == 'true'
+    if: github.event_name == 'push' && needs.metadata.outputs.is_release == 'true'
     needs: [metadata, build-agent, build-runtime, staging]
     runs-on: ubuntu-latest
     steps:
@@ -227,12 +243,12 @@ jobs:
           fi
 
   prod:
-    if: needs.metadata.outputs.is_release == 'true' && needs.release.result == 'success'
+    if: github.event_name == 'push' && needs.metadata.outputs.is_release == 'true' && needs.release.result == 'success'
     needs: [metadata, build-agent, build-runtime, release]
     permissions:
       contents: read
       id-token: write
-    uses: ./.github/workflows/deploy-aws.yml
+    uses: ./.github/workflows/_deploy-environment.yml
     with:
       agent_image: ghcr.io/copilotkit/opentag-agent@${{ needs.build-agent.outputs.digest }}
       environment: prod
@@ -241,15 +257,49 @@ jobs:
       runtime_image: ghcr.io/copilotkit/opentag-runtime@${{ needs.build-runtime.outputs.digest }}
 
   community:
-    if: needs.metadata.outputs.is_release == 'true' && needs.release.result == 'success'
+    if: github.event_name == 'push' && needs.metadata.outputs.is_release == 'true' && needs.release.result == 'success'
     needs: [metadata, build-agent, build-runtime, release]
     permissions:
       contents: read
       id-token: write
-    uses: ./.github/workflows/deploy-aws.yml
+    uses: ./.github/workflows/_deploy-environment.yml
     with:
       agent_image: ghcr.io/copilotkit/opentag-agent@${{ needs.build-agent.outputs.digest }}
       environment: community
       github_environment: kite-community
       ref: ${{ github.sha }}
       runtime_image: ghcr.io/copilotkit/opentag-runtime@${{ needs.build-runtime.outputs.digest }}
+
+  resolve-version:
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    outputs:
+      agent_image: ${{ steps.manifest.outputs.agent_image }}
+      runtime_image: ${{ steps.manifest.outputs.runtime_image }}
+    steps:
+      - name: Read image digests from the GitHub Release
+        id: manifest
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          [[ "$RELEASE_VERSION" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          gh release download "$RELEASE_VERSION" \
+            --repo "$GITHUB_REPOSITORY" --pattern container-images.json
+          test "$(jq -r .version container-images.json)" = "$RELEASE_VERSION"
+          echo "agent_image=$(jq -r .images.agent.reference container-images.json)" >> "$GITHUB_OUTPUT"
+          echo "runtime_image=$(jq -r .images.runtime.reference container-images.json)" >> "$GITHUB_OUTPUT"
+
+  deploy-version:
+    needs: resolve-version
+    permissions:
+      contents: read
+      id-token: write
+    uses: ./.github/workflows/_deploy-environment.yml
+    with:
+      agent_image: ${{ needs.resolve-version.outputs.agent_image }}
+      environment: ${{ inputs.environment }}
+      github_environment: kite-${{ inputs.environment }}
+      ref: ${{ github.sha }}
+      runtime_image: ${{ needs.resolve-version.outputs.runtime_image }}

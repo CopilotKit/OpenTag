@@ -8,11 +8,11 @@ but deploy independently.
 
 - Change: PR → verify → merge → publish `main` and `sha-<commit>` → deploy the
   exact digests to staging.
-- Release: **Release / create PR** → review and merge → publish `vX.Y.Z` and
+- Release: run **Release** → review and merge its PR → publish `vX.Y.Z` and
   `vX.Y` → create the GitHub Release → approve prod and community independently.
-- Rollback: **Deploy / released version** → select environment and `vX.Y.Z` →
+- Rollback: run **Deploy** → select environment and `vX.Y.Z` →
   deploy the digests recorded in that release.
-- Infrastructure: **Deploy / shared infrastructure** → approval → update only
+- Infrastructure: run **Infrastructure** → approval → update only
   `kite-shared`.
 
 The release PR uses CopilotKit's DevOps GitHub App (app ID `1108748`). Grant the
@@ -67,7 +67,7 @@ credentials empty. Its only optional research credential is `TAVILY_API_KEY`.
 Protect `main` with one approving review, stale-approval dismissal, code-owner
 review, and the required `verify` check. Block direct pushes, force pushes,
 deletion, and administrator bypass. Workflow and AWS deployment files are owned
-by `@CopilotKit/admin` in `.github/CODEOWNERS`.
+by `@CopilotKit/engineering` in `.github/CODEOWNERS`.
 
 GitHub currently requires environment reviewers to be configured as individual
 users for this repository; the environments use the six current Admin-team

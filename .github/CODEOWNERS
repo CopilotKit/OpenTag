@@ -1,3 +1,2 @@
-/.github/workflows/ @CopilotKit/admin
-/deployment/aws/ @CopilotKit/admin
-/scripts/release/ @CopilotKit/admin
+/.github/workflows/ @CopilotKit/engineering
+/deployment/aws/ @CopilotKit/engineering

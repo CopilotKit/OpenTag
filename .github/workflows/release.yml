@@ -1,4 +1,4 @@
-name: Release / create PR
+name: Release
 
 on:
   workflow_dispatch:
@@ -42,21 +42,53 @@ jobs:
         with:
           fetch-depth: 0
           persist-credentials: false
-      - uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6.0.9
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
-        with:
-          node-version: 22.x
-          cache: pnpm
-      - run: pnpm install --frozen-lockfile
       - id: prepare
-        name: Prepare release
+        name: Update version and release notes
         env:
           BUMP: ${{ inputs.bump }}
           DRY_RUN: ${{ inputs.dry_run }}
         run: |
-          args=(--bump "$BUMP")
-          test "$DRY_RUN" != true || args+=(--dry-run)
-          pnpm release:prepare -- "${args[@]}"
+          set -euo pipefail
+          current=$(node -p "require('./package.json').version")
+
+          if [ "$BUMP" = baseline ]; then
+            test "$current" = 0.2.0 || {
+              echo "baseline is only valid for v0.2.0"
+              exit 1
+            }
+            test -z "$(git tag --list 'v[0-9]*.[0-9]*.[0-9]*')" || {
+              echo "baseline is only valid before the first stable release"
+              exit 1
+            }
+          else
+            git rev-parse --verify "refs/tags/v$current" >/dev/null || {
+              echo "v$current must be released before creating the next version"
+              exit 1
+            }
+            npm version "$BUMP" --no-git-tag-version --ignore-scripts >/dev/null
+          fi
+
+          version=$(node -p "require('./package.json').version")
+          previous=$(git tag --list 'v[0-9]*.[0-9]*.[0-9]*' \
+            --sort=-version:refname | sed -n '1p')
+          range=HEAD
+          test -z "$previous" || range="$previous..HEAD"
+          {
+            echo "## v$version"
+            echo
+            git log "$range" --pretty='- %s (%h)'
+            echo
+            echo '### Container images'
+            echo
+            echo "- \`ghcr.io/copilotkit/opentag-agent:v$version\`"
+            echo "- \`ghcr.io/copilotkit/opentag-runtime:v$version\`"
+          } > release-notes.md
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+          if [ "$DRY_RUN" = true ]; then
+            git diff -- package.json
+            sed -n '1,160p' release-notes.md
+          fi
       - id: app-token
         if: inputs.dry_run != true
         uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
