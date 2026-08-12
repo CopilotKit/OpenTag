@@ -12,6 +12,7 @@ sys.path.insert(0, str(CHECKS_DIR))
 from railway_logs_core import (  # noqa: E402
     GraphQLRailwayAPI,
     RailwayAPIError,
+    RailwayRateLimitError,
     Target,
     execute_graphql,
 )
@@ -42,6 +43,95 @@ class StubResponse:
 
 
 class GraphQLRailwayAPITests(unittest.TestCase):
+    def test_429_exposes_only_a_bounded_retry_delay(self):
+        cases = (
+            ("120", 120),
+            ("600", 300),
+            ("0", 1),
+            ("invalid", 60),
+        )
+
+        for retry_after, expected in cases:
+            with self.subTest(retry_after=retry_after):
+                opener = lambda _request, _timeout: (_ for _ in ()).throw(
+                    HTTPError(
+                        "https://backboard.railway.com/graphql/v2",
+                        429,
+                        "rate limited",
+                        {"Retry-After": retry_after},
+                        BytesIO(b"upstream-secret-body"),
+                    )
+                )
+
+                with self.assertRaises(RailwayRateLimitError) as raised:
+                    execute_graphql(
+                        token="railway-project-token-secret",
+                        query="query Test { project { id } }",
+                        variables={},
+                        opener=opener,
+                    )
+
+                self.assertEqual(
+                    raised.exception.retry_after_seconds,
+                    expected,
+                )
+                self.assertEqual(
+                    str(raised.exception),
+                    "Railway API rate limit reached",
+                )
+                self.assertIsNone(raised.exception.__cause__)
+
+    def test_reads_both_latest_deployments_in_one_request(self):
+        execute = StubExecute(
+            [
+                {
+                    "runtime": {
+                        "edges": [
+                            {
+                                "node": {
+                                    "id": "runtime-deployment",
+                                    "createdAt": "2026-08-11T19:59:00Z",
+                                }
+                            }
+                        ]
+                    },
+                    "agent": {
+                        "edges": [
+                            {
+                                "node": {
+                                    "id": "agent-deployment",
+                                    "createdAt": "2026-08-11T19:58:00Z",
+                                }
+                            }
+                        ]
+                    },
+                }
+            ]
+        )
+        api = GraphQLRailwayAPI(
+            project_id="project-1",
+            environment_id="environment-1",
+            execute=execute,
+        )
+        targets = (
+            Target(service_id="runtime-1", component="runtime"),
+            Target(service_id="agent-1", component="agent"),
+        )
+
+        deployments = api.latest_deployments(targets)
+
+        self.assertEqual(deployments["runtime"].id, "runtime-deployment")
+        self.assertEqual(deployments["agent"].id, "agent-deployment")
+        self.assertEqual(len(execute.calls), 1)
+        self.assertEqual(
+            execute.calls[0][1]["runtimeInput"]["serviceId"],
+            "runtime-1",
+        )
+        self.assertEqual(
+            execute.calls[0][1]["agentInput"]["serviceId"],
+            "agent-1",
+        )
+
     def test_reads_the_latest_successful_deployment_and_runtime_logs(self):
         execute = StubExecute(
             [
@@ -155,7 +245,7 @@ class GraphQLRailwayAPITests(unittest.TestCase):
                         BytesIO(b"upstream-secret-body"),
                     )
                 ),
-                "HTTP 429",
+                "rate limit reached",
             ),
             (
                 "http-503",

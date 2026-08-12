@@ -36,7 +36,7 @@ class FakeRailwayAPI:
             if isinstance(self.logs, dict)
             else self.logs
         )
-        return list(logs)
+        return [log for log in logs if start <= log.timestamp <= end][:limit]
 
 
 class RailwayLogCollectorTests(unittest.TestCase):
@@ -186,6 +186,38 @@ class RailwayLogCollectorTests(unittest.TestCase):
                 cursor=None,
                 now=NOW,
             )
+
+    def test_splits_a_capped_window_and_emits_every_log_once(self):
+        start = NOW - timedelta(minutes=5)
+        logs = [
+            RailwayLog(
+                timestamp=start + timedelta(milliseconds=index * 400),
+                message=f"message-{index}",
+                severity="info",
+            )
+            for index in range(600)
+        ]
+        api = FakeRailwayAPI(
+            Deployment(id="deployment-1", created_at=start),
+            logs,
+        )
+        collector = RailwayLogCollector(
+            api=api,
+            project_id="project-1",
+            environment_id="environment-1",
+            datadog_environment="community",
+        )
+
+        result = collector.collect(
+            Target(service_id="runtime-1", component="runtime"),
+            cursor=None,
+            now=NOW,
+        )
+
+        messages = [event.data["message"] for event in result.events]
+        self.assertEqual(len(messages), 600)
+        self.assertEqual(len(set(messages)), 600)
+        self.assertGreater(len(api.log_calls), 1)
 
     def test_recovers_from_a_malformed_saved_cursor_with_a_five_minute_lookback(self):
         deployment_created = NOW - timedelta(hours=1)

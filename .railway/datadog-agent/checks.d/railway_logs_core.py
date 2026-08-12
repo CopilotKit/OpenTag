@@ -25,12 +25,34 @@ class RailwayAPIError(RuntimeError):
     """Sanitized Railway API failure."""
 
 
+class RailwayRateLimitError(RailwayAPIError):
+    """Sanitized Railway rate limit response with a bounded retry delay."""
+
+    def __init__(self, retry_after_seconds: float):
+        super().__init__("Railway API rate limit reached")
+        self.retry_after_seconds = retry_after_seconds
+
+
 LATEST_DEPLOYMENT_QUERY = """
 query latestDeployment($input: DeploymentListInput!) {
   deployments(input: $input, first: 1) {
     edges {
       node { id status createdAt }
     }
+  }
+}
+"""
+
+LATEST_DEPLOYMENTS_QUERY = """
+query latestDeployments(
+  $runtimeInput: DeploymentListInput!
+  $agentInput: DeploymentListInput!
+) {
+  runtime: deployments(input: $runtimeInput, first: 1) {
+    edges { node { id status createdAt } }
+  }
+  agent: deployments(input: $agentInput, first: 1) {
+    edges { node { id status createdAt } }
   }
 }
 """
@@ -81,6 +103,16 @@ def execute_graphql(
         with open_request(request, 10.0) as response:
             payload = response.read(MAX_RESPONSE_BYTES + 1)
     except HTTPError as error:
+        if error.code == 429:
+            retry_after = 60.0
+            if error.headers:
+                try:
+                    retry_after = float(error.headers.get("Retry-After", retry_after))
+                except (TypeError, ValueError):
+                    retry_after = 60.0
+            raise RailwayRateLimitError(
+                min(300.0, max(1.0, retry_after))
+            ) from None
         raise RailwayAPIError(
             f"Railway API request failed with HTTP {error.code}"
         ) from None
@@ -154,6 +186,54 @@ class GraphQLRailwayAPI:
         self._project_id = project_id
         self._environment_id = environment_id
         self._execute = execute
+
+    def latest_deployments(
+        self,
+        targets: tuple[Target, Target],
+    ) -> dict[str, Deployment]:
+        targets_by_component = {target.component: target for target in targets}
+        try:
+            runtime_target = targets_by_component["runtime"]
+            agent_target = targets_by_component["agent"]
+        except KeyError:
+            raise RailwayAPIError(
+                "Railway deployment discovery requires runtime and agent targets"
+            ) from None
+
+        def deployment_input(target: Target) -> dict[str, Any]:
+            return {
+                "projectId": self._project_id,
+                "environmentId": self._environment_id,
+                "serviceId": target.service_id,
+                "status": {"successfulOnly": True},
+            }
+
+        response = self._execute(
+            LATEST_DEPLOYMENTS_QUERY,
+            {
+                "runtimeInput": deployment_input(runtime_target),
+                "agentInput": deployment_input(agent_target),
+            },
+        )
+        deployments = {}
+        for component in ("runtime", "agent"):
+            try:
+                node = response[component]["edges"][0]["node"]
+                deployment_id = node["id"]
+                created_at = _parse_timestamp(node["createdAt"])
+            except (KeyError, IndexError, TypeError, ValueError):
+                raise RailwayAPIError(
+                    "Railway returned no successful deployment for a configured service"
+                ) from None
+            if not isinstance(deployment_id, str):
+                raise RailwayAPIError(
+                    "Railway returned an invalid deployment identifier"
+                )
+            deployments[component] = Deployment(
+                id=deployment_id,
+                created_at=created_at,
+            )
+        return deployments
 
     def latest_deployment(self, target: Target) -> Deployment:
         response = self._execute(
@@ -262,13 +342,50 @@ class RailwayLogCollector:
         self._environment_id = environment_id
         self._datadog_environment = datadog_environment
 
+    def _complete_window(
+        self,
+        deployment_id: str,
+        start: datetime,
+        end: datetime,
+    ) -> list[RailwayLog]:
+        logs = self._api.runtime_logs(deployment_id, start, end, LOG_LIMIT)
+        if len(logs) < LOG_LIMIT:
+            return logs
+
+        midpoint = start + (end - start) / 2
+        if midpoint <= start or midpoint >= end:
+            raise LogWindowTruncated(
+                "Railway returned the runtime-log query limit for an unsplittable "
+                "time window; cursor unchanged"
+            )
+
+        combined = self._complete_window(
+            deployment_id,
+            start,
+            midpoint,
+        ) + self._complete_window(
+            deployment_id,
+            midpoint,
+            end,
+        )
+        unique: list[RailwayLog] = []
+        fingerprints: set[str] = set()
+        for log in combined:
+            fingerprint = _fingerprint(deployment_id, log)
+            if fingerprint in fingerprints:
+                continue
+            fingerprints.add(fingerprint)
+            unique.append(log)
+        return unique
+
     def collect(
         self,
         target: Target,
         cursor: dict[str, Any] | None,
         now: datetime,
+        deployment: Deployment | None = None,
     ) -> CollectionResult:
-        deployment = self._api.latest_deployment(target)
+        deployment = deployment or self._api.latest_deployment(target)
         cursor_timestamp = None
         cursor_deployment = None
         if cursor:
@@ -320,11 +437,7 @@ class RailwayLogCollector:
         events: list[ForwardedEvent] = []
         state: dict[str, Any] = {}
         for deployment_id, start, boundary, saved_cursor in windows:
-            logs = self._api.runtime_logs(deployment_id, start, now, LOG_LIMIT)
-            if len(logs) >= LOG_LIMIT:
-                raise LogWindowTruncated(
-                    "Railway returned the runtime-log query limit; cursor unchanged"
-                )
+            logs = self._complete_window(deployment_id, start, now)
             state = {
                 "deployment_id": deployment_id,
                 "timestamp": _isoformat(boundary) if boundary else None,

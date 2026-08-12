@@ -1,7 +1,7 @@
 init_config:
 
 instances:
-  - min_collection_interval: 15
+  - min_collection_interval: 60
 
 logs:
   - type: integration
