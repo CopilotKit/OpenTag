@@ -22,7 +22,7 @@ already is.
 
 </div>
 
-## The complete Channels SDK application
+## The Channels SDK starter application
 
 [Channels SDK](https://github.com/CopilotKit/channels-sdk) brings any AG-UI agent
 into Slack and Microsoft Teams. Its README shows you the pieces. **OpenTag is
@@ -390,6 +390,41 @@ The Slack live harness is documented in [`e2e/README.md`](./e2e/README.md).
 | Try Channels with no setup at all | [Try Channels](https://www.copilotkit.ai/try-channels) |
 | Connect an agent in another framework | [AG-UI integrations](https://docs.ag-ui.com/introduction) |
 | Cut production `@kite` over to OpenTag | [`docs/migration-kite.md`](./docs/migration-kite.md) |
+
+## About
+
+OpenTag is built and maintained by [CopilotKit](https://www.copilotkit.ai) —
+the team behind the [Channels SDK](https://github.com/CopilotKit/channels-sdk)
+and the [AG-UI protocol](https://github.com/ag-ui-protocol/ag-ui).
+
+It is a **starter project for the Channels SDK**. The SDK's own README shows
+each piece on its own; OpenTag is those pieces assembled into an application
+worth deploying, published so you can start from a working system instead of a
+blank directory. Nothing here is meant to stay the way we wrote it — fork it,
+swap the agent, the persona, the tools, and the UI, and ship it under your own
+name. We keep it aligned with the SDK so a fork stays upgradeable.
+
+Two adjacent things, so the boundary stays clear:
+
+- The **[Channels SDK](https://github.com/CopilotKit/channels-sdk)**
+  (`@copilotkit/channels`) is the open-source library that gives an
+  AG-UI-compatible agent a native place to work in Slack and Microsoft Teams.
+  OpenTag is one application built on it.
+- **[CopilotKit Intelligence](https://docs.copilotkit.ai/channels)** is the
+  managed service that runs the platform connection and the durable-data
+  concerns behind it. This quick start uses it, and it is optional — you can
+  operate your own channel runner instead.
+
+Questions, forks worth showing off, and bug reports are all welcome:
+
+- [Discord](https://discord.gg/6dffbvGU3D) — ask a question or show what you
+  built
+- [@copilotkit on X](https://x.com/copilotkit) — releases and what's shipping
+- [docs.copilotkit.ai](https://docs.copilotkit.ai) — CopilotKit and Channels
+  documentation
+- [OpenTag issues](https://github.com/CopilotKit/OpenTag/issues) for this
+  repository, [channels-sdk issues](https://github.com/CopilotKit/channels-sdk/issues)
+  for the SDK underneath it
 
 ## License
 
