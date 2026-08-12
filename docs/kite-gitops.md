@@ -18,9 +18,10 @@ but deploy independently.
 - Rollback: run **Kite / Deploy released version** → select environment and `vX.Y.Z` →
   deploy the digests recorded in that release.
 
-The release PR uses CopilotKit's DevOps GitHub App (app ID `1108748`). Grant the
-App access to OpenTag and make the existing `DEVOPS_BOT_PRIVATE_KEY`
-organization secret available to this repository.
+The release PR uses CopilotKit's DevOps GitHub App. Grant the App access to
+OpenTag, store its client ID as the `DEVOPS_BOT_CLIENT_ID` repository variable,
+and make the `DEVOPS_BOT_PRIVATE_KEY` Actions secret available to this
+repository.
 
 ## One-time AWS trust
 
