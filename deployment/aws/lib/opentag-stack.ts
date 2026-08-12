@@ -91,6 +91,11 @@ export class OpenTagStack extends cdk.Stack {
       "production",
     );
     const channelName = contextString(this, "channelName", "open-tag");
+    const agentDisplayName = contextString(
+      this,
+      "agentDisplayName",
+      "OpenTag",
+    );
     const intelligenceApiUrl = contextString(
       this,
       "intelligenceApiUrl",
@@ -213,6 +218,7 @@ export class OpenTagStack extends cdk.Stack {
       containerName: "agent",
       cpu: 1024,
       environment: {
+        AGENT_DISPLAY_NAME: agentDisplayName,
         CORS_ALLOW_ORIGINS: contextString(
           this,
           "corsAllowOrigins",
@@ -275,6 +281,7 @@ export class OpenTagStack extends cdk.Stack {
       containerName: "runtime",
       cpu: 1024,
       environment: {
+        AGENT_DISPLAY_NAME: agentDisplayName,
         AGENT_URL: "http://127.0.0.1:8123/",
         INTELLIGENCE_API_URL: intelligenceApiUrl,
         INTELLIGENCE_CHANNEL_NAME: channelName,

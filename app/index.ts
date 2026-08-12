@@ -19,7 +19,13 @@ export function createOpenTagApplication(
   };
 
   // Intelligence owns the Slack and Teams adapters for this logical Channel.
-  const channels = [createOpenTagChannel(environment.channelName, agent)];
+  const channels = [
+    createOpenTagChannel(
+      environment.channelName,
+      agent,
+      environment.agentDisplayName,
+    ),
+  ];
   const runtimeHost = createOpenTagRuntime({ environment, channels });
 
   return { channels, environment, ...runtimeHost };

@@ -3,8 +3,10 @@ export const DEFAULT_INTELLIGENCE_API_URL =
 export const DEFAULT_INTELLIGENCE_GATEWAY_WS_URL =
   "wss://realtime.intelligence.copilotkit.ai";
 export const DEFAULT_INTELLIGENCE_CHANNEL_NAME = "open-tag";
+export const DEFAULT_AGENT_DISPLAY_NAME = "OpenTag";
 
 export interface AppEnvironment {
+  agentDisplayName: string;
   agentUrl: string;
   agentAuthHeader?: string;
   intelligenceApiKey: string;
@@ -40,6 +42,8 @@ export function readEnvironment(
   env: NodeJS.ProcessEnv = process.env,
 ): AppEnvironment {
   return {
+    agentDisplayName:
+      env.AGENT_DISPLAY_NAME?.trim() || DEFAULT_AGENT_DISPLAY_NAME,
     agentUrl: required(env, "AGENT_URL"),
     agentAuthHeader: env.AGENT_AUTH_HEADER,
     intelligenceApiKey: required(env, "INTELLIGENCE_API_KEY"),

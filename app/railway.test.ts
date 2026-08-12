@@ -66,6 +66,7 @@ describe("Railway deployment graph", () => {
       },
     });
     expect(agent?.variables).toMatchObject({
+      AGENT_DISPLAY_NAME: { type: "preserve" },
       OPENAI_API_KEY: { type: "preserve" },
       TAVILY_API_KEY: { type: "preserve" },
       GITHUB_PERSONAL_ACCESS_TOKEN: { type: "preserve" },
@@ -93,6 +94,7 @@ describe("Railway deployment graph", () => {
         healthcheckPath: "/api/copilotkit/info",
       },
       variables: {
+        AGENT_DISPLAY_NAME: { type: "preserve" },
         AGENT_URL: {
           type: "literal",
           value:
