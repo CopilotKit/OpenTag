@@ -73,6 +73,7 @@ jobs:
             --sort=-version:refname | sed -n '1p')
           range=HEAD
           test -z "$previous" || range="$previous..HEAD"
+          section="$RUNNER_TEMP/changelog-section.md"
           {
             echo "## v$version"
             echo
@@ -82,12 +83,23 @@ jobs:
             echo
             echo "- \`ghcr.io/copilotkit/opentag-agent:v$version\`"
             echo "- \`ghcr.io/copilotkit/opentag-runtime:v$version\`"
-          } > release-notes.md
+          } > "$section"
+
+          next_changelog="$RUNNER_TEMP/CHANGELOG.md"
+          {
+            echo '# Changelog'
+            echo
+            cat "$section"
+            if [ -f CHANGELOG.md ]; then
+              tail -n +2 CHANGELOG.md
+            fi
+          } > "$next_changelog"
+          mv "$next_changelog" CHANGELOG.md
           echo "version=$version" >> "$GITHUB_OUTPUT"
 
           if [ "$DRY_RUN" = true ]; then
             git diff -- package.json
-            sed -n '1,160p' release-notes.md
+            sed -n '1,200p' CHANGELOG.md
           fi
       - id: app-token
         if: inputs.dry_run != true
@@ -106,7 +118,7 @@ jobs:
           token: ${{ steps.app-token.outputs.token }}
           branch: release/publish/v${{ steps.prepare.outputs.version }}
           delete-branch: true
-          labels: kite-release
+          labels: release
           commit-message: "chore: release v${{ steps.prepare.outputs.version }}"
           title: "chore: release v${{ steps.prepare.outputs.version }}"
           body: |
@@ -117,6 +129,6 @@ jobs:
             independent production and community approval gates.
 
             Before merging:
-            - [ ] Verify `release-notes.md`
+            - [ ] Verify the new `CHANGELOG.md` section
             - [ ] Confirm CI is green
             - [ ] Approve the version change

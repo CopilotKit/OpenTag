@@ -44,7 +44,7 @@ jobs:
 
             const expectedRepository = `${owner}/${repo}`;
             const isReleaseBranch = /^release\/publish\/v\d+\.\d+\.\d+$/.test(pull.head.ref);
-            const hasReleaseLabel = pull.labels.some((label) => label.name === "kite-release");
+            const hasReleaseLabel = pull.labels.some((label) => label.name === "release");
             const isTrustedRelease =
               isReleaseBranch &&
               pull.head.repo?.full_name === expectedRepository &&
@@ -65,7 +65,7 @@ jobs:
           } >> "$GITHUB_OUTPUT"
           if [[ "$HEAD_REF" =~ ^release/publish/v([0-9]+\.[0-9]+\.[0-9]+)$ ]]; then
             test "$IS_TRUSTED_RELEASE" = true || {
-              echo "Release PR must originate in $GITHUB_REPOSITORY and carry the kite-release label"
+              echo "Release PR must originate in $GITHUB_REPOSITORY and carry the release label"
               exit 1
             }
             version="${BASH_REMATCH[1]}"
@@ -223,6 +223,18 @@ jobs:
             git tag -a "$RELEASE_VERSION" "$SOURCE_COMMIT" -m "Release $RELEASE_VERSION"
             git push origin "$RELEASE_VERSION"
           fi
+      - name: Extract this version's release notes
+        env:
+          RELEASE_VERSION: ${{ needs.metadata.outputs.release_version }}
+        run: |
+          set -euo pipefail
+          awk -v heading="## $RELEASE_VERSION" '
+            $0 == heading { found = 1; next }
+            found && /^## / { exit }
+            found { print }
+            END { if (!found) exit 1 }
+          ' CHANGELOG.md > "$RUNNER_TEMP/release-notes.md"
+          test -s "$RUNNER_TEMP/release-notes.md"
       - name: Create GitHub Release idempotently
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -230,11 +242,13 @@ jobs:
         run: |
           set -euo pipefail
           if gh release view "$RELEASE_VERSION" >/dev/null 2>&1; then
-            gh release edit "$RELEASE_VERSION" --title "$RELEASE_VERSION" --notes-file release-notes.md
+            gh release edit "$RELEASE_VERSION" --title "$RELEASE_VERSION" \
+              --notes-file "$RUNNER_TEMP/release-notes.md"
             gh release upload "$RELEASE_VERSION" container-images.json --clobber
           else
             gh release create "$RELEASE_VERSION" container-images.json \
-              --title "$RELEASE_VERSION" --notes-file release-notes.md --verify-tag
+              --title "$RELEASE_VERSION" \
+              --notes-file "$RUNNER_TEMP/release-notes.md" --verify-tag
           fi
 
   prod:
