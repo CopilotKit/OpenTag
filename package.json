@@ -1,6 +1,6 @@
 {
   "name": "opentag",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "private": true,
   "description": "OpenTag — an open-source, self-hosted knowledge-work agent with connected tools and generative UI for Slack and Microsoft Teams.",
   "license": "MIT",

@@ -1,5 +1,17 @@
 # Changelog
 
+## v0.2.1
+
+- Merge pull request #44 from CopilotKit/tyler/oss-792-give-opentag-a-tool-to-unsubscribe-from-threads (812ba98)
+- feat: add conditional thread subscription tools (d68ff7c)
+- Merge pull request #48 from CopilotKit/agent/rolling-ecs-deployments (e7ec090)
+- fix(aws): use rolling ECS deployments (1589533)
+
+### Container images
+
+- `ghcr.io/copilotkit/opentag-agent:v0.2.1`
+- `ghcr.io/copilotkit/opentag-runtime:v0.2.1`
+
 ## v0.2.0
 
 - Merge pull request #45 from CopilotKit/port-kite-to-aws-cdk (26f1fa7)
