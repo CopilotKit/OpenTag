@@ -221,10 +221,12 @@ agent from the runtime, and the application and service tags follow `appName`.
 The runtime health endpoint does not prove that the managed Channel is online.
 Check runtime logs for `setup_required`, then test a real Channel mention.
 
-The service deliberately runs one task. Multiple runtimes using the same
-Channel name can race to claim deliveries, and the agent currently keeps graph
-checkpoints in memory. Deployments therefore accept brief downtime while
-replacing that single task.
+The service maintains one task during normal operation. During deployments, ECS
+briefly starts a second task and waits for it to become healthy before stopping
+the old task. This avoids intentionally taking Kite offline during replacement.
+Multiple runtimes using the same Channel name can race to claim deliveries, so
+the overlap is limited to the rollout. Agent graph checkpoints remain in memory,
+so verify a real Channel mention after deployment.
 
 CloudWatch Container Insights supplies cluster, service, task, CPU, memory,
 network, and storage metrics. The Forwarder supplies logs to Datadog. This stack
