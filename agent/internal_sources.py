@@ -1,4 +1,4 @@
-"""Optional GitHub, PostHog, Linear, and Notion MCP integrations."""
+"""Optional GitHub, PostHog, Linear, Notion, and Parallel MCP integrations."""
 
 import asyncio
 import logging
@@ -37,6 +37,12 @@ MCP_SERVERS = {
         "url_env": "NOTION_MCP_URL",
         "default_url": None,
     },
+    "parallel": {
+        "token_env": None,
+        "url_env": "PARALLEL_MCP_URL",
+        "default_url": None,
+        "tool_name_prefix": True,
+    },
 }
 MCP_LOAD_TIMEOUT_SECONDS = 8.0
 
@@ -70,36 +76,40 @@ def _configured_connections(
 ) -> dict[str, dict[str, Any]]:
     connections: dict[str, dict[str, Any]] = {}
     for name, config in MCP_SERVERS.items():
-        token = env.get(config["token_env"])
+        token_env = config["token_env"]
+        token = env.get(token_env) if token_env else None
         configured_url = env.get(config["url_env"])
         url = configured_url or config["default_url"]
-        if not token:
+        if token_env and not token:
             if configured_url:
                 logger.warning(
                     "[TOOLS] skipping %s: %s must be set with %s",
                     name,
-                    config["token_env"],
+                    token_env,
                     config["url_env"],
                 )
             continue
         if not url:
-            logger.warning(
-                "[TOOLS] skipping %s: %s must be set with %s",
-                name,
-                config["url_env"],
-                config["token_env"],
-            )
+            if token_env:
+                logger.warning(
+                    "[TOOLS] skipping %s: %s must be set with %s",
+                    name,
+                    config["url_env"],
+                    token_env,
+                )
             continue
 
-        headers = {
-            "Authorization": f"Bearer {token}",
-            **config.get("headers", {}),
-        }
-        connections[name] = {
+        headers = config.get("headers", {})
+        if token:
+            headers = {"Authorization": f"Bearer {token}", **headers}
+
+        connection: dict[str, Any] = {
             "transport": "streamable_http",
             "url": url,
-            "headers": headers,
         }
+        if headers:
+            connection["headers"] = headers
+        connections[name] = connection
     return connections
 
 
@@ -108,9 +118,15 @@ async def _load_tools(connections: dict[str, dict[str, Any]]) -> list:
     for name, connection in connections.items():
         try:
             confirmation = WriteConfirmationInterceptor()
+            client_options = (
+                {"tool_name_prefix": True}
+                if MCP_SERVERS[name].get("tool_name_prefix")
+                else {}
+            )
             client = MultiServerMCPClient(
                 {name: connection},
                 tool_interceptors=[confirmation],
+                **client_options,
             )
             tools = await asyncio.wait_for(
                 client.get_tools(),

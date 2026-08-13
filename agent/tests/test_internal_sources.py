@@ -9,9 +9,15 @@ from write_confirmation import WriteConfirmationInterceptor
 
 
 @pytest.fixture(autouse=True)
-def clear_ambient_credentials(monkeypatch):
-    monkeypatch.delenv("GITHUB_PERSONAL_ACCESS_TOKEN", raising=False)
-    monkeypatch.delenv("POSTHOG_PERSONAL_API_KEY", raising=False)
+def clear_ambient_source_configuration(monkeypatch):
+    for name in (
+        "GITHUB_PERSONAL_ACCESS_TOKEN",
+        "POSTHOG_PERSONAL_API_KEY",
+        "LINEAR_API_KEY",
+        "NOTION_MCP_AUTH_TOKEN",
+        "PARALLEL_MCP_URL",
+    ):
+        monkeypatch.delenv(name, raising=False)
 
 
 def test_mcp_servers_are_configured_in_one_place():
@@ -41,6 +47,12 @@ def test_mcp_servers_are_configured_in_one_place():
             "token_env": "NOTION_MCP_AUTH_TOKEN",
             "url_env": "NOTION_MCP_URL",
             "default_url": None,
+        },
+        "parallel": {
+            "token_env": None,
+            "url_env": "PARALLEL_MCP_URL",
+            "default_url": None,
+            "tool_name_prefix": True,
         },
     }
 
@@ -96,6 +108,68 @@ def test_posthog_uses_hosted_read_only_mcp_with_personal_api_key():
             "headers": {"Authorization": "Bearer phx_test"},
         }
     }
+
+
+def test_parallel_requires_an_explicit_url_and_sends_no_auth_headers():
+    assert internal_sources._configured_connections({}) == {}
+    assert internal_sources._configured_connections(
+        {"PARALLEL_MCP_URL": "https://search.parallel.ai/mcp"}
+    ) == {
+        "parallel": {
+            "transport": "streamable_http",
+            "url": "https://search.parallel.ai/mcp",
+        }
+    }
+
+
+def test_parallel_tools_use_the_adapter_name_prefix(monkeypatch):
+    clients = []
+
+    class FakeMCPClient:
+        def __init__(
+            self,
+            connections,
+            *,
+            tool_interceptors,
+            tool_name_prefix,
+        ):
+            self.connections = connections
+            self.tool_interceptors = tool_interceptors
+            self.tool_name_prefix = tool_name_prefix
+            clients.append(self)
+
+        async def get_tools(self):
+            return [
+                StructuredTool.from_function(
+                    func=lambda: "results",
+                    name="parallel_web_search",
+                    description="Search the live web",
+                    metadata={"readOnlyHint": True},
+                )
+            ]
+
+    monkeypatch.setenv(
+        "PARALLEL_MCP_URL",
+        "https://search.parallel.ai/mcp",
+    )
+    monkeypatch.setattr(
+        internal_sources,
+        "MultiServerMCPClient",
+        FakeMCPClient,
+    )
+
+    result = internal_sources.internal_source_tools()
+
+    assert [tool.name for tool in result] == ["parallel_web_search"]
+    assert len(clients) == 1
+    assert clients[0].connections == {
+        "parallel": {
+            "transport": "streamable_http",
+            "url": "https://search.parallel.ai/mcp",
+        }
+    }
+    assert clients[0].tool_name_prefix is True
+    assert "parallel_web_search" in clients[0].tool_interceptors[0]._read_only_tools
 
 
 @pytest.mark.parametrize(

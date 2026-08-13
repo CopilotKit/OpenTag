@@ -7,6 +7,7 @@ import pytest
 from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, ToolMessage
 from langchain_core.outputs import ChatGeneration, ChatResult
+from langchain_core.tools import StructuredTool
 from langchain_openai import ChatOpenAI as RealChatOpenAI
 from pydantic import Field
 
@@ -34,16 +35,36 @@ class FakeGraph:
         return self
 
 
-def build_with_captured_configuration(monkeypatch):
+def build_with_captured_configuration(
+    monkeypatch,
+    *,
+    tavily=False,
+    parallel=False,
+    internal_tools=None,
+):
     captured = {}
 
     monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
-    monkeypatch.delenv("TAVILY_API_KEY", raising=False)
+    if tavily:
+        monkeypatch.setenv("TAVILY_API_KEY", "tvly-test")
+    else:
+        monkeypatch.delenv("TAVILY_API_KEY", raising=False)
+    if parallel:
+        monkeypatch.setenv(
+            "PARALLEL_MCP_URL",
+            "https://search.parallel.ai/mcp",
+        )
+    else:
+        monkeypatch.delenv("PARALLEL_MCP_URL", raising=False)
     monkeypatch.delenv("GITHUB_PERSONAL_ACCESS_TOKEN", raising=False)
     monkeypatch.delenv("POSTHOG_PERSONAL_API_KEY", raising=False)
     monkeypatch.delenv("LINEAR_API_KEY", raising=False)
     monkeypatch.delenv("NOTION_MCP_AUTH_TOKEN", raising=False)
-    monkeypatch.setattr(agent_mod, "internal_source_tools", lambda: [])
+    monkeypatch.setattr(
+        agent_mod,
+        "internal_source_tools",
+        lambda: internal_tools or [],
+    )
 
     def fake_chat_openai(**kwargs):
         captured["model"] = kwargs
@@ -79,6 +100,78 @@ def test_build_agent_accepts_valid_reasoning_and_verbosity_overrides(monkeypatch
 
     assert captured["model"]["reasoning_effort"] == "high"
     assert captured["model"]["verbosity"] == "medium"
+
+
+def test_build_agent_uses_parallel_prompt_without_tavily(monkeypatch):
+    parallel_tools = [
+        StructuredTool.from_function(
+            func=lambda: "results",
+            name="parallel_web_search",
+            description="Search the live web",
+        ),
+        StructuredTool.from_function(
+            func=lambda: "page",
+            name="parallel_web_fetch",
+            description="Fetch a web page",
+        ),
+    ]
+
+    _, captured = build_with_captured_configuration(
+        monkeypatch,
+        parallel=True,
+        internal_tools=parallel_tools,
+    )
+
+    prompt = captured["agent"]["system_prompt"]
+    assert agent_mod.PARALLEL_SEARCH_TOOL_ADDENDUM in prompt
+    assert agent_mod.NO_WEB_SEARCH_TOOL_ADDENDUM not in prompt
+    assert captured["agent"]["tools"] == parallel_tools
+
+
+def test_build_agent_does_not_advertise_parallel_when_discovery_fails(
+    monkeypatch,
+    capsys,
+):
+    _, captured = build_with_captured_configuration(
+        monkeypatch,
+        parallel=True,
+        internal_tools=[],
+    )
+
+    prompt = captured["agent"]["system_prompt"]
+    assert agent_mod.PARALLEL_SEARCH_TOOL_ADDENDUM not in prompt
+    assert agent_mod.NO_WEB_SEARCH_TOOL_ADDENDUM in prompt
+    assert captured["agent"]["tools"] == []
+    assert "[AGENT] web search: disabled" in capsys.readouterr().out
+
+
+def test_build_agent_keeps_tavily_first_when_parallel_is_also_enabled(
+    monkeypatch,
+):
+    parallel_tools = [
+        StructuredTool.from_function(
+            func=lambda: "results",
+            name="parallel_web_search",
+            description="Search the live web",
+        ),
+        StructuredTool.from_function(
+            func=lambda: "page",
+            name="parallel_web_fetch",
+            description="Fetch a web page",
+        ),
+    ]
+
+    _, captured = build_with_captured_configuration(
+        monkeypatch,
+        tavily=True,
+        parallel=True,
+        internal_tools=parallel_tools,
+    )
+
+    prompt = captured["agent"]["system_prompt"]
+    assert agent_mod.WEB_SEARCH_TOOL_ADDENDUM in prompt
+    assert agent_mod.PARALLEL_SEARCH_TOOL_ADDENDUM in prompt
+    assert captured["agent"]["tools"] == [agent_mod.web_search, *parallel_tools]
 
 
 @pytest.mark.parametrize(
@@ -151,6 +244,7 @@ def test_openai_harness_excludes_unusable_delegation_tools(monkeypatch):
     monkeypatch.delenv("POSTHOG_PERSONAL_API_KEY", raising=False)
     monkeypatch.delenv("LINEAR_API_KEY", raising=False)
     monkeypatch.delenv("NOTION_MCP_AUTH_TOKEN", raising=False)
+    monkeypatch.delenv("PARALLEL_MCP_URL", raising=False)
     monkeypatch.setattr(agent_mod, "ChatOpenAI", lambda **_kwargs: model)
     monkeypatch.setattr(agent_mod, "internal_source_tools", lambda: [])
 
@@ -176,6 +270,7 @@ def _configure_minimal_environment(monkeypatch):
     monkeypatch.delenv("POSTHOG_PERSONAL_API_KEY", raising=False)
     monkeypatch.delenv("LINEAR_API_KEY", raising=False)
     monkeypatch.delenv("NOTION_MCP_AUTH_TOKEN", raising=False)
+    monkeypatch.delenv("PARALLEL_MCP_URL", raising=False)
 
 
 def _response_payload(output, response_id):

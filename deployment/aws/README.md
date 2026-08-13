@@ -103,6 +103,7 @@ These CDK context values become container environment variables:
 | `posthogMcpUrl` | `POSTHOG_MCP_URL` | Hosted read-only PostHog MCP |
 | `linearMcpUrl` | `LINEAR_MCP_URL` | Hosted Linear MCP |
 | `notionMcpUrl` | `NOTION_MCP_URL` | Unset |
+| `parallelMcpUrl` | `PARALLEL_MCP_URL` | Unset; use `https://search.parallel.ai/mcp` to opt in |
 
 The AWS task fixes `AGENT_URL` to `http://127.0.0.1:8123/`, the runtime port to
 `3000`, and the agent port to `8123` because both containers share one task.

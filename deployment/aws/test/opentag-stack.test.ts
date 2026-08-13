@@ -141,6 +141,33 @@ test("allows supported non-secret environment overrides through context", () => 
   });
 });
 
+test("keeps Parallel MCP opt-in and propagates its configured URL", () => {
+  const defaultTemplate = Template.fromStack(stackWithContext());
+  assert.doesNotMatch(
+    JSON.stringify(defaultTemplate.toJSON()),
+    /PARALLEL_MCP_URL/,
+  );
+
+  const configuredTemplate = Template.fromStack(
+    stackWithContext({
+      parallelMcpUrl: "https://search.parallel.ai/mcp",
+    }),
+  );
+  configuredTemplate.hasResourceProperties("AWS::ECS::TaskDefinition", {
+    ContainerDefinitions: Match.arrayWith([
+      Match.objectLike({
+        Environment: Match.arrayWith([
+          {
+            Name: "PARALLEL_MCP_URL",
+            Value: "https://search.parallel.ai/mcp",
+          },
+        ]),
+        Name: "agent",
+      }),
+    ]),
+  });
+});
+
 test("forwards both awslogs groups through the official Datadog Forwarder", () => {
   const template = Template.fromStack(stackWithContext());
 

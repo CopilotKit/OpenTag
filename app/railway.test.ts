@@ -75,6 +75,7 @@ describe("Railway deployment graph", () => {
       LINEAR_API_KEY: { type: "preserve" },
       NOTION_MCP_URL: { type: "preserve" },
       NOTION_MCP_AUTH_TOKEN: { type: "preserve" },
+      PARALLEL_MCP_URL: { type: "preserve" },
     });
 
     const runtime = resources.find(({ name }) => name === "runtime");

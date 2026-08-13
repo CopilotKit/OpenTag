@@ -18,6 +18,7 @@ from internal_sources import internal_source_tools
 from prompts import (
     BASE_SYSTEM_PROMPT,
     NO_WEB_SEARCH_TOOL_ADDENDUM,
+    PARALLEL_SEARCH_TOOL_ADDENDUM,
     WEB_SEARCH_TOOL_ADDENDUM,
     current_date_prompt,
 )
@@ -72,7 +73,7 @@ def build_agent():
         default="low",
         allowed=VALID_VERBOSITY_LEVELS,
     )
-    has_web_search = bool(os.environ.get("TAVILY_API_KEY"))
+    has_tavily_search = bool(os.environ.get("TAVILY_API_KEY"))
     model_name = os.environ.get("OPENAI_MODEL", "gpt-5.5")
     llm = ChatOpenAI(
         model=model_name,
@@ -83,17 +84,25 @@ def build_agent():
     )
 
     internal_tools = internal_source_tools()
+    internal_tool_names = {tool.name for tool in internal_tools}
+    has_parallel_search = {
+        "parallel_web_search",
+        "parallel_web_fetch",
+    }.issubset(internal_tool_names)
     main_tools = (
         [web_search, *internal_tools]
-        if has_web_search
+        if has_tavily_search
         else [*internal_tools]
     )
 
-    system_prompt = BASE_SYSTEM_PROMPT + (
-        WEB_SEARCH_TOOL_ADDENDUM
-        if has_web_search
-        else NO_WEB_SEARCH_TOOL_ADDENDUM
-    )
+    search_prompt = ""
+    if has_tavily_search:
+        search_prompt += WEB_SEARCH_TOOL_ADDENDUM
+    if has_parallel_search:
+        search_prompt += PARALLEL_SEARCH_TOOL_ADDENDUM
+    if not search_prompt:
+        search_prompt = NO_WEB_SEARCH_TOOL_ADDENDUM
+    system_prompt = BASE_SYSTEM_PROMPT + search_prompt
 
     agent_graph = create_deep_agent(
         model=llm,
@@ -107,6 +116,7 @@ def build_agent():
         "[AGENT] OpenTag Agent created "
         f"with model={model_name}, reasoning={reasoning_effort}, verbosity={verbosity}"
     )
+    has_web_search = has_tavily_search or has_parallel_search
     print(f"[AGENT] web search: {'enabled' if has_web_search else 'disabled'}")
     print(f"[AGENT] internal-source tools: {len(internal_tools)}")
     print(f"[AGENT] Main tools: {[t.name for t in main_tools]}")

@@ -222,6 +222,10 @@ export class OpenTagStack extends cdk.Stack {
           "NOTION_MCP_URL",
           contextString(this, "notionMcpUrl", ""),
         ),
+        ...optionalEnvironment(
+          "PARALLEL_MCP_URL",
+          contextString(this, "parallelMcpUrl", ""),
+        ),
         OPENAI_MODEL: openAiModel,
         OPENAI_REASONING_EFFORT: openAiReasoningEffort,
         OPENAI_VERBOSITY: openAiVerbosity,

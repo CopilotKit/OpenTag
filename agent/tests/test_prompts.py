@@ -3,6 +3,7 @@ from datetime import datetime, timezone
 from prompts import (
     BASE_SYSTEM_PROMPT,
     NO_WEB_SEARCH_TOOL_ADDENDUM,
+    PARALLEL_SEARCH_TOOL_ADDENDUM,
     WEB_SEARCH_TOOL_ADDENDUM,
     current_date_context,
 )
@@ -47,6 +48,15 @@ def test_prompt_describes_direct_optional_web_search():
     assert "web_search(query, max_results=5)" in WEB_SEARCH_TOOL_ADDENDUM
     assert "source snippets" in WEB_SEARCH_TOOL_ADDENDUM
     assert "do NOT have a live web research tool" in NO_WEB_SEARCH_TOOL_ADDENDUM
+
+
+def test_prompt_describes_parallel_search_and_fetch_inputs():
+    assert "parallel_web_search" in PARALLEL_SEARCH_TOOL_ADDENDUM
+    assert "non-empty objective" in PARALLEL_SEARCH_TOOL_ADDENDUM
+    assert "at least one" in PARALLEL_SEARCH_TOOL_ADDENDUM
+    assert "parallel_web_fetch" in PARALLEL_SEARCH_TOOL_ADDENDUM
+    assert "specific URLs" in PARALLEL_SEARCH_TOOL_ADDENDUM
+    assert "usually enough to answer" in PARALLEL_SEARCH_TOOL_ADDENDUM
 
 
 def test_current_date_context_uses_an_authoritative_utc_date():

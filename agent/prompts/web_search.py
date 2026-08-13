@@ -23,6 +23,18 @@ Live web research is available via web_search(query, max_results=5):
   the useful sources rather than dumping raw results
 """
 
+PARALLEL_SEARCH_TOOL_ADDENDUM = """
+
+Parallel live web tools are also available:
+- Call parallel_web_search with a focused, non-empty objective and at least one
+  concise search query when current web evidence would improve the answer
+- Search results include source excerpts that are usually enough to answer;
+  synthesize the evidence and cite the useful source URLs
+- Use parallel_web_fetch for specific URLs or when search excerpts are
+  conflicting or clearly insufficient, not as a default follow-up to every
+  search
+"""
+
 NO_WEB_SEARCH_TOOL_ADDENDUM = """
 
 You do NOT have a live web research tool available right now. Answer from your
