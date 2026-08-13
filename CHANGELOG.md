@@ -1,5 +1,14 @@
 # Changelog
 
+## v0.2.2
+
+- feat: make agent display name configurable (#42) (020b1d9)
+
+### Container images
+
+- `ghcr.io/copilotkit/opentag-agent:v0.2.2`
+- `ghcr.io/copilotkit/opentag-runtime:v0.2.2`
+
 ## v0.2.1
 
 - Merge pull request #44 from CopilotKit/tyler/oss-792-give-opentag-a-tool-to-unsubscribe-from-threads (812ba98)
