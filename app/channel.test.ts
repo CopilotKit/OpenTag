@@ -497,12 +497,17 @@ describe("createOpenTagChannel", () => {
       "triage",
     ]);
     expect(appTools.map(({ name }) => name).sort()).toEqual([
+      "fix_linear_ticket",
+      "investigate_linear_ticket",
       "issue_card",
       "issue_list",
+      "launch_promo_video",
       "page_list",
       "read_thread",
       "render_diagram",
       "render_table",
+      "run_copilotkit",
+      "sandbox_job_status",
       "show_capabilities",
       "show_decision_brief",
       "show_incident",
@@ -510,6 +515,7 @@ describe("createOpenTagChannel", () => {
       "show_links",
       "show_status",
       "show_work_plan",
+      "update_docs_from_thread",
     ]);
     expect(RenderChart.name).toBe("render_chart");
     expect(appTools.map(({ name }) => name)).not.toContain("confirm_write");

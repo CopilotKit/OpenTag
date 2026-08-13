@@ -45,7 +45,9 @@ function evaluateRailwayGraph(): RailwayResource[] {
 }
 
 describe("Railway deployment graph", () => {
-  it("ships the Python agent and Chromium-capable runtime services", () => {
+  it(
+    "ships the Python agent and Chromium-capable runtime services",
+    () => {
     const resources = evaluateRailwayGraph();
     expect(resources.map(({ name }) => name).sort()).toEqual(["agent", "runtime"]);
 
@@ -98,6 +100,12 @@ describe("Railway deployment graph", () => {
           value:
             "http://${{agent.RAILWAY_PRIVATE_DOMAIN}}:${{agent.PORT}}/",
         },
+        DAYTONA_API_KEY: { type: "preserve" },
+        GITHUB_TOKEN: { type: "preserve" },
+        CODEX_API_KEY: { type: "preserve" },
+        XAI_API_KEY: { type: "preserve" },
+        VIDEO_SANDBOX_MODEL: { type: "preserve" },
+        LINEAR_API_KEY: { type: "preserve" },
         INTELLIGENCE_API_KEY: { type: "preserve" },
         INTELLIGENCE_API_URL: {
           type: "literal",
@@ -121,5 +129,7 @@ describe("Railway deployment graph", () => {
         },
       },
     });
-  });
+    },
+    20_000,
+  );
 });

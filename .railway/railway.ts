@@ -56,6 +56,12 @@ export default defineRailway(() => {
       PORT: "3000",
       AGENT_URL:
         "http://${{agent.RAILWAY_PRIVATE_DOMAIN}}:${{agent.PORT}}/",
+      DAYTONA_API_KEY: preserve(),
+      GITHUB_TOKEN: preserve(),
+      CODEX_API_KEY: preserve(),
+      XAI_API_KEY: preserve(),
+      VIDEO_SANDBOX_MODEL: preserve(),
+      LINEAR_API_KEY: preserve(),
       INTELLIGENCE_API_KEY: preserve(),
       INTELLIGENCE_API_URL: "https://api.intelligence.copilotkit.ai",
       INTELLIGENCE_GATEWAY_WS_URL:

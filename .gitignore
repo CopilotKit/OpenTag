@@ -19,6 +19,8 @@ state.db
 state.db-shm
 state.db-wal
 
+.data/
+
 # AWS CDK synthesis artifacts
 deployment/aws/cdk.out
 deployment/aws/cdk.context.json
