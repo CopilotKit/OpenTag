@@ -59,15 +59,15 @@ test("accepts a shared cluster without creating another cluster", () => {
   template.resourceCountIs("AWS::ECS::Service", 1);
 });
 
-test("creates one private singleton environment service containing both containers", () => {
+test("creates one private rolling environment service containing both containers", () => {
   const template = Template.fromStack(stackWithContext());
 
   template.resourceCountIs("AWS::ECS::Service", 1);
   template.resourceCountIs("AWS::ECS::TaskDefinition", 1);
   template.hasResourceProperties("AWS::ECS::Service", {
     DeploymentConfiguration: Match.objectLike({
-      MaximumPercent: 100,
-      MinimumHealthyPercent: 0,
+      MaximumPercent: 200,
+      MinimumHealthyPercent: 100,
     }),
     DesiredCount: 1,
     EnableExecuteCommand: true,
