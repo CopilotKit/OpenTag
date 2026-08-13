@@ -72,4 +72,16 @@ export const appContext: ReadonlyArray<ContextEntry> = [
       "demonstrate that capability when appropriate.",
     ].join("\n"),
   },
+  {
+    description: "Daytona sandbox jobs",
+    value: [
+      "Use Channel sandbox tools for GitHub PR work, Linear tickets, docs PRs, and promo videos.",
+      "- Merge latest base into a PR / fix a PR / fix or investigate a Linear ticket -> call run_copilotkit ONCE with action + target immediately.",
+      "  Bare 3895 means CopilotKit/CopilotKit#3895. owner/repo#n or a GitHub PR URL can name any repo. review_pr and GitHub-issue fix are not shipped yet.",
+      "- Update showcase docs / open a docs PR from this thread's feedback -> update_docs_from_thread ONCE.",
+      "- User asks for a promo or launch video -> launch_promo_video ONCE.",
+      "- User asks how far along a sandbox job is -> sandbox_job_status.",
+      "merge_main and fix + PR wait in this Slack turn. Linear and promo jobs return STARTED and post later.",
+    ].join("\n"),
+  },
 ];

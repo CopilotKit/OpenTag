@@ -39,6 +39,7 @@ files.
 | Channel surface | `app/channel.tsx` | Mentions, commands, components, modals, interrupts |
 | Environment contract | `app/env.ts` | Required variables and in-code defaults |
 | Rendered UI | `app/components/`, `app/tools/` | Issue cards, tables, charts, diagrams |
+| Sandbox jobs | `app/sandbox/` | Daytona jobs; Channel tools stay in `app/tools/` |
 | Agent | `agent/agent.py` | LangGraph deep agent served over AG-UI |
 | Persona | `agent/prompts/` | `system.py` is the base system prompt |
 | Approval gate | `agent/write_confirmation.py` | Emits `confirm_write` before Linear or Notion writes |

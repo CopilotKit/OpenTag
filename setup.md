@@ -103,6 +103,12 @@ The AG-UI endpoint is `http://localhost:8123/`; `/health` reports the
 | Variable | Required | Purpose |
 | --- | --- | --- |
 | `AGENT_URL` | Yes | Python AG-UI endpoint, locally `http://localhost:8123/` |
+| `DAYTONA_API_KEY` | For sandbox tools | Daytona cloud sandboxes (docs PR, Linear, promo video, CopilotKit PRs) |
+| `GITHUB_TOKEN` | For sandbox tools | Write token for CopilotKit PRs and private skill clones |
+| `CODEX_API_KEY` | No | Codex auth; defaults to `OPENAI_API_KEY` |
+| `XAI_API_KEY` | For promo video | Grok Build in the promo-video sandbox |
+| `VIDEO_SANDBOX_MODEL` | No | Defaults to `grok-4.5` |
+| `OPENTAG_SQLITE_URL` | No | SQLite path for all sandbox jobs. Default `.data/opentag.sqlite`. Use `:memory:` in tests. |
 | `INTELLIGENCE_API_KEY` | Yes | Runtime authentication; also selects the project |
 | `INTELLIGENCE_CHANNEL_NAME` | No | Defaults to `open-tag`; must match the Channel name exactly |
 | `INTELLIGENCE_API_URL` | No | Defaults to `https://api.intelligence.copilotkit.ai` |
@@ -273,6 +279,63 @@ Notion is optional and remote-only, not a separate Railway service. Set both
 discovers the tools. If either value is absent OpenTag skips Notion without
 blocking startup.
 
+## Sandbox jobs (Daytona)
+
+These Channel tools run in the Node runtime. The Python agent stays the chat
+brain. It calls the tools; it does not run inside Daytona.
+
+Jobs share one sqlite file at `.data/opentag.sqlite`. Override the path with
+`OPENTAG_SQLITE_URL`.
+
+### GitHub PR and Linear work (`run_copilotkit`)
+
+Use one Slack tool: `run_copilotkit`. Call it with `{ action, target, note? }`.
+
+A bare number is `CopilotKit/CopilotKit`. `repo#n` uses the CopilotKit org.
+`owner/repo#n` or a GitHub PR URL can name any repo.
+
+Examples:
+
+- `merge_main` + `3895` (this is CopilotKit/CopilotKit#3895)
+- `merge_main` + `https://github.com/AlemTuzlak/OpenTag/pull/51`
+- `fix` + `3895` (same PR head; host passes `note`; Codex does the work)
+- `fix` + `3895` + note `resolve the PR feedback` (Codex reads review comments)
+- `fix` + `CPK-7204`
+- `investigate` + `CPK-7204`
+
+`review_pr` and GitHub-issue `fix` are not shipped yet.
+
+Merge flow: `git clone` needs an empty dest. The host clones into a sibling
+empty dir, then moves the tree. Codex does not push. The host owns the sandbox
+and pushes the original PR. `merge_main` waits in this Slack turn. After a
+merge succeeds, status `recentText` is the host push of the original PR.
+
+PR fix flow (`fix` + PR): host passes `note`. Codex does the work. If the note
+asks about PR feedback, Codex reads review comments. Codex pushes the same branch.
+push once then stop. `fix` + PR waits in this Slack turn.
+
+A CopilotKit merge writes its SQLite run before Codex chat starts.
+
+Linear `fix` and `investigate` still start in the background and return
+STARTED.
+
+### Ask how far along (`sandbox_job_status`)
+
+In the same Slack thread, ask "how far along?" The agent calls
+`sandbox_job_status`.
+
+The tool looks up jobs under `<kind>:<conversationKey>`, including
+`copilotkit:slack:`.
+
+Read order:
+
+1. Live `memoryStream` chunks in this process.
+2. If that log is empty, the saved SQLite transcript.
+
+### Promo video and docs PRs
+
+`launch_promo_video` and `update_docs_from_thread` start in the background.
+
 ## Railway
 
 The IaC file declares exactly:
@@ -281,6 +344,8 @@ The IaC file declares exactly:
   `/health`, port `8123`.
 - `runtime`: `CopilotKit/OpenTag`, branch `main`, repository root,
   `pnpm runtime`, `/api/copilotkit/info`, port `3000`.
+  `DAYTONA_API_KEY`, `GITHUB_TOKEN`, `CODEX_API_KEY`, and `XAI_API_KEY`
+  are preserved on `runtime` for sandbox tools.
 
 `runtime.AGENT_URL` references the agent's Railway private domain and port.
 Production Intelligence URLs are literal configuration, the API key is

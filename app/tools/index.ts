@@ -7,6 +7,12 @@
  */
 import { readThreadTool } from "./read-thread.js";
 import { showCapabilitiesTool } from "./capabilities.js";
+import { fixLinearTicketTool } from "./fix-linear-ticket.js";
+import { investigateLinearTicketTool } from "./investigate-linear-ticket.js";
+import { launchPromoVideoTool } from "./launch-promo-video.js";
+import { runCopilotkitTool } from "./run-copilotkit.js";
+import { sandboxJobStatusTool } from "./sandbox-job-status.js";
+import { updateDocsFromThreadTool } from "./update-docs-from-thread.js";
 import { renderDiagramTool } from "./render-diagram.js";
 import { renderTableTool } from "./render-table.js";
 import { issueCardTool, issueListTool, pageListTool } from "./render-tools.js";
@@ -31,6 +37,12 @@ import type { ChannelTool } from "@copilotkit/channels";
 export const appTools: ChannelTool[] = [
   readThreadTool,
   showCapabilitiesTool,
+  sandboxJobStatusTool,
+  updateDocsFromThreadTool,
+  launchPromoVideoTool,
+  runCopilotkitTool,
+  fixLinearTicketTool,
+  investigateLinearTicketTool,
   renderDiagramTool,
   renderTableTool,
   issueCardTool,

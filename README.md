@@ -268,6 +268,7 @@ or one directory, and none of them require touching the Channel lifecycle.
 | **The agent framework**      | `AGENT_URL`                                                                                      | Point it at _any_ AG-UI-compatible agent. The runtime speaks AG-UI over HTTP and does not care what is on the other end |
 | Which tools the agent has    | [`agent/tools.py`](./agent/tools.py), [`agent/internal_sources.py`](./agent/internal_sources.py) | Sources register only when their credentials are present                                                                |
 | What gets rendered in chat   | [`app/components/`](./app/components), [`app/tools/`](./app/tools)                               | Issue cards, tables, charts, diagrams                                                                                   |
+| Sandbox jobs                 | [`app/sandbox/`](./app/sandbox), [`app/tools/run-copilotkit.ts`](./app/tools/run-copilotkit.ts)   | Daytona jobs. Slack `run_copilotkit` merges or fixes a GitHub PR. Bare numbers default to CopilotKit/CopilotKit         |
 | Mentions, commands, triggers | [`app/channel.tsx`](./app/channel.tsx)                                                           | The whole Channel surface in one file                                                                                   |
 | Which writes need approval   | [`agent/write_confirmation.py`](./agent/write_confirmation.py)                                   | The interceptor that emits `confirm_write`                                                                              |
 | The deployment topology      | [`.railway/railway.ts`](./.railway/railway.ts)                                                   | Two services, declared as code                                                                                          |
@@ -285,6 +286,8 @@ workflow instead of letting an agent improvise one.
 - File-aware prompts.
 - A LangGraph interrupt and resumable confirmation card before Linear or Notion
   writes.
+- Daytona sandboxes for docs PRs, Linear investigate/fix, promo video, and
+  CopilotKit PR merge/fix via `run_copilotkit`.
 - Graceful, idempotent shutdown for Channels, HTTP, and the rendering browser.
 - Nullable parent-message ID normalization through `SanitizingHttpAgent`.
 
