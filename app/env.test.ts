@@ -27,6 +27,7 @@ describe("readEnvironment", () => {
 
   it("uses the Intelligence, channel-name, and port defaults", () => {
     expect(readEnvironment(requiredEnvironment)).toMatchObject({
+      agentDisplayName: "OpenTag",
       agentUrl: "http://localhost:8123/",
       intelligenceApiKey: "cpk_test",
       intelligenceApiUrl: DEFAULT_INTELLIGENCE_API_URL,
@@ -49,6 +50,15 @@ describe("readEnvironment", () => {
       intelligenceGatewayWsUrl: "wss://realtime.example.test",
       channelName: "custom-channel",
     });
+  });
+
+  it("honors the agent display-name override", () => {
+    expect(
+      readEnvironment({
+        ...requiredEnvironment,
+        AGENT_DISPLAY_NAME: "Kite",
+      }),
+    ).toMatchObject({ agentDisplayName: "Kite" });
   });
 
   it("does not expose platform credentials owned by Intelligence", () => {

@@ -174,6 +174,8 @@ OPENAI_API_KEY=sk-...
 AGENT_URL=http://localhost:8123/
 INTELLIGENCE_API_KEY=cpk-...
 INTELLIGENCE_CHANNEL_NAME=open-tag
+# Optional: use another user-facing identity, such as Kite.
+AGENT_DISPLAY_NAME=OpenTag
 ```
 
 Both the Node runtime and the Python agent load this one root `.env`; Railway
@@ -263,6 +265,7 @@ or one directory, and none of them require touching the Channel lifecycle.
 
 | To change…                   | Edit                                                                                             | Notes                                                                                                                   |
 | ---------------------------- | ------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------- |
+| The user-facing name         | `AGENT_DISPLAY_NAME`                                                                             | Defaults to `OpenTag`; set it once for the agent persona and capability UI                                              |
 | The persona and behavior     | [`agent/prompts/`](./agent/prompts)                                                              | `system.py` holds the base system prompt                                                                                |
 | The agent itself             | [`agent/agent.py`](./agent/agent.py)                                                             | A LangGraph deep agent; model and reasoning effort come from the environment                                            |
 | **The agent framework**      | `AGENT_URL`                                                                                      | Point it at _any_ AG-UI-compatible agent. The runtime speaks AG-UI over HTTP and does not care what is on the other end |

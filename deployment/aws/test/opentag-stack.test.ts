@@ -79,6 +79,7 @@ test("creates one private rolling environment service containing both containers
     ContainerDefinitions: Match.arrayWith([
       Match.objectLike({
         Environment: Match.arrayWith([
+          { Name: "AGENT_DISPLAY_NAME", Value: "OpenTag" },
           { Name: "OPENAI_MODEL", Value: "gpt-5.5" },
           { Name: "OPENAI_REASONING_EFFORT", Value: "low" },
           { Name: "OPENAI_VERBOSITY", Value: "low" },
@@ -88,6 +89,7 @@ test("creates one private rolling environment service containing both containers
       Match.objectLike({
         DependsOn: [{ Condition: "HEALTHY", ContainerName: "agent" }],
         Environment: Match.arrayWith([
+          { Name: "AGENT_DISPLAY_NAME", Value: "OpenTag" },
           {
             Name: "AGENT_URL",
             Value: "http://127.0.0.1:8123/",
@@ -105,6 +107,7 @@ test("allows supported non-secret environment overrides through context", () => 
   const template = Template.fromStack(
     stackWithContext({
       intelligenceApiUrl: "https://intelligence.example.test",
+      agentDisplayName: "Kite",
       logLevel: "debug",
       mermaidUrl: "https://cdn.example.test/mermaid.js",
       openAiModel: "gpt-test",
@@ -117,6 +120,7 @@ test("allows supported non-secret environment overrides through context", () => 
     ContainerDefinitions: Match.arrayWith([
       Match.objectLike({
         Environment: Match.arrayWith([
+          { Name: "AGENT_DISPLAY_NAME", Value: "Kite" },
           { Name: "OPENAI_MODEL", Value: "gpt-test" },
           { Name: "OPENAI_REASONING_EFFORT", Value: "high" },
           { Name: "OPENAI_VERBOSITY", Value: "medium" },
@@ -125,6 +129,7 @@ test("allows supported non-secret environment overrides through context", () => 
       }),
       Match.objectLike({
         Environment: Match.arrayWith([
+          { Name: "AGENT_DISPLAY_NAME", Value: "Kite" },
           {
             Name: "INTELLIGENCE_API_URL",
             Value: "https://intelligence.example.test",

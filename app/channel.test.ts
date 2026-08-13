@@ -178,18 +178,61 @@ afterEach(async () => {
   vi.restoreAllMocks();
 });
 
-function makeChannel(options: { agent?: FakeAgent } = {}) {
+function makeChannel(
+  options: { agent?: FakeAgent; agentDisplayName?: string } = {},
+) {
   const adapter = new FakeAdapter({ platform: "intelligence" });
   const stateStore = new MemoryStore();
   adapter.stateStore = stateStore;
   const agent = options.agent ?? new CapturingAgent();
-  const channel = createOpenTagChannel("opentag", agent);
+  const channel = createOpenTagChannel(
+    "opentag",
+    agent,
+    options.agentDisplayName,
+  );
   channel.ɵruntime.addAdapter(adapter);
   channels.push(channel);
   return { adapter, agent, channel, stateStore };
 }
 
 describe("createOpenTagChannel", () => {
+  it("uses the configured identity in agent context and capability tooling", async () => {
+    const { adapter, agent, channel } = makeChannel({
+      agentDisplayName: "Kite",
+    });
+
+    await channel.ɵruntime.start();
+    await adapter.getSink().onTurn({
+      conversationKey: "identity-thread",
+      replyTarget: {},
+      userText: "@Kite who are you?",
+      platform: "slack",
+      actor: { id: "U1", kind: "human" },
+      operation: {
+        kind: "created",
+        logicalMessageId: "m1",
+        revisionId: "m1",
+        mentioned: true,
+      },
+    });
+
+    const call = (agent as CapturingAgent).calls[0];
+    expect(call?.context).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          description: "Bot identity & tone",
+          value: expect.stringContaining(
+            "CRITICAL: Your user-facing name is Kite",
+          ),
+        }),
+      ]),
+    );
+    expect(
+      call?.tools?.find(({ name }) => name === "show_capabilities")
+        ?.description,
+    ).toContain("Show Kite's interactive identity");
+  });
+
   it("subscribes a new mentioned conversation and handles a later managed delivery", async () => {
     const { adapter, agent, channel, stateStore } = makeChannel();
 
