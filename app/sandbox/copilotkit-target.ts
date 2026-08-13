@@ -1,14 +1,14 @@
 export type CopilotkitParsedTarget =
   | {
       kind: "pr";
-      owner: "CopilotKit";
+      owner: string;
       repo: string;
       number: number;
     }
   | { kind: "linear"; issueId: string }
   | {
       kind: "gh-issue";
-      owner: "CopilotKit";
+      owner: string;
       repo: string;
       number: number;
     };
@@ -40,52 +40,40 @@ export function parseCopilotkitTarget(
 
   const prUrl = raw.match(PR_URL_RE);
   if (prUrl) {
-    const owner = prUrl[1]!;
-    const repo = prUrl[2]!;
-    const number = Number(prUrl[3]);
-    if (owner.toLowerCase() !== COPILOTKIT_OWNER.toLowerCase()) {
-      return {
-        ok: false,
-        reason: `Refused ${raw}: only CopilotKit org repos are allowed`,
-      };
-    }
     return {
       ok: true,
-      target: { kind: "pr", owner: COPILOTKIT_OWNER, repo, number },
+      target: {
+        kind: "pr",
+        owner: prUrl[1]!,
+        repo: prUrl[2]!,
+        number: Number(prUrl[3]),
+      },
     };
   }
 
   const issueUrl = raw.match(ISSUE_URL_RE);
   if (issueUrl) {
-    const owner = issueUrl[1]!;
-    const repo = issueUrl[2]!;
-    const number = Number(issueUrl[3]);
-    if (owner.toLowerCase() !== COPILOTKIT_OWNER.toLowerCase()) {
-      return {
-        ok: false,
-        reason: `Refused ${raw}: only CopilotKit org repos are allowed`,
-      };
-    }
     return {
       ok: true,
-      target: { kind: "gh-issue", owner: COPILOTKIT_OWNER, repo, number },
+      target: {
+        kind: "gh-issue",
+        owner: issueUrl[1]!,
+        repo: issueUrl[2]!,
+        number: Number(issueUrl[3]),
+      },
     };
   }
 
   const ownerRepoHash = raw.match(OWNER_REPO_HASH_RE);
   if (ownerRepoHash) {
-    const owner = ownerRepoHash[1]!;
-    const repo = ownerRepoHash[2]!;
-    const number = Number(ownerRepoHash[3]);
-    if (owner.toLowerCase() !== COPILOTKIT_OWNER.toLowerCase()) {
-      return {
-        ok: false,
-        reason: `Refused ${raw}: only CopilotKit org repos are allowed`,
-      };
-    }
     return {
       ok: true,
-      target: { kind: "pr", owner: COPILOTKIT_OWNER, repo, number },
+      target: {
+        kind: "pr",
+        owner: ownerRepoHash[1]!,
+        repo: ownerRepoHash[2]!,
+        number: Number(ownerRepoHash[3]),
+      },
     };
   }
 
@@ -119,5 +107,12 @@ export function parseCopilotkitTarget(
     return { ok: true, target: { kind: "linear", issueId: raw.toUpperCase() } };
   }
 
-  return { ok: false, reason: `Cannot parse CopilotKit target: ${raw}` };
+  return { ok: false, reason: `Cannot parse PR target: ${raw}` };
+}
+
+export function githubRepoSlug(target: {
+  owner: string;
+  repo: string;
+}): string {
+  return `${target.owner}/${target.repo}`;
 }

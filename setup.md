@@ -287,13 +287,17 @@ brain. It calls the tools; it does not run inside Daytona.
 Jobs share one sqlite file at `.data/opentag.sqlite`. Override the path with
 `OPENTAG_SQLITE_URL`.
 
-### CopilotKit org work (`run_copilotkit`)
+### GitHub PR and Linear work (`run_copilotkit`)
 
 Use one Slack tool: `run_copilotkit`. Call it with `{ action, target, note? }`.
+
+A bare number is `CopilotKit/CopilotKit`. `repo#n` uses the CopilotKit org.
+`owner/repo#n` or a GitHub PR URL can name any repo.
 
 Examples:
 
 - `merge_main` + `3895` (this is CopilotKit/CopilotKit#3895)
+- `merge_main` + `https://github.com/AlemTuzlak/OpenTag/pull/51`
 - `fix` + `3895` (same PR head; host passes `note`; Codex does the work)
 - `fix` + `3895` + note `resolve the PR feedback` (Codex reads review comments)
 - `fix` + `CPK-7204`

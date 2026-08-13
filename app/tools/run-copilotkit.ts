@@ -69,7 +69,7 @@ export async function dispatchRunCopilotkit(
   if (args.action === "fix" && parsed.target.kind === "pr") {
     try {
       await thread.post(
-        `On it — fixing \`${parsed.target.repo}#${parsed.target.number}\` in Daytona.`,
+        `On it — fixing \`${parsed.target.owner}/${parsed.target.repo}#${parsed.target.number}\` in Daytona.`,
       );
     } catch (error) {
       console.error("[run_copilotkit] status post failed", error);
@@ -87,11 +87,11 @@ export async function dispatchRunCopilotkit(
 
   if (args.action === "merge_main") {
     if (parsed.target.kind !== "pr") {
-      throw new Error("merge_main needs a CopilotKit pull request target");
+      throw new Error("merge_main needs a pull request target");
     }
     try {
       await thread.post(
-        `On it — merging \`${parsed.target.repo}#${parsed.target.number}\` base into the PR head in Daytona.`,
+        `On it — merging \`${parsed.target.owner}/${parsed.target.repo}#${parsed.target.number}\` base into the PR head in Daytona.`,
       );
     } catch (error) {
       console.error("[run_copilotkit] status post failed", error);
@@ -152,13 +152,13 @@ export async function dispatchRunCopilotkit(
 export const runCopilotkitTool = defineChannelTool({
   name: "run_copilotkit",
   description:
-    "Do CopilotKit org work in Daytona + Codex. " +
-    "action=merge_main merges the PR base into a same-repo CopilotKit PR head. " +
-    "action=fix on a PR number/URL/repo#n clones that PR head, does what note says (CI, PR feedback / review comments, or other asked work), and Codex pushes the same branch with GITHUB_TOKEN. " +
+    "Do GitHub PR or Linear work in Daytona + Codex. " +
+    "action=merge_main merges the PR base into a same-repo PR head. " +
+    "action=fix on a PR number/URL/owner/repo#n clones that PR head, does what note says (CI, PR feedback / review comments, or other asked work), and Codex pushes the same branch with GITHUB_TOKEN. " +
     "action=fix on a Linear id (CPK-7204) implements a fix and opens a new PR. " +
     "action=investigate on a Linear id triages with no PR. " +
     "action=review_pr and GitHub-issue fix are not shipped yet. " +
-    "target is 3895, a PR URL, repo#n, or a Linear id. " +
+    "target is 3895 (CopilotKit/CopilotKit), a PR URL, owner/repo#n, repo#n, or a Linear id. " +
     "Call ASAP. merge_main and fix+PR post On it, wait until the original PR URL is ready, and return it. " +
     "Linear fix/investigate post On it and return STARTED.",
   parameters: z.object({

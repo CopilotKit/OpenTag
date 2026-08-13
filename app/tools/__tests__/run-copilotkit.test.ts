@@ -218,22 +218,31 @@ describe("run_copilotkit tool", () => {
     expect(issueFix).toMatch(/not shipped yet/i);
   });
 
-  it("refuses another org before a job starts", async () => {
-    let mergeStarted = false;
-    __setPrMergeJobForRunCopilotkit(async () => {
-      mergeStarted = true;
-      throw new Error("merge must not start");
+  it("starts a merge job for a PR outside CopilotKit", async () => {
+    const calls: PrMergeJobInput[] = [];
+    __setPrMergeJobForRunCopilotkit(async (input) => {
+      calls.push(input);
+      return {
+        runId: input.runId ?? "merge-other",
+        prUrl: "https://github.com/facebook/react/pull/1",
+        dirty: false,
+        conflictFiles: [],
+      };
     });
-    await expect(
-      dispatchRunCopilotkit(
-        {
-          action: "merge_main",
-          target: "https://github.com/facebook/react/pull/1",
-        },
-        thread(),
-      ),
-    ).rejects.toThrow(/CopilotKit/i);
-    expect(mergeStarted).toBe(false);
+    const result = await dispatchRunCopilotkit(
+      {
+        action: "merge_main",
+        target: "https://github.com/facebook/react/pull/1",
+      },
+      thread(),
+    );
+    expect(result).toMatch(/pushed/i);
+    expect(calls[0]?.target).toEqual({
+      kind: "pr",
+      owner: "facebook",
+      repo: "react",
+      number: 1,
+    });
   });
 });
 

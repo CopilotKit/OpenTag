@@ -74,12 +74,26 @@ describe("parseCopilotkitTarget", () => {
     });
   });
 
-  it("refuses another org", () => {
-    const result = parseCopilotkitTarget(
-      "https://github.com/facebook/react/pull/1",
-    );
-    expect(result.ok).toBe(false);
-    if (result.ok) throw new Error("expected refuse");
-    expect(result.reason).toMatch(/CopilotKit/i);
+  it("accepts any GitHub owner and defaults bare numbers to CopilotKit/CopilotKit", () => {
+    expect(
+      parseCopilotkitTarget("https://github.com/facebook/react/pull/1"),
+    ).toEqual({
+      ok: true,
+      target: {
+        kind: "pr",
+        owner: "facebook",
+        repo: "react",
+        number: 1,
+      },
+    });
+    expect(parseCopilotkitTarget("AlemTuzlak/OpenTag#51")).toEqual({
+      ok: true,
+      target: {
+        kind: "pr",
+        owner: "AlemTuzlak",
+        repo: "OpenTag",
+        number: 51,
+      },
+    });
   });
 });

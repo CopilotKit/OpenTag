@@ -167,8 +167,65 @@ describe("runPrMergeJob", () => {
     expect(git.pushHead).not.toHaveBeenCalled();
     expect(runCodex).not.toHaveBeenCalled();
     expect(post).toHaveBeenCalledWith(expect.stringMatching(/^FAILED:/));
+  });
 
-    post.mockClear();
+  it("merges a same-repo PR that is not in the CopilotKit org", async () => {
+    const post = vi.fn(async () => ({}));
+    const git = gitMock({ dirty: false, conflictFiles: [] });
+    const seen: string[] = [];
+    const otherPr: CopilotKitPr = {
+      number: 51,
+      repo: "AlemTuzlak/OpenTag",
+      htmlUrl: "https://github.com/AlemTuzlak/OpenTag/pull/51",
+      state: "open",
+      baseRef: "main",
+      headRef: "feat/sandboxes",
+      headRepo: "AlemTuzlak/OpenTag",
+      isFork: false,
+    };
+
+    const result = await runPrMergeJob(
+      {
+        thread: { post },
+        target: {
+          kind: "pr",
+          owner: "AlemTuzlak",
+          repo: "OpenTag",
+          number: 51,
+        },
+        conversationKey: "slack:C:merge",
+        runId: "merge-other-org",
+      },
+      {
+        readPr: async (repo, number) => {
+          seen.push(`${repo}#${number}`);
+          return otherPr;
+        },
+        git,
+        runCodex: async () => {
+          throw new Error("Codex must not run on a clean merge");
+        },
+        verifyHead: async (input) => ({
+          ok: true,
+          prUrl: otherPr.htmlUrl,
+          number: 51,
+          headRef: "feat/sandboxes",
+          headRepo: input.repo,
+        }),
+      },
+    );
+
+    expect(seen).toEqual(["AlemTuzlak/OpenTag#51"]);
+    expect(result.prUrl).toBe(otherPr.htmlUrl);
+    expect(git.pushHead).toHaveBeenCalledWith("feat/sandboxes");
+    expect(post).not.toHaveBeenCalledWith(expect.stringMatching(/CopilotKit org/i));
+  });
+
+  it("closed PR: FAILED, no push", async () => {
+    const post = vi.fn(async () => ({}));
+    const git = gitMock({ dirty: false, conflictFiles: [] });
+    const runCodex = vi.fn(async () => ({ agentText: "" }));
+
     await expect(
       runPrMergeJob(
         {

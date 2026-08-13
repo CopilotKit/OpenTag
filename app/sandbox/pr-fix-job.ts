@@ -33,6 +33,7 @@ import {
   writeCopilotkitArtifact,
 } from "./pr-merge-store.js";
 import { sandboxThreadId } from "./sandbox-thread-id.js";
+import { githubRepoSlug } from "./copilotkit-target.js";
 
 export type PrFixGit = {
   revParseHead: () => Promise<string>;
@@ -52,7 +53,7 @@ export type PrFixJobInput = {
   thread: { post: (content: string) => Promise<unknown> };
   target: {
     kind: "pr";
-    owner: "CopilotKit";
+    owner: string;
     repo: string;
     number: number;
   };
@@ -69,8 +70,6 @@ export type PrFixJobDeps = {
   destroySandbox?: () => Promise<void>;
 };
 
-const COPILOTKIT_OWNER = "CopilotKit";
-
 export async function runPrFixJob(
   input: PrFixJobInput,
   deps: PrFixJobDeps = {},
@@ -86,7 +85,8 @@ export async function runPrFixJob(
   const model = resolveLinearFixModel();
   const reasoning = resolveLinearFixReasoning();
   const runId = input.runId ?? randomUUID();
-  const targetLabel = `${COPILOTKIT_OWNER}/${input.target.repo}#${input.target.number}`;
+  const fullRepo = githubRepoSlug(input.target);
+  const targetLabel = `${fullRepo}#${input.target.number}`;
   const threadId = sandboxThreadId("copilotkit", conversationKey);
   const persistence = opentagSqlitePersistence();
   await persistence.stores.runs.createOrResume({
@@ -119,18 +119,14 @@ export async function runPrFixJob(
   };
 
   try {
-    const fullRepo = `${COPILOTKIT_OWNER}/${input.target.repo}`;
     const readPr = deps.readPr ?? defaultReadPr;
-    const pr = await readPr(input.target.repo, input.target.number);
+    const pr = await readPr(fullRepo, input.target.number);
 
     if (pr.state !== "open") {
       await fail(`PR #${pr.number} is closed`);
     }
     if (pr.isFork) {
       await fail(`PR #${pr.number} head is a fork`);
-    }
-    if (!isCopilotKitRepo(pr.repo) || !isCopilotKitRepo(pr.headRepo)) {
-      await fail(`PR #${pr.number} is not a CopilotKit org repo`);
     }
 
     const defaults = await maybeCreateDefaults({
@@ -241,16 +237,12 @@ export async function runPrFixJob(
   }
 }
 
-function isCopilotKitRepo(name: string): boolean {
-  return name.toLowerCase().startsWith(`${COPILOTKIT_OWNER.toLowerCase()}/`);
-}
-
 async function defaultReadPr(
   repo: string,
   number: number,
 ): Promise<CopilotKitPr> {
   const { githubToken } = requireGithubCodexEnv();
-  const apiUrl = `https://api.github.com/repos/${COPILOTKIT_OWNER}/${repo}/pulls/${number}`;
+  const apiUrl = `https://api.github.com/repos/${repo}/pulls/${number}`;
   const response = await fetch(apiUrl, {
     headers: {
       Accept: "application/vnd.github+json",
@@ -272,17 +264,16 @@ async function defaultReadPr(
     };
   };
   const headRepo = data.head?.repo?.full_name ?? "";
-  const expected = `${COPILOTKIT_OWNER}/${repo}`;
   const isFork =
     data.head?.repo == null ||
     data.head.repo.fork === true ||
-    headRepo.toLowerCase() !== expected.toLowerCase();
+    headRepo.toLowerCase() !== repo.toLowerCase();
   return {
     number,
-    repo: expected,
+    repo,
     htmlUrl:
       data.html_url?.trim() ||
-      `https://github.com/${expected}/pull/${number}`,
+      `https://github.com/${repo}/pull/${number}`,
     state: data.state === "open" ? "open" : "closed",
     baseRef: data.base?.ref ?? "",
     headRef: data.head?.ref ?? "",
@@ -320,7 +311,7 @@ async function maybeCreateDefaults(input: {
   requireGithubCodexEnv();
   const persistence = opentagSqlitePersistence();
   const threadId = sandboxThreadId("copilotkit", input.conversationKey);
-  const fullRepo = `${COPILOTKIT_OWNER}/${input.input.target.repo}`;
+  const fullRepo = githubRepoSlug(input.input.target);
   const sandbox = createCopilotkitSandbox({
     repo: fullRepo,
     ref: input.pr.headRef,
