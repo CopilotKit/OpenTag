@@ -7,7 +7,9 @@ def test_python_package_uses_opentag_identity():
     project = tomllib.loads(pyproject_path.read_text())["project"]
 
     assert project["name"] == "opentag-agent"
-    assert project["description"].startswith("OpenTag on-call triage agent")
+    assert project["description"].startswith(
+        "OpenTag general-purpose team knowledge-work agent"
+    )
 
 
 def test_deepagents_minimum_supports_harness_profiles():

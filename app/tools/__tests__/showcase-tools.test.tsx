@@ -20,10 +20,217 @@ import {
   showStatusTool,
   showLinksTool,
 } from "../showcase-tools.js";
+import { CapabilitiesCard } from "../capabilities.js";
+import { appTools } from "../index.js";
 
 type IncidentCtx = Parameters<typeof showIncidentTool.handler>[1];
 type StatusCtx = Parameters<typeof showStatusTool.handler>[1];
 type LinksCtx = Parameters<typeof showLinksTool.handler>[1];
+
+describe("show_capabilities render-tool", () => {
+  it("renders a configured identity throughout the capability showcase", () => {
+    const initial = JSON.stringify(
+      renderSlackMessage(
+        renderToIR(<CapabilitiesCard agentDisplayName="Kite" />),
+      ).blocks,
+    );
+
+    expect(initial).toContain("Meet Kite");
+    expect(initial).not.toContain("Meet OpenTag");
+  });
+
+  it("posts an interactive capability showcase instead of prose", async () => {
+    const tool = appTools.find(({ name }) => name === "show_capabilities");
+    expect(tool).toBeDefined();
+    if (!tool) return;
+
+    const { posts, updates, thread } = fakeThread();
+    const result = await tool.handler({}, {
+      thread,
+      platform: "slack",
+    } as never);
+
+    expect(result).toContain("Do not post a separate confirmation");
+    expect(posts).toHaveLength(1);
+    const { blocks } = renderSlackMessage(renderToIR(posts[0] as never));
+    expect(blocks[0]).toMatchObject({
+      type: "header",
+      text: { type: "plain_text", text: "✨ Meet OpenTag" },
+    });
+    const rendered = JSON.stringify(blocks);
+    expect(rendered).toContain("Synthesize context");
+    expect(rendered).toContain("Support decisions");
+    expect(rendered).toContain("Plan and create");
+    expect(rendered).toContain("Visualize ideas and data");
+    expect(rendered).toContain("Take connected action");
+    expect(rendered).toContain("Show me examples");
+    expect(rendered).not.toContain(
+      "Rich UI is part of the answer, not an optional extra.",
+    );
+    expect(blocks.some((block) => block.type === "actions")).toBe(true);
+
+    const button = findWithProp(
+      renderToIR(posts[0] as never),
+      "button",
+      "onClick",
+    );
+    const onClick = button?.props.onClick as ClickHandler;
+    await onClick({
+      thread,
+      message: {
+        ref: { id: "m1" },
+        text: "",
+        user: { id: "U1" },
+        platform: "slack",
+      },
+      user: { id: "U1", name: "Sam" },
+      action: { id: "examples" },
+      values: {},
+      platform: "slack",
+    } as unknown as InteractionContext);
+
+    expect(updates).toHaveLength(1);
+    const expandedBlocks = renderSlackMessage(
+      renderToIR(updates[0]?.ui as never),
+    ).blocks;
+    const expanded = JSON.stringify(expandedBlocks);
+    expect(expanded).toContain("Meet OpenTag");
+    expect(expanded).toContain("Synthesize context");
+    expect(expanded).toContain("Take connected action");
+    expect(expanded).toContain("OpenTag in action");
+    expect(expanded).toContain("A staged launch balances");
+    expect(expanded).toContain("Onboarding completion rose 18%");
+    expect(expanded).toContain("Pilot with the support team");
+    expect(
+      expandedBlocks.filter(
+        (block) => (block as { type: string }).type === "data_visualization",
+      ),
+    ).toHaveLength(2);
+    expect(expanded).toContain('"type":"bar"');
+    expect(expanded).toContain('"type":"pie"');
+    expect(expanded).not.toContain(
+      "Rich UI is part of the answer, not an optional extra.",
+    );
+    expect(expanded).not.toContain("Synthesize this thread");
+    expect(expanded).not.toContain("Diagram this workflow");
+  });
+});
+
+describe("show_work_plan render-tool", () => {
+  it("posts a purpose-built Slack Block Kit work plan instead of a table", async () => {
+    const tool = appTools.find(({ name }) => name === "show_work_plan");
+    expect(tool).toBeDefined();
+    if (!tool) return;
+
+    const { posts, thread } = fakeThread();
+    const result = await tool.handler(
+      {
+        heading: "OSS-816 rollout",
+        summary: "Validate the new knowledge-worker behavior before release.",
+        items: [
+          {
+            title: "Define acceptance criteria",
+            status: "done",
+            owner: "Sam",
+            detail: "Cover issue triage and work-plan rendering.",
+          },
+          {
+            title: "Run Slack scenarios",
+            status: "in_progress",
+          },
+        ],
+      },
+      { thread, platform: "slack" } as never,
+    );
+
+    expect(result).toContain("Do not post a separate confirmation");
+    expect(posts).toHaveLength(1);
+
+    const { blocks } = renderSlackMessage(renderToIR(posts[0] as never));
+    expect(blocks[0]).toMatchObject({
+      type: "header",
+      text: { type: "plain_text", text: "🗺️ OSS-816 rollout" },
+    });
+    const rendered = JSON.stringify(blocks);
+    expect(rendered).toContain("Define acceptance criteria");
+    expect(rendered).toContain("Sam");
+    expect(rendered).toContain("Run Slack scenarios");
+    expect(blocks.some((block) => block.type === "table")).toBe(false);
+  });
+});
+
+describe("knowledge-work render-tools", () => {
+  it("renders a decision brief as purpose-built Slack blocks", async () => {
+    const tool = appTools.find(({ name }) => name === "show_decision_brief");
+    expect(tool).toBeDefined();
+    if (!tool) return;
+
+    const { posts, thread } = fakeThread();
+    const result = await tool.handler(
+      {
+        heading: "Office hours cadence",
+        question: "Should we run office hours weekly or monthly?",
+        recommendation: "Run a six-week weekly pilot.",
+        options: [
+          { name: "Weekly", assessment: "Faster learning; higher staffing." },
+          { name: "Monthly", assessment: "Lower cost; slower feedback." },
+        ],
+        rationale: ["The launch needs a short feedback loop."],
+        risks: ["Attendance may not justify the staffing cost."],
+        nextStep: "Name a host and publish the first three dates.",
+      },
+      { thread, platform: "slack" } as never,
+    );
+
+    expect(result).toContain("Do not post a separate confirmation");
+    expect(posts).toHaveLength(1);
+    const { blocks } = renderSlackMessage(renderToIR(posts[0] as never));
+    expect(blocks[0]).toMatchObject({
+      type: "header",
+      text: { type: "plain_text", text: "⚖️ Office hours cadence" },
+    });
+    const rendered = JSON.stringify(blocks);
+    expect(rendered).toContain("Run a six-week weekly pilot");
+    expect(rendered).toContain("Weekly");
+    expect(rendered).toContain("Monthly");
+    expect(rendered).toContain("Next step");
+    expect(blocks.some((block) => block.type === "table")).toBe(false);
+  });
+
+  it("renders synthesized knowledge with findings, decisions, actions, and questions", async () => {
+    const tool = appTools.find(({ name }) => name === "show_knowledge_summary");
+    expect(tool).toBeDefined();
+    if (!tool) return;
+
+    const { posts, thread } = fakeThread();
+    const result = await tool.handler(
+      {
+        heading: "Customer feedback synthesis",
+        summary: "Teams want faster setup with clearer failure recovery.",
+        findings: ["Onboarding terminology is inconsistent."],
+        decisions: ["Use one canonical setup path."],
+        actions: [{ task: "Rewrite the onboarding checklist", owner: "Ada" }],
+        openQuestions: ["Which failures can be detected automatically?"],
+      },
+      { thread, platform: "slack" } as never,
+    );
+
+    expect(result).toContain("Do not post a separate confirmation");
+    expect(posts).toHaveLength(1);
+    const { blocks } = renderSlackMessage(renderToIR(posts[0] as never));
+    expect(blocks[0]).toMatchObject({
+      type: "header",
+      text: { type: "plain_text", text: "🧠 Customer feedback synthesis" },
+    });
+    const rendered = JSON.stringify(blocks);
+    expect(rendered).toContain("Key findings");
+    expect(rendered).toContain("Decisions");
+    expect(rendered).toContain("Action items");
+    expect(rendered).toContain("Open questions");
+    expect(rendered).toContain("Ada");
+    expect(blocks.some((block) => block.type === "table")).toBe(false);
+  });
+});
 
 /** A fake `thread` recording posts and updates. */
 function fakeThread() {
@@ -383,9 +590,7 @@ describe("show_links render-tool", () => {
     await showLinksTool.handler(
       {
         heading: "Runbooks",
-        links: [
-          { label: "Auth outage", url: "https://example.com/auth" },
-        ],
+        links: [{ label: "Auth outage", url: "https://example.com/auth" }],
       },
       { thread } as unknown as LinksCtx,
     );

@@ -68,12 +68,14 @@ Then:
 3. **Attach the existing `xoxb-` token and signing secret** in Intelligence,
    entered directly into the Slack attachment.
 4. **Start the OpenTag `runtime` service** with `INTELLIGENCE_CHANNEL_NAME` set
-   to the Channel name in `.copilotkit/channels.json`.
+   to the Channel name in `.copilotkit/channels.json`. Set
+   `AGENT_DISPLAY_NAME=Kite` on both the `runtime` and `agent` services so the
+   persona and capability UI match the existing Slack app identity.
 5. **Verify.** See below.
 
 ## Acceptance
 
-Production acceptance is one end-to-end `@kite` mention that returns the OpenTag
+Production acceptance is one end-to-end `@kite` mention that returns the Kite
 persona through the Python agent. Add the two trigger checks that catch the
 regressions this repo has actually shipped — an unmentioned follow-up in that
 subscribed thread should reply, and an unmentioned message in a fresh

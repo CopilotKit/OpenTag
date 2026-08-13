@@ -2,12 +2,10 @@ import { describe, expect, it, vi } from "vitest";
 import { FakeAdapter, FakeAgent } from "@copilotkit/channels";
 import { createOpenTagChannel } from "./channel.js";
 import type { AppEnvironment } from "./env.js";
-import {
-  OPENTAG_SERVICE_USER,
-  createOpenTagRuntime,
-} from "./runtime-host.js";
+import { OPENTAG_SERVICE_USER, createOpenTagRuntime } from "./runtime-host.js";
 
 const environment: AppEnvironment = {
+  agentDisplayName: "OpenTag",
   agentUrl: "http://agent.internal",
   agentAuthHeader: "Bearer agent-secret",
   intelligenceApiKey: "cpk-1_test-secret",
@@ -43,9 +41,7 @@ describe("createOpenTagRuntime", () => {
     expect(runtime.mode).toBe("intelligence");
     expect(runtime.channels).toEqual(channels);
     expect(intelligence.ɵgetApiUrl()).toBe(environment.intelligenceApiUrl);
-    expect(intelligence.ɵgetClientWsUrl()).toContain(
-      "gateway.example.test",
-    );
+    expect(intelligence.ɵgetClientWsUrl()).toContain("gateway.example.test");
     expect(
       await runtime.identifyUser?.(new Request("http://localhost")),
     ).toEqual(OPENTAG_SERVICE_USER);

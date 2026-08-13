@@ -1,0 +1,66 @@
+name: Kite / Deploy released version
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: Environment to redeploy or roll back
+        required: true
+        type: choice
+        options: [staging, prod, community]
+      version:
+        description: Exact released version, for example v0.2.0
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  resolve-version:
+    runs-on: ubuntu-latest
+    outputs:
+      agent_image: ${{ steps.manifest.outputs.agent_image }}
+      runtime_image: ${{ steps.manifest.outputs.runtime_image }}
+    steps:
+      - name: Verify release manifest
+        id: manifest
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          [[ "$RELEASE_VERSION" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          gh release download "$RELEASE_VERSION" \
+            --repo "$GITHUB_REPOSITORY" --pattern container-images.json
+
+          expected_commit=$(gh api "repos/$GITHUB_REPOSITORY/commits/$RELEASE_VERSION" --jq .sha)
+          jq -e \
+            --arg version "$RELEASE_VERSION" \
+            --arg commit "$expected_commit" '
+              .version == $version and
+              .commit == $commit and
+              .images.agent.repository == "ghcr.io/copilotkit/opentag-agent" and
+              .images.runtime.repository == "ghcr.io/copilotkit/opentag-runtime" and
+              .images.agent.reference == (.images.agent.repository + "@" + .images.agent.digest) and
+              .images.runtime.reference == (.images.runtime.repository + "@" + .images.runtime.digest)
+            ' container-images.json >/dev/null
+
+          agent_image=$(jq -r .images.agent.reference container-images.json)
+          runtime_image=$(jq -r .images.runtime.reference container-images.json)
+          [[ "$agent_image" =~ ^ghcr\.io/copilotkit/opentag-agent@sha256:[0-9a-f]{64}$ ]]
+          [[ "$runtime_image" =~ ^ghcr\.io/copilotkit/opentag-runtime@sha256:[0-9a-f]{64}$ ]]
+          echo "agent_image=$agent_image" >> "$GITHUB_OUTPUT"
+          echo "runtime_image=$runtime_image" >> "$GITHUB_OUTPUT"
+
+  deploy:
+    needs: resolve-version
+    permissions:
+      contents: read
+      id-token: write
+    uses: ./.github/workflows/_deploy-kite-environment.yml
+    with:
+      agent_image: ${{ needs.resolve-version.outputs.agent_image }}
+      environment: ${{ inputs.environment }}
+      github_environment: kite-${{ inputs.environment }}
+      runtime_image: ${{ needs.resolve-version.outputs.runtime_image }}

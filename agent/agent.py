@@ -1,4 +1,4 @@
-"""OpenTag's triage-first Deep Agent."""
+"""OpenTag's general-purpose knowledge-work Deep Agent."""
 
 import os
 from pathlib import Path
@@ -17,9 +17,11 @@ from langgraph.checkpoint.memory import MemorySaver
 from internal_sources import internal_source_tools
 from prompts import (
     BASE_SYSTEM_PROMPT,
+    DEFAULT_AGENT_DISPLAY_NAME,
     NO_WEB_SEARCH_TOOL_ADDENDUM,
     WEB_SEARCH_TOOL_ADDENDUM,
     current_date_prompt,
+    build_base_system_prompt,
 )
 from tools import web_search
 
@@ -32,7 +34,7 @@ VALID_VERBOSITY_LEVELS = frozenset({"low", "medium", "high"})
 
 # Deep Agents adds shell execution and a general-purpose delegation tool by
 # default. OpenTag has no sandbox for execute, and delegating routine turns to
-# another agent adds latency without improving triage.
+# another agent adds latency without improving routine work.
 register_harness_profile(
     "openai",
     HarnessProfile(
@@ -57,7 +59,7 @@ def _validated_openai_setting(
 
 
 def build_agent():
-    """Build the OpenTag triage graph."""
+    """Build the OpenTag knowledge-work graph."""
     api_key = os.environ.get("OPENAI_API_KEY")
     if not api_key:
         raise RuntimeError("Missing OPENAI_API_KEY environment variable")
@@ -89,7 +91,11 @@ def build_agent():
         else [*internal_tools]
     )
 
-    system_prompt = BASE_SYSTEM_PROMPT + (
+    agent_display_name = (
+        os.environ.get("AGENT_DISPLAY_NAME", DEFAULT_AGENT_DISPLAY_NAME).strip()
+        or DEFAULT_AGENT_DISPLAY_NAME
+    )
+    system_prompt = build_base_system_prompt(agent_display_name) + (
         WEB_SEARCH_TOOL_ADDENDUM
         if has_web_search
         else NO_WEB_SEARCH_TOOL_ADDENDUM

@@ -1,4 +1,8 @@
-import type { AgentContentPart, IncomingMessage } from "@copilotkit/channels";
+import type {
+  AgentContentPart,
+  ChannelTool,
+  IncomingMessage,
+} from "@copilotkit/channels";
 import { describe, expect, it } from "vitest";
 import {
   defaultSlackContext,
@@ -67,5 +71,22 @@ describe("managedRunInput", () => {
         },
       ],
     });
+  });
+
+  it("merges conditional tools after Slack defaults", () => {
+    const conditionalTool = { name: "conditional" } as ChannelTool;
+
+    expect(managedRunInput(message(), [conditionalTool]).tools).toEqual([
+      ...defaultSlackTools,
+      conditionalTool,
+    ]);
+  });
+
+  it("adds conditional tools to Teams without adding Slack defaults", () => {
+    const conditionalTool = { name: "conditional" } as ChannelTool;
+
+    expect(
+      managedRunInput(message({ platform: "teams" }), [conditionalTool]).tools,
+    ).toEqual([conditionalTool]);
   });
 });

@@ -81,6 +81,17 @@ def test_build_agent_accepts_valid_reasoning_and_verbosity_overrides(monkeypatch
     assert captured["model"]["verbosity"] == "medium"
 
 
+def test_build_agent_uses_configured_display_name(monkeypatch):
+    monkeypatch.setenv("AGENT_DISPLAY_NAME", "Kite")
+
+    _, captured = build_with_captured_configuration(monkeypatch)
+
+    assert "CRITICAL: Your user-facing name is Kite" in captured["agent"][
+        "system_prompt"
+    ]
+    assert "You are OpenTag" not in captured["agent"]["system_prompt"]
+
+
 @pytest.mark.parametrize(
     ("name", "value"),
     [

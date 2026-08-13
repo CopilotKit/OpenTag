@@ -137,6 +137,7 @@ describe("startOpenTagServer", () => {
 describe("createOpenTagApplication", () => {
   it("declares one adapter-free managed Channel", () => {
     const environment: AppEnvironment = {
+      agentDisplayName: "OpenTag",
       agentUrl: "http://agent.internal/",
       intelligenceApiKey: "cpk-1_test",
       intelligenceApiUrl: "https://api.intelligence.test",
@@ -152,9 +153,7 @@ describe("createOpenTagApplication", () => {
         name: channel.name,
         adapters: channel.adapters,
       })),
-    ).toEqual([
-      { name: "open-tag", adapters: [] },
-    ]);
+    ).toEqual([{ name: "open-tag", adapters: [] }]);
     expect(application.runtime.channels).toEqual(application.channels);
   });
 });

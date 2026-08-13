@@ -35,8 +35,14 @@ export const renderDiagramTool = defineChannelTool({
   description:
     "Render a Mermaid diagram as an image and post it to the conversation " +
     "thread. Pass Mermaid source (flowchart/sequence/state/etc). Use this to " +
-    "diagram a flow, architecture, or incident timeline. The image renders " +
-    "inline in the conversation.",
+    "diagram a flow, architecture, or incident timeline. Prefer top-down " +
+    "layouts and concise node labels for larger workflows so the result stays " +
+    "readable at Slack width. Use Mermaid classDef directives for restrained " +
+    "semantic color when the diagram has distinct stages, decisions, risks, or " +
+    "outcomes; favor CopilotKit's soft orange (#FFEEDB), lavender (#F3F3FC), " +
+    "yellow (#FFFBDB), and grey wash (#C9C9DA) fills. These hex values are " +
+    "Mermaid-compatible equivalents of the translucent brand washes. The " +
+    "image renders inline in the conversation.",
   parameters: schema,
   async handler({ title, mermaid }, ctx) {
     try {

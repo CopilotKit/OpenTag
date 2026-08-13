@@ -1,4 +1,4 @@
-"""FastAPI server for the OpenTag triage agent."""
+"""FastAPI server for the OpenTag knowledge-work agent."""
 
 from collections.abc import Mapping
 import os
@@ -13,14 +13,14 @@ from agent import build_agent
 
 app = FastAPI(
     title="OpenTag Agent",
-    description="An on-call triage assistant powered by Deep Agents and CopilotKit",
+    description="A team knowledge-work agent powered by Deep Agents and CopilotKit",
     version="0.1.0",
 )
 
 AGENT_NAME = "opentag_research"
 AGENT_DESCRIPTION = (
-    "OpenTag on-call triage assistant for incidents, research, and "
-    "Linear/Notion workflows"
+    "OpenTag general-purpose team knowledge-work agent for research, analysis, "
+    "planning, knowledge capture, and connected workflows"
 )
 
 # Allow all origins locally, or set CORS_ALLOW_ORIGINS to restrict access.
