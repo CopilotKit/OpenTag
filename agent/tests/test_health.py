@@ -123,7 +123,5 @@ def test_system_prompt_requires_confirmation_only_for_writes():
 
 
 def test_system_prompt_uses_opentag_persona():
-    assert (
-        "OpenTag, a general-purpose team knowledge-work agent"
-        in agent_mod.BASE_SYSTEM_PROMPT
-    )
+    assert "CRITICAL: Your user-facing name is OpenTag" in agent_mod.BASE_SYSTEM_PROMPT
+    assert "general-purpose team knowledge-work agent" in agent_mod.BASE_SYSTEM_PROMPT

@@ -90,6 +90,7 @@ These CDK context values become container environment variables:
 
 | CDK context | Container variable | Default |
 | --- | --- | --- |
+| `agentDisplayName` | `AGENT_DISPLAY_NAME` on both containers | `OpenTag` |
 | `channelName` | `INTELLIGENCE_CHANNEL_NAME` | `open-tag` |
 | `intelligenceApiUrl` | `INTELLIGENCE_API_URL` | CopilotKit hosted API |
 | `intelligenceGatewayWsUrl` | `INTELLIGENCE_GATEWAY_WS_URL` | CopilotKit hosted realtime gateway |

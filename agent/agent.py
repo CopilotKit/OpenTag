@@ -17,9 +17,11 @@ from langgraph.checkpoint.memory import MemorySaver
 from internal_sources import internal_source_tools
 from prompts import (
     BASE_SYSTEM_PROMPT,
+    DEFAULT_AGENT_DISPLAY_NAME,
     NO_WEB_SEARCH_TOOL_ADDENDUM,
     WEB_SEARCH_TOOL_ADDENDUM,
     current_date_prompt,
+    build_base_system_prompt,
 )
 from tools import web_search
 
@@ -89,7 +91,11 @@ def build_agent():
         else [*internal_tools]
     )
 
-    system_prompt = BASE_SYSTEM_PROMPT + (
+    agent_display_name = (
+        os.environ.get("AGENT_DISPLAY_NAME", DEFAULT_AGENT_DISPLAY_NAME).strip()
+        or DEFAULT_AGENT_DISPLAY_NAME
+    )
+    system_prompt = build_base_system_prompt(agent_display_name) + (
         WEB_SEARCH_TOOL_ADDENDUM
         if has_web_search
         else NO_WEB_SEARCH_TOOL_ADDENDUM

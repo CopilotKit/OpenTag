@@ -5,6 +5,7 @@ import type { AppEnvironment } from "./env.js";
 import { OPENTAG_SERVICE_USER, createOpenTagRuntime } from "./runtime-host.js";
 
 const environment: AppEnvironment = {
+  agentDisplayName: "OpenTag",
   agentUrl: "http://agent.internal",
   agentAuthHeader: "Bearer agent-secret",
   intelligenceApiKey: "cpk-1_test-secret",

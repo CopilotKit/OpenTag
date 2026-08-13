@@ -13,19 +13,22 @@ import {
   type InteractionContext,
 } from "@copilotkit/channels";
 import { Slack } from "@copilotkit/channels/slack";
+import { DEFAULT_AGENT_DISPLAY_NAME } from "../env.js";
 
 interface CapabilitiesCardProps {
+  agentDisplayName?: string;
   showExamples?: boolean;
   platform?: InteractionContext["platform"];
 }
 
 export function CapabilitiesCard({
+  agentDisplayName = DEFAULT_AGENT_DISPLAY_NAME,
   showExamples = false,
   platform,
 }: CapabilitiesCardProps = {}) {
   return (
     <Message accent="#010507">
-      <Header>✨ Meet OpenTag</Header>
+      <Header>{`✨ Meet ${agentDisplayName}`}</Header>
       <Section>
         A general-purpose knowledge-work agent that turns scattered team context
         into clear answers, useful artifacts, and connected action.
@@ -64,7 +67,11 @@ export function CapabilitiesCard({
             }: InteractionContext) => {
               await thread.update(
                 message.ref,
-                <CapabilitiesCard showExamples platform={platform} />,
+                <CapabilitiesCard
+                  agentDisplayName={agentDisplayName}
+                  showExamples
+                  platform={platform}
+                />,
               );
             }}
           >
@@ -73,7 +80,9 @@ export function CapabilitiesCard({
         </Actions>
       ) : null}
       {showExamples ? <Divider /> : null}
-      {showExamples ? <Header>🪄 OpenTag in action</Header> : null}
+      {showExamples ? (
+        <Header>{`🪄 ${agentDisplayName} in action`}</Header>
+      ) : null}
       {showExamples ? (
         <Section>
           **⚖️ Decision brief**{`\n`}**Recommendation:** A staged launch
@@ -142,23 +151,30 @@ export function CapabilitiesCard({
       ) : null}
       {showExamples ? (
         <Context>
-          These are representative outputs—OpenTag adapts the artifact and level
-          of detail to the work at hand.
+          {`These are representative outputs—${agentDisplayName} adapts the artifact and level of detail to the work at hand.`}
         </Context>
       ) : null}
     </Message>
   );
 }
 
-export const showCapabilitiesTool = defineChannelTool({
-  name: "show_capabilities",
-  description:
-    "Show OpenTag's interactive identity and capability showcase. Always use " +
-    "for identity, capability, or demo-introduction questions such as " +
-    "'who are you?', 'what can you do?', 'how can you help?', or 'introduce yourself'.",
-  parameters: z.object({}),
-  async handler(_props, { thread }) {
-    await thread.post(<CapabilitiesCard />);
-    return "The capabilities showcase is the complete user-facing answer. Do not post a separate confirmation or restatement.";
-  },
-});
+export function createShowCapabilitiesTool(
+  agentDisplayName = DEFAULT_AGENT_DISPLAY_NAME,
+) {
+  return defineChannelTool({
+    name: "show_capabilities",
+    description:
+      `Show ${agentDisplayName}'s interactive identity and capability showcase. Always use ` +
+      "for identity, capability, or demo-introduction questions such as " +
+      "'who are you?', 'what can you do?', 'how can you help?', or 'introduce yourself'.",
+    parameters: z.object({}),
+    async handler(_props, { thread }) {
+      await thread.post(
+        <CapabilitiesCard agentDisplayName={agentDisplayName} />,
+      );
+      return "The capabilities showcase is the complete user-facing answer. Do not post a separate confirmation or restatement.";
+    },
+  });
+}
+
+export const showCapabilitiesTool = createShowCapabilitiesTool();

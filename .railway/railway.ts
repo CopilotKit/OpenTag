@@ -24,6 +24,7 @@ export default defineRailway(() => {
     },
     env: {
       PORT: "8123",
+      AGENT_DISPLAY_NAME: preserve(),
       OPENAI_API_KEY: preserve(),
       TAVILY_API_KEY: preserve(),
       GITHUB_PERSONAL_ACCESS_TOKEN: preserve(),
@@ -54,6 +55,7 @@ export default defineRailway(() => {
     },
     env: {
       PORT: "3000",
+      AGENT_DISPLAY_NAME: preserve(),
       AGENT_URL:
         "http://${{agent.RAILWAY_PRIVATE_DOMAIN}}:${{agent.PORT}}/",
       INTELLIGENCE_API_KEY: preserve(),
