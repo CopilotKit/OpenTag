@@ -25,24 +25,32 @@ export function promptFromMessage(
  * Add only the source platform's defaults. Intelligence is the transport;
  * `message.platform` is the originating provider (`slack` or `teams`).
  */
-export function managedRunInput(message: IncomingMessage) {
+export function managedRunInput(
+  message: IncomingMessage,
+  conditionalTools: ChannelTool[] = [],
+) {
   return {
     prompt: promptFromMessage(message),
-    ...platformRunInput(message.platform, message.actor),
+    ...platformRunInput(message.platform, message.actor, conditionalTools),
   };
 }
 
 export function platformRunInput(
   platform: string,
   actor: ProviderActor | undefined,
+  conditionalTools: ChannelTool[] = [],
 ): {
   tools?: ChannelTool[];
   context: ContextEntry[];
 } {
   const slack = platform === "slack";
+  const tools = [
+    ...(slack ? defaultSlackTools : []),
+    ...conditionalTools,
+  ];
 
   return {
-    ...(slack ? { tools: [...defaultSlackTools] } : {}),
+    ...(tools.length > 0 ? { tools } : {}),
     context: [
       ...(slack ? defaultSlackContext : []),
       ...senderContext(actor, platform),

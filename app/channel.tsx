@@ -1,6 +1,7 @@
 import {
   createChannel,
   type Channel,
+  type ChannelTool,
   type CreateChannelOptions,
 } from "@copilotkit/channels";
 import { managedRunInput, reportRecoverableError } from "./channel-helpers.js";
@@ -13,6 +14,10 @@ import { FILE_ISSUE_CALLBACK, fileIssueSubmit } from "./modals/file-issue.js";
 import { IncidentCard } from "./tools/showcase-tools.js";
 import { RenderChart } from "./tools/render-chart.js";
 import { appTools } from "./tools/index.js";
+import {
+  subscribeThreadTool,
+  unsubscribeThreadTool,
+} from "./tools/thread-subscription.js";
 
 type ChannelAgent = NonNullable<CreateChannelOptions["agent"]>;
 
@@ -38,12 +43,16 @@ export function createOpenTagChannel(
     ],
   });
 
-  const runAgentSafely: Parameters<typeof channel.onMessage>[0] = async ({
-    thread,
-    message,
-  }) => {
+  type MessageHandlerInput = Parameters<
+    Parameters<typeof channel.onMessage>[0]
+  >[0];
+
+  const runAgentSafely = async (
+    { thread, message }: MessageHandlerInput,
+    conditionalTools: ChannelTool[],
+  ) => {
     try {
-      await thread.runAgent(managedRunInput(message));
+      await thread.runAgent(managedRunInput(message, conditionalTools));
     } catch (error) {
       try {
         await thread.post(
@@ -66,15 +75,38 @@ export function createOpenTagChannel(
   };
 
   channel.onMention(async ({ thread, message }) => {
-    await thread.subscribe();
-    await runAgentSafely({ thread, message });
+    if (message.actor.kind === "bot" || message.actor.kind === "app") return;
+
+    if (await thread.isSubscribed()) {
+      await runAgentSafely({ thread, message }, [unsubscribeThreadTool]);
+      return;
+    }
+
+    let isNewConversation = true;
+    try {
+      const history = await thread.getMessages();
+      isNewConversation = !history || history.length <= 1;
+    } catch (error) {
+      reportRecoverableError(error, {
+        operation: "get_thread_history",
+        recovery: "treat_as_new_conversation",
+      });
+    }
+
+    if (isNewConversation) {
+      await thread.subscribe();
+      await runAgentSafely({ thread, message }, [unsubscribeThreadTool]);
+      return;
+    }
+
+    await runAgentSafely({ thread, message }, [subscribeThreadTool]);
   });
 
   channel.onMessage(async ({ thread, message }) => {
     if (message.actor.kind === "bot" || message.actor.kind === "app") return;
 
     if (await thread.isSubscribed()) {
-      await runAgentSafely({ thread, message });
+      await runAgentSafely({ thread, message }, [unsubscribeThreadTool]);
     }
   });
 
