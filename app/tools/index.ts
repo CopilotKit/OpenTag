@@ -5,6 +5,10 @@
  * Add new tools here and include them in `appTools`. Wire the array into
  * `createChannel({ tools })`.
  */
+import {
+  blockCatalogTool,
+  isBlockCatalogEnabled,
+} from "./block-catalog.js";
 import { readThreadTool } from "./read-thread.js";
 import { createShowCapabilitiesTool } from "./capabilities.js";
 import { renderDiagramTool } from "./render-diagram.js";
@@ -31,6 +35,7 @@ import { DEFAULT_AGENT_DISPLAY_NAME } from "../env.js";
  */
 export function createAppTools(
   agentDisplayName = DEFAULT_AGENT_DISPLAY_NAME,
+  env: NodeJS.ProcessEnv = process.env,
 ): ChannelTool[] {
   return [
     readThreadTool,
@@ -46,6 +51,10 @@ export function createAppTools(
     showWorkPlanTool,
     showDecisionBriefTool,
     showKnowledgeSummaryTool,
+    // Off by default, and *absent* rather than refusing when off: a tool the
+    // agent can see but must not call leaks into its reasoning and turns into
+    // "I can't do that here" instead of the topic not existing.
+    ...(isBlockCatalogEnabled(env) ? [blockCatalogTool] : []),
   ];
 }
 
