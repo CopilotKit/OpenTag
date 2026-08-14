@@ -110,6 +110,9 @@ test("allows supported non-secret environment overrides through context", () => 
       agentDisplayName: "Kite",
       logLevel: "debug",
       mermaidUrl: "https://cdn.example.test/mermaid.js",
+      daytonaSnapshot: "snap-test",
+      daytonaTtlMinutes: "45",
+      githubAllowedRepos: "CopilotKit/*",
       openAiModel: "gpt-test",
       openAiReasoningEffort: "high",
       openAiVerbosity: "medium",
@@ -121,6 +124,9 @@ test("allows supported non-secret environment overrides through context", () => 
       Match.objectLike({
         Environment: Match.arrayWith([
           { Name: "AGENT_DISPLAY_NAME", Value: "Kite" },
+          { Name: "DAYTONA_SNAPSHOT", Value: "snap-test" },
+          { Name: "DAYTONA_TTL_MINUTES", Value: "45" },
+          { Name: "GITHUB_ALLOWED_REPOS", Value: "CopilotKit/*" },
           { Name: "OPENAI_MODEL", Value: "gpt-test" },
           { Name: "OPENAI_REASONING_EFFORT", Value: "high" },
           { Name: "OPENAI_VERBOSITY", Value: "medium" },
@@ -178,6 +184,8 @@ test("injects application secrets without plaintext values", () => {
   assert.match(json, /OpenTagSecretArn/);
   assert.match(json, /DatadogApiKeySecretArn/);
   assert.match(json, /OPENAI_API_KEY/);
+  assert.match(json, /DAYTONA_API_KEY/);
+  assert.match(json, /GITHUB_CODER_TOKEN/);
   assert.match(json, /INTELLIGENCE_API_KEY/);
   assert.doesNotMatch(json, /:GITHUB_MCP_URL::/);
   assert.doesNotMatch(json, /:LINEAR_MCP_URL::/);

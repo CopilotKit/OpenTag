@@ -362,10 +362,11 @@ knowledge work, and renders UI from model knowledge.
 | `POSTHOG_PERSONAL_API_KEY`                 | PostHog analytics, read-only (use the **MCP Server** key preset) |
 | `LINEAR_API_KEY`                           | Hosted Linear MCP                                                |
 | `NOTION_MCP_URL` + `NOTION_MCP_AUTH_TOKEN` | Remote Notion MCP; setting only one disables it                  |
+| `DAYTONA_API_KEY` + a GitHub token         | Coding subagent: clone in Daytona, run tests, open a draft PR after `confirm_write` |
 
 Every Linear and Notion mutation is intercepted in code before the MCP request
 runs. The interceptor emits `confirm_write` and proceeds only after approval;
-reads and rendering do not pause.
+reads and rendering do not pause. Draft PR opens use the same card.
 
 [`setup.md`](./setup.md) documents each source, its overrides, and the full
 environment contract.

@@ -22,7 +22,9 @@ const DATADOG_FORWARDER_TEMPLATE_URL =
 const AGENT_SECRET_KEYS = [
   "OPENAI_API_KEY",
   "TAVILY_API_KEY",
+  "DAYTONA_API_KEY",
   "GITHUB_PERSONAL_ACCESS_TOKEN",
+  "GITHUB_CODER_TOKEN",
   "POSTHOG_PERSONAL_API_KEY",
   "LINEAR_API_KEY",
   "NOTION_MCP_AUTH_TOKEN",
@@ -130,6 +132,17 @@ export class OpenTagStack extends cdk.Stack {
       "openAiVerbosity",
       "low",
     );
+    const daytonaSnapshot = contextString(this, "daytonaSnapshot", "");
+    const daytonaTtlMinutes = contextNumber(
+      this,
+      "daytonaTtlMinutes",
+      60,
+    );
+    const githubAllowedRepos = contextString(
+      this,
+      "githubAllowedRepos",
+      "",
+    );
     const enableDatadog = contextBoolean(this, "enableDatadog", true);
     const datadogSite = contextString(
       this,
@@ -214,6 +227,9 @@ export class OpenTagStack extends cdk.Stack {
           "corsAllowOrigins",
           "*",
         ),
+        ...optionalEnvironment("DAYTONA_SNAPSHOT", daytonaSnapshot),
+        DAYTONA_TTL_MINUTES: String(daytonaTtlMinutes),
+        ...optionalEnvironment("GITHUB_ALLOWED_REPOS", githubAllowedRepos),
         GITHUB_MCP_URL: contextString(
           this,
           "githubMcpUrl",

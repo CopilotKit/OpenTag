@@ -82,8 +82,13 @@ or Channel slug.
 | `OPENAI_REASONING_EFFORT` | No | Defaults to `low` |
 | `OPENAI_VERBOSITY` | No | Defaults to `low` |
 | `TAVILY_API_KEY` | No | Enables live web research |
-| `GITHUB_PERSONAL_ACCESS_TOKEN` | No | Enables read-only GitHub repository, code, issue, and PR search |
+| `GITHUB_PERSONAL_ACCESS_TOKEN` | No | Enables read-only GitHub repository, code, issue, and PR search. If reused by the coder, the token itself also needs branch and pull-request write permission |
 | `GITHUB_MCP_URL` | No | Overrides the hosted GitHub MCP URL; OpenTag still sends read-only headers |
+| `DAYTONA_API_KEY` | No | Enables the coding subagent (Daytona sandbox) |
+| `DAYTONA_SNAPSHOT` | No | Optional Daytona snapshot id. If unset, the first command probes the box. `git`, `gh`, and `pnpm` install only when a command needs that tool. The default snapshot already has Node. `pnpm` is enabled with Corepack in `$HOME/.local/bin` |
+| `DAYTONA_TTL_MINUTES` | No | Daytona box TTL in minutes. Defaults to `60` |
+| `GITHUB_CODER_TOKEN` | No | Preferred write token for `git` / `gh` in Daytona. It can also power the server-enforced read-only GitHub MCP when `GITHUB_PERSONAL_ACCESS_TOKEN` is unset |
+| `GITHUB_ALLOWED_REPOS` | No | Comma list of `owner/repo` or `owner/*`. If unset, any repo the write token can write is allowed |
 | `POSTHOG_PERSONAL_API_KEY` | No | Enables the hosted PostHog MCP in read-only CLI mode |
 | `POSTHOG_MCP_URL` | No | Overrides the hosted PostHog MCP URL |
 | `LINEAR_API_KEY` | No | Enables the hosted Linear MCP |
@@ -95,7 +100,19 @@ or Channel slug.
 | `SERVER_PORT` | No | Local/container port; defaults to `8123` |
 | `AGENT_RELOAD` | No | Local development reload; disabled by default |
 
-Only `OPENAI_API_KEY` is required. Without Tavily or internal-source
+To check a live Daytona box (create, `echo`, `git`, `gh`, then delete):
+
+```bash
+uv run --directory agent python scripts/probe_daytona.py
+```
+
+Only `OPENAI_API_KEY` is required. Coding stays off until `DAYTONA_API_KEY` and
+a GitHub token are both set. GitHub MCP stays read-only even when coding is on.
+Implementation jobs require a scoped brief with files, the exact change, and a
+test command; repair and merge jobs may inspect the checkout and CI logs to
+identify those details. Slack does not say "open the PR" unless the user named
+a PR. If Slack cuts the live update, the job may still be running. Without
+Tavily or internal-source
 credentials the agent still chats, triages, and renders supported UI
 components; planning and virtual files remain available for explicitly
 substantial work.
@@ -155,6 +172,11 @@ Note that `ready()` resolving is not proof of health. It also resolves on
 `controls.status()` → `{ overall, channels }` distinguishes them, and
 `/api/copilotkit/info` returning 200 reports license and runtime state while
 saying nothing at all about Slack.
+
+When an agent run fails, Slack gets a short reason (live update cut after
+about a minute, dropped connection, coder recursion, or the error text).
+If the user named a GitHub PR, that URL is in the message. Slack does not
+get a stack trace.
 
 ## Channel reference
 
@@ -301,8 +323,8 @@ The IaC file declares exactly:
 Production Intelligence URLs are literal configuration, the API key is
 preserved, and the Channel name is `open-tag`. `AGENT_DISPLAY_NAME` is preserved
 independently on both services and must match when overridden. `OPENAI_API_KEY`
-is required on `agent`; Tavily, GitHub, PostHog, Linear, and the paired remote
-Notion variables are optional preserved settings.
+is required on `agent`; Tavily, Daytona/coder, GitHub, PostHog, Linear, and the
+paired remote Notion variables are optional preserved settings.
 
 Evaluate the configuration locally without applying it:
 
