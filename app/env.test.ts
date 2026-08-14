@@ -52,6 +52,27 @@ describe("readEnvironment", () => {
     });
   });
 
+  it("reads an optional Intelligence Learning Container ID", () => {
+    expect(
+      readEnvironment({
+        ...requiredEnvironment,
+        INTELLIGENCE_LEARNING_CONTAINER_ID: "  support-quality  ",
+      }),
+    ).toMatchObject({ learningContainerId: "support-quality" });
+  });
+
+  it.each([undefined, "", "   "])(
+    "leaves Learning disabled for container value %j",
+    (value) => {
+      expect(
+        readEnvironment({
+          ...requiredEnvironment,
+          INTELLIGENCE_LEARNING_CONTAINER_ID: value,
+        }),
+      ).toMatchObject({ learningContainerId: undefined });
+    },
+  );
+
   it("honors the agent display-name override", () => {
     expect(
       readEnvironment({

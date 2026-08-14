@@ -116,6 +116,7 @@ The AG-UI endpoint is `http://localhost:8123/`; `/health` reports the
 | `AGENT_URL` | Yes | Python AG-UI endpoint, locally `http://localhost:8123/` |
 | `INTELLIGENCE_API_KEY` | Yes | Runtime authentication; also selects the project |
 | `INTELLIGENCE_CHANNEL_NAME` | No | Defaults to `open-tag`; must match the Channel name exactly |
+| `INTELLIGENCE_LEARNING_CONTAINER_ID` | No | Assigns OpenTag Threads to this existing Learning Container |
 | `INTELLIGENCE_API_URL` | No | Defaults to `https://api.intelligence.copilotkit.ai` |
 | `INTELLIGENCE_GATEWAY_WS_URL` | No | Defaults to `wss://realtime.intelligence.copilotkit.ai` |
 | `AGENT_AUTH_HEADER` | No | Authorization header forwarded to the agent |
@@ -124,6 +125,9 @@ The AG-UI endpoint is `http://localhost:8123/`; `/health` reports the
 | `MERMAID_URL` | No | Overrides the Mermaid browser bundle URL used by diagram rendering |
 
 The API key selects a project; the Channel name selects a Channel inside it.
+When `INTELLIGENCE_LEARNING_CONTAINER_ID` is set, it must name an existing
+Learning Container in that same project. Omitting it preserves the default
+behavior and leaves OpenTag Threads unassigned to Learning.
 Legacy organization, project, Channel ID, and runtime-instance ID variables are
 not used. Slack and Teams credentials do not belong here — Intelligence owns
 them.
