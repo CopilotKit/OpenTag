@@ -8,6 +8,7 @@ import { managedRunInput, reportRecoverableError } from "./channel-helpers.js";
 import { appCommands } from "./commands/index.js";
 import { IssueCard, IssueList, PageList } from "./components/index.js";
 import { createAppContext } from "./context/app-context.js";
+import { createBlockTestRunHook } from "./dev/block-testrun.js";
 import { DEFAULT_AGENT_DISPLAY_NAME } from "./env.js";
 import { ConfirmWrite } from "./human-in-the-loop/index.js";
 import { parseConfirmWriteInterrupt } from "./interrupt.js";
@@ -76,8 +77,15 @@ export function createOpenTagChannel(
     }
   };
 
+  // Developer-only Block Kit regression harness, and `undefined` unless
+  // OPENTAG_BLOCK_DEBUG_TEST=1 — with the variable unset there is no hook to
+  // call and mentions take exactly the path they take without it.
+  const blockTestRun = createBlockTestRunHook();
+
   channel.onMention(async ({ thread, message }) => {
     if (message.actor.kind === "bot" || message.actor.kind === "app") return;
+
+    if (blockTestRun && (await blockTestRun({ thread, message }))) return;
 
     if (await thread.isSubscribed()) {
       await runAgentSafely({ thread, message }, [unsubscribeThreadTool]);
