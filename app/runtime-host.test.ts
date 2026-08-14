@@ -40,6 +40,7 @@ describe("createOpenTagRuntime", () => {
 
     expect(runtime.mode).toBe("intelligence");
     expect(runtime.channels).toEqual(channels);
+    expect(runtime.learning).toBeUndefined();
     expect(intelligence.ɵgetApiUrl()).toBe(environment.intelligenceApiUrl);
     expect(intelligence.ɵgetClientWsUrl()).toContain("gateway.example.test");
     expect(
@@ -67,5 +68,17 @@ describe("createOpenTagRuntime", () => {
     await listener.channels?.stop();
     expect(stopSlack).toHaveBeenCalledOnce();
     expect(stopTeams).toHaveBeenCalledOnce();
+  });
+
+  it("passes the configured Learning Container to Intelligence Runtime", () => {
+    const { runtime } = createOpenTagRuntime({
+      environment: {
+        ...environment,
+        learningContainerId: "support-quality",
+      },
+      channels: [],
+    });
+
+    expect(runtime.learning).toEqual({ containerId: "support-quality" });
   });
 });

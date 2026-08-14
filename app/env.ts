@@ -12,6 +12,7 @@ export interface AppEnvironment {
   intelligenceApiKey: string;
   intelligenceApiUrl: string;
   intelligenceGatewayWsUrl: string;
+  learningContainerId?: string;
   channelName: string;
   port: number;
 }
@@ -52,6 +53,8 @@ export function readEnvironment(
     intelligenceGatewayWsUrl:
       env.INTELLIGENCE_GATEWAY_WS_URL ??
       DEFAULT_INTELLIGENCE_GATEWAY_WS_URL,
+    learningContainerId:
+      env.INTELLIGENCE_LEARNING_CONTAINER_ID?.trim() || undefined,
     channelName:
       env.INTELLIGENCE_CHANNEL_NAME ?? DEFAULT_INTELLIGENCE_CHANNEL_NAME,
     port: parsePort(env.PORT),

@@ -62,6 +62,7 @@ export default defineRailway(() => {
       INTELLIGENCE_API_URL: "https://api.intelligence.copilotkit.ai",
       INTELLIGENCE_GATEWAY_WS_URL:
         "wss://realtime.intelligence.copilotkit.ai",
+      INTELLIGENCE_LEARNING_CONTAINER_ID: preserve(),
       INTELLIGENCE_CHANNEL_NAME: "open-tag",
       PLAYWRIGHT_BROWSERS_PATH: "0",
       RAILPACK_DEPLOY_APT_PACKAGES:

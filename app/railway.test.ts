@@ -109,6 +109,7 @@ describe("Railway deployment graph", () => {
           type: "literal",
           value: "wss://realtime.intelligence.copilotkit.ai",
         },
+        INTELLIGENCE_LEARNING_CONTAINER_ID: { type: "preserve" },
         INTELLIGENCE_CHANNEL_NAME: {
           type: "literal",
           value: "open-tag",

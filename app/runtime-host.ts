@@ -32,6 +32,13 @@ export function createOpenTagRuntime(options: {
     intelligence,
     identifyUser: () => OPENTAG_SERVICE_USER,
     channels: options.channels,
+    ...(options.environment.learningContainerId
+      ? {
+          ɵlearning: {
+            containerId: options.environment.learningContainerId,
+          },
+        }
+      : {}),
   });
 
   const listener = createCopilotNodeListener({

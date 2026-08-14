@@ -174,6 +174,8 @@ OPENAI_API_KEY=sk-...
 AGENT_URL=http://localhost:8123/
 INTELLIGENCE_API_KEY=cpk-...
 INTELLIGENCE_CHANNEL_NAME=open-tag
+# Optional: assign OpenTag Threads to an existing Learning Container.
+INTELLIGENCE_LEARNING_CONTAINER_ID=support-quality
 # Optional: use another user-facing identity, such as Kite.
 AGENT_DISPLAY_NAME=OpenTag
 ```
@@ -186,6 +188,11 @@ sources](#optional-research-sources).
 `INTELLIGENCE_API_URL` and `INTELLIGENCE_GATEWAY_WS_URL` already default to the
 production Intelligence endpoints in
 [`app/env.ts`](./app/env.ts), so leaving them unset is correct.
+
+`INTELLIGENCE_LEARNING_CONTAINER_ID` is also optional. When set, it must name
+an existing Learning Container in the project selected by
+`INTELLIGENCE_API_KEY`; when omitted, OpenTag does not assign Threads to a
+Learning Container.
 
 ### 4. Run the stack
 
