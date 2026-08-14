@@ -18,6 +18,7 @@ import {
 import {
   platformRunInput,
   reportRecoverableError,
+  userFacingRunError,
 } from "../channel-helpers.js";
 import { IssueCard } from "../components/index.js";
 import { FileIssueModal } from "../modals/file-issue.js";
@@ -33,14 +34,13 @@ async function runAgentSafely(
   commandName: string,
   thread: Pick<ChannelThread, "runAgent" | "post">,
   input: Parameters<ChannelThread["runAgent"]>[0],
+  sourceText?: string,
 ): Promise<void> {
   try {
     await thread.runAgent(input);
   } catch (error) {
     try {
-      await thread.post(
-        "Sorry — I hit an error handling that. Please try again.",
-      );
+      await thread.post(userFacingRunError(error, { sourceText }));
     } catch (postError) {
       throw new AggregateError(
         [error, postError],
@@ -68,10 +68,15 @@ export const appCommands: ChannelCommand[] = [
         await thread.post("Usage: `/agent <your question>`");
         return;
       }
-      await runAgentSafely("agent", thread, {
-        prompt: text,
-        ...platformRunInput(platform, actor),
-      });
+      await runAgentSafely(
+        "agent",
+        thread,
+        {
+          prompt: text,
+          ...platformRunInput(platform, actor),
+        },
+        text,
+      );
     },
   }),
 
@@ -85,10 +90,15 @@ export const appCommands: ChannelCommand[] = [
       const prompt = text
         ? `Triage this and propose Linear issues to file: ${text}`
         : "Triage the current conversation: summarize it and propose Linear issues to file.";
-      await runAgentSafely("triage", thread, {
-        prompt,
-        ...platformRunInput(platform, actor),
-      });
+      await runAgentSafely(
+        "triage",
+        thread,
+        {
+          prompt,
+          ...platformRunInput(platform, actor),
+        },
+        text,
+      );
     },
   }),
 

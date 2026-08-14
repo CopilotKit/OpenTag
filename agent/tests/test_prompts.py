@@ -2,6 +2,8 @@ from datetime import datetime, timezone
 
 from prompts import (
     BASE_SYSTEM_PROMPT,
+    CODING_OFF_ADDENDUM,
+    CODING_ON_ADDENDUM,
     NO_WEB_SEARCH_TOOL_ADDENDUM,
     WEB_SEARCH_TOOL_ADDENDUM,
     current_date_context,
@@ -65,3 +67,26 @@ def test_web_search_policy_requires_temporal_verification():
     assert "sports results" in WEB_SEARCH_TOOL_ADDENDUM
     assert "training data" in WEB_SEARCH_TOOL_ADDENDUM
     assert "2026 World Cup" in WEB_SEARCH_TOOL_ADDENDUM
+
+
+def test_coding_on_addendum_delegates_to_coder_task():
+    assert "task" in CODING_ON_ADDENDUM
+    assert "coder" in CODING_ON_ADDENDUM
+    assert "read-only" in CODING_ON_ADDENDUM
+    assert "Never invent" in CODING_ON_ADDENDUM or "do not claim" in CODING_ON_ADDENDUM.lower()
+
+
+def test_coding_on_addendum_scopes_briefs_by_job_type():
+    text = CODING_ON_ADDENDUM.lower()
+    assert "every brief" in text
+    assert "implement-issue" in text
+    assert "files" in text
+    assert "test" in text
+    assert "change" in text
+    assert "rediscover" in text
+    assert "repair and merge" in text
+
+
+def test_coding_off_addendum_states_coding_is_unavailable():
+    assert "unavailable" in CODING_OFF_ADDENDUM.lower()
+    assert "pull request" in CODING_OFF_ADDENDUM.lower()

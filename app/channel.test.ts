@@ -758,7 +758,7 @@ describe("createOpenTagChannel", () => {
       actor: { id: "U1", kind: "human" },
     });
 
-    expect(JSON.stringify(adapter.posted)).toMatch(/sorry.*error/i);
+    expect(JSON.stringify(adapter.posted)).toMatch(/error/i);
     expect(consoleError).toHaveBeenCalledWith(
       "[channel] recoverable error",
       expect.objectContaining({
@@ -770,6 +770,27 @@ describe("createOpenTagChannel", () => {
         timestamp: expect.any(String),
       }),
     );
+  });
+
+  it("explains a lost Slack reply when event delivery times out", async () => {
+    const { adapter, channel } = makeChannel({
+      agent: new FakeAgent([
+        () => {
+          throw new Error("Timed out trying to durably deliver runner events");
+        },
+      ]),
+    });
+
+    await channel.ɵruntime.start();
+    await adapter.getSink().onTurn({
+      conversationKey: "c1",
+      replyTarget: {},
+      userText: "hello",
+      platform: "slack",
+      actor: { id: "U1", kind: "human" },
+    });
+
+    expect(JSON.stringify(adapter.posted)).toMatch(/cut the live update/i);
   });
 
   it("posts a real JSON-stringified confirm_write interrupt card and returns immediately", async () => {
@@ -890,7 +911,7 @@ describe("createOpenTagChannel", () => {
       actor: { id: "U1", kind: "human" },
     });
 
-    expect(JSON.stringify(adapter.posted)).toMatch(/sorry.*error/i);
+    expect(JSON.stringify(adapter.posted)).toMatch(/error/i);
     expect(JSON.stringify(adapter.posted)).not.toContain("Injected write");
     consoleError.mockRestore();
   });

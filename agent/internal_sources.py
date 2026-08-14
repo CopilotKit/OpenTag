@@ -15,6 +15,7 @@ from write_confirmation import WriteConfirmationInterceptor
 MCP_SERVERS = {
     "github": {
         "token_env": "GITHUB_PERSONAL_ACCESS_TOKEN",
+        "fallback_token_env": "GITHUB_CODER_TOKEN",
         "url_env": "GITHUB_MCP_URL",
         "default_url": "https://api.githubcopilot.com/mcp/readonly",
         "headers": {
@@ -71,6 +72,9 @@ def _configured_connections(
     connections: dict[str, dict[str, Any]] = {}
     for name, config in MCP_SERVERS.items():
         token = env.get(config["token_env"])
+        fallback_token_env = config.get("fallback_token_env")
+        if not token and fallback_token_env:
+            token = env.get(fallback_token_env)
         configured_url = env.get(config["url_env"])
         url = configured_url or config["default_url"]
         if not token:

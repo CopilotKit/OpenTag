@@ -16,6 +16,7 @@ RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --frozen --no-dev --no-install-project
 COPY agent/*.py ./
 COPY agent/prompts ./prompts
+COPY agent/coding ./coding
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --frozen --no-dev \
     && useradd --uid 10001 --create-home --home-dir /home/opentag opentag

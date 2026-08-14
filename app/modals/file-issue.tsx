@@ -16,6 +16,7 @@ import type { ModalSubmitHandler, ModalView } from "@copilotkit/channels";
 import {
   platformRunInput,
   reportRecoverableError,
+  userFacingRunError,
 } from "../channel-helpers.js";
 
 export const FILE_ISSUE_CALLBACK = "file_issue";
@@ -75,7 +76,7 @@ export const fileIssueSubmit: ModalSubmitHandler = async ({
     .catch(async (error) => {
       try {
         await thread.post(
-          "Sorry — I couldn't file that issue. Please try again.",
+          `I could not file that issue. ${userFacingRunError(error)}`,
         );
       } catch (postError) {
         throw new AggregateError(

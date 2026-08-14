@@ -43,6 +43,8 @@ def build_with_captured_configuration(monkeypatch):
     monkeypatch.delenv("POSTHOG_PERSONAL_API_KEY", raising=False)
     monkeypatch.delenv("LINEAR_API_KEY", raising=False)
     monkeypatch.delenv("NOTION_MCP_AUTH_TOKEN", raising=False)
+    monkeypatch.delenv("DAYTONA_API_KEY", raising=False)
+    monkeypatch.delenv("GITHUB_CODER_TOKEN", raising=False)
     monkeypatch.setattr(agent_mod, "internal_source_tools", lambda: [])
 
     def fake_chat_openai(**kwargs):
@@ -162,6 +164,8 @@ def test_openai_harness_excludes_unusable_delegation_tools(monkeypatch):
     monkeypatch.delenv("POSTHOG_PERSONAL_API_KEY", raising=False)
     monkeypatch.delenv("LINEAR_API_KEY", raising=False)
     monkeypatch.delenv("NOTION_MCP_AUTH_TOKEN", raising=False)
+    monkeypatch.delenv("DAYTONA_API_KEY", raising=False)
+    monkeypatch.delenv("GITHUB_CODER_TOKEN", raising=False)
     monkeypatch.setattr(agent_mod, "ChatOpenAI", lambda **_kwargs: model)
     monkeypatch.setattr(agent_mod, "internal_source_tools", lambda: [])
 
@@ -187,6 +191,8 @@ def _configure_minimal_environment(monkeypatch):
     monkeypatch.delenv("POSTHOG_PERSONAL_API_KEY", raising=False)
     monkeypatch.delenv("LINEAR_API_KEY", raising=False)
     monkeypatch.delenv("NOTION_MCP_AUTH_TOKEN", raising=False)
+    monkeypatch.delenv("DAYTONA_API_KEY", raising=False)
+    monkeypatch.delenv("GITHUB_CODER_TOKEN", raising=False)
 
 
 def _response_payload(output, response_id):

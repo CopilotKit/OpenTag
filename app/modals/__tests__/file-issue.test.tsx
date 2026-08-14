@@ -181,7 +181,7 @@ describe("fileIssueSubmit", () => {
     // Let the fire-and-forget .catch() run before asserting.
     await new Promise((r) => setTimeout(r, 0));
     expect(post).toHaveBeenCalledWith(
-      expect.stringMatching(/couldn.t file|try again/i),
+      expect.stringMatching(/could not file that issue/i),
     );
     expect(consoleError).toHaveBeenCalledWith(
       "[channel] recoverable error",

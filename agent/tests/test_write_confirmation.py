@@ -526,3 +526,46 @@ def test_write_confirmation_interceptor_rejects_a_malformed_resume(
         )
 
     assert handler_calls == []
+
+
+def test_require_write_confirmation_returns_true_on_approve(monkeypatch):
+    monkeypatch.setattr(
+        write_confirmation,
+        "copilotkit_interrupt",
+        lambda **_kwargs: ('{"confirmed": true}', {"confirmed": True}),
+    )
+    assert (
+        write_confirmation.require_write_confirmation(
+            action="Open draft pull request",
+            fields=[{"label": "Repo", "value": "org/repo"}],
+        )
+        is True
+    )
+
+
+def test_require_write_confirmation_returns_false_on_reject(monkeypatch):
+    monkeypatch.setattr(
+        write_confirmation,
+        "copilotkit_interrupt",
+        lambda **_kwargs: ('{"confirmed": false}', {"confirmed": False}),
+    )
+    assert (
+        write_confirmation.require_write_confirmation(
+            action="Open draft pull request",
+            fields=[{"label": "Repo", "value": "org/repo"}],
+        )
+        is False
+    )
+
+
+def test_require_write_confirmation_rejects_a_bad_resume(monkeypatch):
+    monkeypatch.setattr(
+        write_confirmation,
+        "copilotkit_interrupt",
+        lambda **_kwargs: ("nope", "nope"),
+    )
+    with pytest.raises(RuntimeError, match="confirmed"):
+        write_confirmation.require_write_confirmation(
+            action="Open draft pull request",
+            fields=[],
+        )

@@ -5,22 +5,16 @@ import os
 import sys
 
 from ag_ui_langgraph import add_langgraph_fastapi_endpoint
-from copilotkit import LangGraphAGUIAgent
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from agent import build_agent
+from agui import AGENT_DESCRIPTION, AGENT_NAME, build_agui_agent
 
 app = FastAPI(
     title="OpenTag Agent",
     description="A team knowledge-work agent powered by Deep Agents and CopilotKit",
     version="0.1.0",
-)
-
-AGENT_NAME = "opentag_research"
-AGENT_DESCRIPTION = (
-    "OpenTag general-purpose team knowledge-work agent for research, analysis, "
-    "planning, knowledge capture, and connected workflows"
 )
 
 # Allow all origins locally, or set CORS_ALLOW_ORIGINS to restrict access.
@@ -63,11 +57,7 @@ try:
     agent_graph = build_agent()
     add_langgraph_fastapi_endpoint(
         app=app,
-        agent=LangGraphAGUIAgent(
-            name=AGENT_NAME,
-            description=AGENT_DESCRIPTION,
-            graph=agent_graph,
-        ),
+        agent=build_agui_agent(agent_graph),
         path="/",
     )
 

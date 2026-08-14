@@ -7,7 +7,11 @@ from .system import (
     WORKFLOW_PROMPT,
     build_system_prompt,
 )
-from .tools import TOOLS_PROMPT
+from .tools import (
+    TOOLS_PROMPT,
+    CODING_ON_ADDENDUM,
+    CODING_OFF_ADDENDUM,
+)
 from .web_search import (
     NO_WEB_SEARCH_TOOL_ADDENDUM,
     WEB_SEARCH_TOOL_ADDENDUM,
@@ -30,4 +34,6 @@ __all__ = [
     "current_date_prompt",
     "NO_WEB_SEARCH_TOOL_ADDENDUM",
     "WEB_SEARCH_TOOL_ADDENDUM",
+    "CODING_ON_ADDENDUM",
+    "CODING_OFF_ADDENDUM",
 ]

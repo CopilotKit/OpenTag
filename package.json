@@ -25,6 +25,7 @@
     "dotenv": "^16.4.5",
     "playwright": "^1.49.0",
     "tsx": "^4.19.2",
+    "undici": "^6.27.0",
     "zod": "^3.25.76"
   },
   "devDependencies": {

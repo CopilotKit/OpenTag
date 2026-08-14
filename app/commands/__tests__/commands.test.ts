@@ -108,7 +108,7 @@ describe("example slash commands", () => {
       }),
     );
     expect(thread.post).toHaveBeenCalledWith(
-      expect.stringMatching(/sorry.*error/i),
+      expect.stringMatching(/error/i),
     );
 
     consoleError.mockRestore();
