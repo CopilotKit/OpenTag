@@ -1,5 +1,15 @@
 # Changelog
 
+## v0.2.4
+
+- test: update Slack container assertions (28b7cc9)
+- chore: bump cpk deps (8058eb1)
+
+### Container images
+
+- `ghcr.io/copilotkit/opentag-agent:v0.2.4`
+- `ghcr.io/copilotkit/opentag-runtime:v0.2.4`
+
 ## v0.2.3
 
 - feat(tools): add the Slack block catalog showcase tool (3b43135)
