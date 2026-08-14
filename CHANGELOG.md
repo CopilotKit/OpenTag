@@ -1,5 +1,14 @@
 # Changelog
 
+## v0.3.0
+
+- feat: configure an Intelligence Learning Container (f09049a)
+
+### Container images
+
+- `ghcr.io/copilotkit/opentag-agent:v0.3.0`
+- `ghcr.io/copilotkit/opentag-runtime:v0.3.0`
+
 ## v0.2.4
 
 - test: update Slack container assertions (28b7cc9)
