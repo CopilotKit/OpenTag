@@ -98,6 +98,9 @@ def test_build_agent_does_not_expose_a_bypassable_manual_confirmation_tool(
 
     monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
     monkeypatch.delenv("TAVILY_API_KEY", raising=False)
+    monkeypatch.delenv("DAYTONA_API_KEY", raising=False)
+    monkeypatch.delenv("GITHUB_CODER_TOKEN", raising=False)
+    monkeypatch.delenv("GITHUB_PERSONAL_ACCESS_TOKEN", raising=False)
     monkeypatch.setattr(agent_mod, "ChatOpenAI", lambda **_kwargs: object())
     monkeypatch.setattr(agent_mod, "internal_source_tools", lambda: [])
 

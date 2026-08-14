@@ -178,6 +178,17 @@ const isMain =
 
 if (isMain) {
   try {
+    const { Agent, setGlobalDispatcher } = await import("undici");
+    setGlobalDispatcher(
+      new Agent({
+        headersTimeout: 30 * 60 * 1000,
+        bodyTimeout: 30 * 60 * 1000,
+      }),
+    );
+  } catch (error) {
+    console.error("[opentag] could not raise agent stream timeout", error);
+  }
+  try {
     await main();
   } catch (error) {
     console.error("[opentag] startup failed", error);

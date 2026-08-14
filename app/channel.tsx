@@ -4,7 +4,11 @@ import {
   type ChannelTool,
   type CreateChannelOptions,
 } from "@copilotkit/channels";
-import { managedRunInput, reportRecoverableError } from "./channel-helpers.js";
+import {
+  managedRunInput,
+  reportRecoverableError,
+  userFacingRunError,
+} from "./channel-helpers.js";
 import { appCommands } from "./commands/index.js";
 import { IssueCard, IssueList, PageList } from "./components/index.js";
 import { createAppContext } from "./context/app-context.js";
@@ -58,7 +62,7 @@ export function createOpenTagChannel(
     } catch (error) {
       try {
         await thread.post(
-          "Sorry — I hit an error handling that. Please try again.",
+          userFacingRunError(error, { sourceText: message.text }),
         );
       } catch (postError) {
         throw new AggregateError(

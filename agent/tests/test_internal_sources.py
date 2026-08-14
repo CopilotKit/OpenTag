@@ -11,6 +11,7 @@ from write_confirmation import WriteConfirmationInterceptor
 @pytest.fixture(autouse=True)
 def clear_ambient_credentials(monkeypatch):
     monkeypatch.delenv("GITHUB_PERSONAL_ACCESS_TOKEN", raising=False)
+    monkeypatch.delenv("GITHUB_CODER_TOKEN", raising=False)
     monkeypatch.delenv("POSTHOG_PERSONAL_API_KEY", raising=False)
 
 
@@ -18,6 +19,7 @@ def test_mcp_servers_are_configured_in_one_place():
     assert internal_sources.MCP_SERVERS == {
         "github": {
             "token_env": "GITHUB_PERSONAL_ACCESS_TOKEN",
+            "fallback_token_env": "GITHUB_CODER_TOKEN",
             "url_env": "GITHUB_MCP_URL",
             "default_url": "https://api.githubcopilot.com/mcp/readonly",
             "headers": {
@@ -83,6 +85,18 @@ def test_github_url_can_be_overridden_without_disabling_read_only_mode():
             "X-MCP-Readonly": "true",
             "X-MCP-Toolsets": "repos,issues,pull_requests",
         },
+    }
+
+
+def test_github_coder_token_can_power_read_only_mcp_when_pat_is_unset():
+    github = internal_sources._configured_connections(
+        {"GITHUB_CODER_TOKEN": "github_pat_write"}
+    )["github"]
+
+    assert github["headers"] == {
+        "Authorization": "Bearer github_pat_write",
+        "X-MCP-Readonly": "true",
+        "X-MCP-Toolsets": "repos,issues,pull_requests",
     }
 
 

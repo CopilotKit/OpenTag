@@ -11,6 +11,7 @@ import {
 import {
   managedRunInput,
   promptFromMessage,
+  userFacingRunError,
 } from "./channel-helpers.js";
 
 const message = (
@@ -88,5 +89,69 @@ describe("managedRunInput", () => {
     expect(
       managedRunInput(message({ platform: "teams" }), [conditionalTool]).tools,
     ).toEqual([conditionalTool]);
+  });
+});
+
+describe("userFacingRunError", () => {
+  it("explains a Slack live-update cutoff without claiming the job finished", () => {
+    const text = userFacingRunError(
+      new Error("Timed out trying to durably deliver runner events"),
+    );
+    expect(text).toMatch(/slack/i);
+    expect(text).toMatch(/minute/i);
+    expect(text).not.toMatch(/the agent finished/i);
+    expect(text).not.toMatch(/lost the reply/i);
+  });
+
+  it("includes GitHub PR links from the user message", () => {
+    const text = userFacingRunError(
+      new Error("Timed out trying to durably deliver runner events"),
+      {
+        sourceText:
+          "update https://github.com/CopilotKit/CopilotKit/pull/6391 to latest",
+      },
+    );
+    expect(text).toContain(
+      "https://github.com/CopilotKit/CopilotKit/pull/6391",
+    );
+  });
+
+  it("explains a dropped agent connection", () => {
+    const text = userFacingRunError(new Error("terminated"));
+    expect(text).toMatch(/connection/i);
+    expect(text).toMatch(/still be running/i);
+    expect(text).not.toMatch(/open the pr/i);
+  });
+
+  it("does not invent a PR when the user only named an issue", () => {
+    const text = userFacingRunError(
+      new Error("Timed out trying to durably deliver runner events"),
+      {
+        sourceText:
+          "implement https://github.com/CopilotKit/CopilotKit/issues/6408",
+      },
+    );
+    expect(text).toContain(
+      "https://github.com/CopilotKit/CopilotKit/issues/6408",
+    );
+    expect(text).not.toMatch(/open the pr/i);
+    expect(text).toMatch(/still be running/i);
+  });
+
+  it("explains a recursion stop without blaming only the coder", () => {
+    const text = userFacingRunError(
+      new Error("Recursion limit of 25 reached without hitting a stop condition"),
+    );
+    expect(text).toMatch(/too many steps/i);
+    expect(text).not.toMatch(/\bcoder\b/i);
+  });
+
+  it("includes a short sanitized reason for other errors", () => {
+    const text = userFacingRunError(
+      new Error("backend unavailable token=ghp_LIVESECRET99"),
+    );
+    expect(text).toContain("backend unavailable");
+    expect(text).not.toContain("ghp_LIVESECRET99");
+    expect(text).toContain("ghp_[redacted]");
   });
 });
