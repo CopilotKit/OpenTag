@@ -1,5 +1,14 @@
 # Changelog
 
+## v0.2.3
+
+- feat(tools): add the Slack block catalog showcase tool (3b43135)
+
+### Container images
+
+- `ghcr.io/copilotkit/opentag-agent:v0.2.3`
+- `ghcr.io/copilotkit/opentag-runtime:v0.2.3`
+
 ## v0.2.2
 
 - feat: make agent display name configurable (#42) (020b1d9)
