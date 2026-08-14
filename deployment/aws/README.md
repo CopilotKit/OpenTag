@@ -67,7 +67,9 @@ Create one JSON secret with these fields:
   "AGENT_AUTH_HEADER": "",
   "OPENAI_API_KEY": "...",
   "TAVILY_API_KEY": "",
+  "DAYTONA_API_KEY": "",
   "GITHUB_PERSONAL_ACCESS_TOKEN": "",
+  "GITHUB_CODER_TOKEN": "",
   "POSTHOG_PERSONAL_API_KEY": "",
   "LINEAR_API_KEY": "",
   "NOTION_MCP_AUTH_TOKEN": ""
@@ -100,6 +102,9 @@ These CDK context values become container environment variables:
 | `openAiReasoningEffort` | `OPENAI_REASONING_EFFORT` | `low` |
 | `openAiVerbosity` | `OPENAI_VERBOSITY` | `low` |
 | `corsAllowOrigins` | `CORS_ALLOW_ORIGINS` | `*` |
+| `daytonaSnapshot` | `DAYTONA_SNAPSHOT` | Unset |
+| `daytonaTtlMinutes` | `DAYTONA_TTL_MINUTES` | `60` |
+| `githubAllowedRepos` | `GITHUB_ALLOWED_REPOS` | Unset |
 | `githubMcpUrl` | `GITHUB_MCP_URL` | Hosted read-only GitHub MCP |
 | `posthogMcpUrl` | `POSTHOG_MCP_URL` | Hosted read-only PostHog MCP |
 | `linearMcpUrl` | `LINEAR_MCP_URL` | Hosted Linear MCP |
