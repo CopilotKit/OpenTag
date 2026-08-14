@@ -273,7 +273,9 @@ describe("showcase_all_slack_blocks_catalog", () => {
     for (const container of catalogBlocks().filter(
       (block) => block.type === "container",
     )) {
-      const children = (container as { blocks?: { type: string }[] }).blocks;
+      const children = (
+        container as { child_blocks?: { type: string }[] }
+      ).child_blocks;
       expect(children?.length).toBeGreaterThan(0);
       expect(children?.map(({ type }) => type)).not.toContain("markdown");
     }
@@ -580,10 +582,10 @@ describe("the booking confirmation", () => {
     // Measured live: Slack refuses a `markdown` child of a container and loses
     // the whole message with it.
     const container = confirmed().find(({ type }) => type === "container") as {
-      blocks: { type: string }[];
+      child_blocks: { type: string }[];
     };
 
-    expect(container.blocks.map(({ type }) => type)).toEqual([
+    expect(container.child_blocks.map(({ type }) => type)).toEqual([
       "header",
       "section",
       "divider",
