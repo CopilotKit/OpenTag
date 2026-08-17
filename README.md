@@ -2,6 +2,8 @@
 
 # OpenTag
 
+hi from slack!
+
 **An open-source, self-hosted knowledge-work agent for Slack and Microsoft Teams — connected tools and generative UI included.**
 
 [**See it work**](#see-it-work) · [**Quick start**](#quick-start) · [**Make it yours**](#make-it-yours) · [**Channels SDK**](https://github.com/CopilotKit/channels-sdk)
