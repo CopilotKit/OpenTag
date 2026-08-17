@@ -1,5 +1,16 @@
 # Changelog
 
+## v0.4.0
+
+- docs: remove superpowers content (0577c63)
+- chore: configure coding subagent deployments (aae3eaf)
+- feat: add optional Daytona coding subagent (4b336d7)
+
+### Container images
+
+- `ghcr.io/copilotkit/opentag-agent:v0.4.0`
+- `ghcr.io/copilotkit/opentag-runtime:v0.4.0`
+
 ## v0.3.0
 
 - feat: configure an Intelligence Learning Container (f09049a)
