@@ -45,6 +45,9 @@ def build_with_captured_configuration(monkeypatch):
     monkeypatch.delenv("NOTION_MCP_AUTH_TOKEN", raising=False)
     monkeypatch.delenv("DAYTONA_API_KEY", raising=False)
     monkeypatch.delenv("GITHUB_CODER_TOKEN", raising=False)
+    monkeypatch.delenv("GITHUB_APP_ID", raising=False)
+    monkeypatch.delenv("GITHUB_APP_INSTALLATION_ID", raising=False)
+    monkeypatch.delenv("GITHUB_APP_PRIVATE_KEY_BASE64", raising=False)
     monkeypatch.setattr(agent_mod, "internal_source_toolsets", lambda _provider: {})
 
     def fake_chat_openai(**kwargs):
@@ -193,6 +196,9 @@ def _configure_minimal_environment(monkeypatch):
     monkeypatch.delenv("NOTION_MCP_AUTH_TOKEN", raising=False)
     monkeypatch.delenv("DAYTONA_API_KEY", raising=False)
     monkeypatch.delenv("GITHUB_CODER_TOKEN", raising=False)
+    monkeypatch.delenv("GITHUB_APP_ID", raising=False)
+    monkeypatch.delenv("GITHUB_APP_INSTALLATION_ID", raising=False)
+    monkeypatch.delenv("GITHUB_APP_PRIVATE_KEY_BASE64", raising=False)
 
 
 def _response_payload(output, response_id):

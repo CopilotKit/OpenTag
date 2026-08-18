@@ -13,6 +13,8 @@ from urllib.parse import quote
 
 import httpx
 import jwt
+from cryptography.hazmat.primitives.asymmetric import rsa
+from cryptography.hazmat.primitives.serialization import load_pem_private_key
 
 GITHUB_API_URL = "https://api.github.com"
 TOKEN_REFRESH_WINDOW = timedelta(minutes=5)
@@ -39,6 +41,14 @@ def _redact(text: str, credential: str | None) -> str:
 
 class GitHubCredentialError(RuntimeError):
     pass
+
+
+def _object_response(value: Any, operation: str) -> dict[str, Any]:
+    if not isinstance(value, dict):
+        raise GitHubCredentialError(
+            f"GitHub returned an invalid response for {operation}"
+        )
+    return value
 
 
 class GitHubCredentialProvider(ABC):
@@ -69,7 +79,7 @@ class GitHubCredentialProvider(ABC):
         path: str,
         *,
         json: dict[str, Any] | None = None,
-    ) -> dict[str, Any]:
+    ) -> dict[str, Any] | list[Any]:
         credential = self.token()
         return self._request_json(method, path, credential=credential, json=json)
 
@@ -80,7 +90,7 @@ class GitHubCredentialProvider(ABC):
         *,
         credential: str,
         json: dict[str, Any] | None = None,
-    ) -> dict[str, Any]:
+    ) -> dict[str, Any] | list[Any]:
         try:
             response = self._http_client().request(
                 method,
@@ -94,8 +104,8 @@ class GitHubCredentialProvider(ABC):
             )
             response.raise_for_status()
             result = response.json()
-            if not isinstance(result, dict):
-                raise GitHubCredentialError("GitHub returned a non-object response")
+            if not isinstance(result, (dict, list)):
+                raise GitHubCredentialError("GitHub returned an invalid JSON response")
             return result
         except GitHubCredentialError:
             raise
@@ -123,7 +133,9 @@ class GitHubPatProvider(GitHubCredentialProvider):
             return self._identity
         with self._identity_lock:
             if self._identity is None:
-                data = self.request_json("GET", "/user")
+                data = _object_response(
+                    self.request_json("GET", "/user"), "user identity"
+                )
                 login = str(data["login"])
                 database_id = int(data["id"])
                 self._identity = GitHubIdentity(
@@ -166,13 +178,22 @@ class GitHubAppProvider(GitHubCredentialProvider):
         self.app_id = app_id
         self.installation_id = installation_id
         try:
-            self._private_key = base64.b64decode(
-                private_key_base64, validate=True
-            ).decode("utf-8")
+            encoded_key = base64.b64decode(private_key_base64, validate=True)
         except Exception as error:
             raise GitHubCredentialError(
                 "GITHUB_APP_PRIVATE_KEY_BASE64 is not valid base64-encoded text"
             ) from error
+        try:
+            private_key = load_pem_private_key(encoded_key, password=None)
+        except Exception as error:
+            raise GitHubCredentialError(
+                "GITHUB_APP_PRIVATE_KEY_BASE64 is not a valid unencrypted PEM private key"
+            ) from error
+        if not isinstance(private_key, rsa.RSAPrivateKey):
+            raise GitHubCredentialError(
+                "GITHUB_APP_PRIVATE_KEY_BASE64 must contain an RSA private key"
+            )
+        self._private_key = private_key
         self._now = now or _utcnow
         self._installation_token: str | None = None
         self._expires_at: datetime | None = None
@@ -214,10 +235,13 @@ class GitHubAppProvider(GitHubCredentialProvider):
             ):
                 return self._installation_token
             app_jwt = self._app_jwt()
-            data = self._request_json(
-                "POST",
-                f"/app/installations/{quote(self.installation_id, safe='')}/access_tokens",
-                credential=app_jwt,
+            data = _object_response(
+                self._request_json(
+                    "POST",
+                    f"/app/installations/{quote(self.installation_id, safe='')}/access_tokens",
+                    credential=app_jwt,
+                ),
+                "installation token",
             )
             self._installation_token = str(data["token"])
             self._expires_at = _parse_time(str(data["expires_at"]))
@@ -229,10 +253,16 @@ class GitHubAppProvider(GitHubCredentialProvider):
         with self._identity_lock:
             if self._identity is None:
                 app_jwt = self._app_jwt()
-                app = self._request_json("GET", "/app", credential=app_jwt)
+                app = _object_response(
+                    self._request_json("GET", "/app", credential=app_jwt),
+                    "App identity",
+                )
                 login = f"{app['slug']}[bot]"
-                user = self.request_json(
-                    "GET", f"/users/{quote(login, safe='')}"
+                user = _object_response(
+                    self.request_json(
+                        "GET", f"/users/{quote(login, safe='')}"
+                    ),
+                    "App bot identity",
                 )
                 resolved_login = str(user["login"])
                 database_id = int(user["id"])

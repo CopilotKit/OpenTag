@@ -4,6 +4,7 @@ import asyncio
 import logging
 import os
 from collections.abc import Mapping
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from typing import Any
 
@@ -202,9 +203,18 @@ def internal_source_toolsets(
     if not connections:
         return {}
 
-    # MCP discovery is async; agent construction is synchronous.
+    # MCP discovery is async; agent construction is synchronous. If an event
+    # loop already owns this thread, do the blocking startup work in one helper
+    # thread rather than handing asyncio.run() an unawaited coroutine.
     try:
-        return asyncio.run(_load_tools(connections))
+        try:
+            asyncio.get_running_loop()
+        except RuntimeError:
+            return asyncio.run(_load_tools(connections))
+        with ThreadPoolExecutor(max_workers=1) as pool:
+            return pool.submit(
+                lambda: asyncio.run(_load_tools(connections))
+            ).result()
     except Exception as error:
         _emit_internal_source_error(
             error,

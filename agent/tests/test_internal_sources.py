@@ -264,6 +264,22 @@ def test_internal_source_tools_loads_when_env_set(monkeypatch):
     ]
 
 
+def test_internal_source_toolsets_loads_from_a_running_event_loop(monkeypatch):
+    monkeypatch.setenv("LINEAR_API_KEY", "lin_api_test")
+    monkeypatch.setenv("LINEAR_MCP_URL", "https://linear.example.test/mcp")
+
+    async def fake_load_tools(connections):
+        assert set(connections) == {"linear"}
+        return {"linear": []}
+
+    monkeypatch.setattr(internal_sources, "_load_tools", fake_load_tools)
+
+    async def load_from_async_context():
+        return internal_sources.internal_source_toolsets()
+
+    assert asyncio.run(load_from_async_context()) == {"linear": []}
+
+
 def test_one_unavailable_source_does_not_remove_the_other(
     monkeypatch,
     caplog,

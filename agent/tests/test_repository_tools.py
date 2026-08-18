@@ -13,6 +13,7 @@ class FakeProvider:
         self.actor = actor
         self.pr = pr
         self.fail_pr_once = fail_pr_once
+        self.created_pull = None
         self.requests = []
 
     def token(self):
@@ -27,13 +28,18 @@ class FakeProvider:
             if self.pr is None:
                 raise RuntimeError("forbidden")
             return self.pr
+        if method == "GET" and "/pulls?" in path:
+            return [self.created_pull] if self.created_pull else []
         if method == "GET" and path == "/repos/org/repo":
             return {"default_branch": "main"}
         if method in {"POST", "PATCH"}:
             if self.fail_pr_once:
                 self.fail_pr_once = False
                 raise RuntimeError("REST unavailable")
-            return {"html_url": "https://github.com/org/repo/pull/9"}
+            return {
+                "html_url": "https://github.com/org/repo/pull/9",
+                "number": 9,
+            }
         raise AssertionError((method, path, json))
 
 
@@ -156,6 +162,7 @@ def test_prepare_replay_cannot_change_the_target():
 
 def test_prepare_existing_fork_pr_and_syncs_base_through_daytona():
     pr = {
+        "state": "open",
         "base": {"ref": "main", "repo": {"full_name": "org/repo"}},
         "head": {"ref": "feature", "repo": {"full_name": "fork/repo"}},
     }
@@ -179,6 +186,20 @@ def test_unauthorized_prepare_fails_closed_before_clone():
     prepare, _publish_tool, backend, _provider = _tools(provider=provider)
 
     with pytest.raises(RuntimeError, match="forbidden"):
+        prepare.invoke({"repo": "org/repo", "pr_number": 7})
+    assert backend.clone_calls == []
+
+
+def test_closed_pr_cannot_be_prepared():
+    pr = {
+        "state": "closed",
+        "base": {"ref": "main", "repo": {"full_name": "org/repo"}},
+        "head": {"ref": "feature", "repo": {"full_name": "org/repo"}},
+    }
+    provider = FakeProvider(pr=pr)
+    prepare, _publish_tool, backend, _provider = _tools(provider=provider)
+
+    with pytest.raises(RuntimeError, match="PR #7 is not open"):
         prepare.invoke({"repo": "org/repo", "pr_number": 7})
     assert backend.clone_calls == []
 
@@ -215,6 +236,7 @@ def test_one_confirmed_push_creates_a_draft_pr(monkeypatch):
 
 def test_existing_pr_is_updated_without_duplicate_creation(monkeypatch):
     pr = {
+        "state": "open",
         "base": {"ref": "main", "repo": {"full_name": "org/repo"}},
         "head": {"ref": "opentag/fix", "repo": {"full_name": "org/repo"}},
     }
@@ -267,6 +289,99 @@ def test_pr_failure_after_push_retries_only_pr_creation(monkeypatch):
     assert "status: opened" in second
     assert len(backend.push_calls) == 1
     assert len(confirmations) == 1
+
+
+def test_lost_create_response_recovers_the_created_pr(monkeypatch):
+    provider = FakeProvider(fail_pr_once=True)
+    provider.created_pull = {
+        "number": 9,
+        "html_url": "https://github.com/org/repo/pull/9",
+        "title": "Fix tests",
+        "body": "Draft body",
+        "draft": True,
+        "base": {"ref": "main", "repo": {"full_name": "org/repo"}},
+        "head": {
+            "ref": "opentag/fix",
+            "sha": "abc123",
+            "repo": {"full_name": "org/repo"},
+        },
+    }
+    prepare, publish, backend, _provider = _tools(provider=provider)
+    _prepare(prepare)
+    monkeypatch.setattr(
+        "coding.repository_tools.require_write_confirmation", lambda **_k: True
+    )
+
+    result = _publish(publish)
+
+    assert "status: opened" in result
+    assert "https://github.com/org/repo/pull/9" in result
+    assert len(backend.push_calls) == 1
+
+
+def test_create_failure_does_not_adopt_a_different_pull_request(monkeypatch):
+    provider = FakeProvider(fail_pr_once=True)
+    provider.created_pull = {
+        "number": 9,
+        "html_url": "https://github.com/org/repo/pull/9",
+        "title": "Someone else's work",
+        "body": "Different body",
+        "draft": False,
+        "base": {"ref": "main", "repo": {"full_name": "org/repo"}},
+        "head": {
+            "ref": "opentag/fix",
+            "sha": "abc123",
+            "repo": {"full_name": "org/repo"},
+        },
+    }
+    prepare, publish, _backend, _provider = _tools(provider=provider)
+    _prepare(prepare)
+    monkeypatch.setattr(
+        "coding.repository_tools.require_write_confirmation", lambda **_k: True
+    )
+    monkeypatch.setattr("coding.repository_tools.emit_write_failure", lambda *_a: None)
+
+    result = _publish(publish)
+
+    assert "status: branch_pushed" in result
+    assert "pr_url:" not in result
+
+
+def test_successful_publish_replay_returns_the_prior_result(monkeypatch):
+    prepare, publish, backend, provider = _tools()
+    _prepare(prepare)
+    confirmations = []
+    monkeypatch.setattr(
+        "coding.repository_tools.require_write_confirmation",
+        lambda **kwargs: confirmations.append(kwargs) or True,
+    )
+
+    first = _publish(publish)
+    second = _publish(publish)
+
+    assert second == first
+    assert len(backend.push_calls) == 1
+    assert len(confirmations) == 1
+    assert len([request for request in provider.requests if request[0] == "POST"]) == 1
+
+
+def test_successful_publish_replay_canonicalizes_the_pr_number(monkeypatch):
+    prepare, publish, backend, provider = _tools()
+    _prepare(prepare)
+    confirmations = []
+    monkeypatch.setattr(
+        "coding.repository_tools.require_write_confirmation",
+        lambda **kwargs: confirmations.append(kwargs) or True,
+    )
+
+    first = _publish(publish)
+    second = _publish(publish, existing_pr_number=9)
+
+    assert second == first
+    assert len(backend.push_calls) == 1
+    assert len(confirmations) == 1
+    assert len([request for request in provider.requests if request[0] == "POST"]) == 1
+    assert len([request for request in provider.requests if request[0] == "PATCH"]) == 0
 
 
 @pytest.mark.parametrize("actor", ["octocat", "open-tag[bot]"])

@@ -68,9 +68,11 @@ def test_current_run_id_falls_back_to_thread_id(monkeypatch):
 
 def test_current_run_id_uses_the_parent_task_namespace_for_a_coder_job(monkeypatch):
     namespace = {"value": "tools:job-a|tools:prepare"}
+    run_id = {"value": "run-a"}
     monkeypatch.setattr(
         "langgraph.config.get_config",
         lambda: {
+            "run_id": run_id["value"],
             "configurable": {
                 "thread_id": "thread-a",
                 "checkpoint_ns": namespace["value"],
@@ -80,6 +82,7 @@ def test_current_run_id_uses_the_parent_task_namespace_for_a_coder_job(monkeypat
 
     prepared_job = current_run_id()
     namespace["value"] = "tools:job-a|tools:publish"
+    run_id["value"] = "run-b"
 
     assert current_run_id() == prepared_job == "thread-a:tools:job-a"
 

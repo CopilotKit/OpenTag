@@ -1,15 +1,27 @@
+import base64
 import logging
 
 import pytest
+from cryptography.hazmat.primitives import serialization
+from cryptography.hazmat.primitives.asymmetric import rsa
 
 from coding import config
 from coding.github_credentials import GitHubAppProvider, GitHubPatProvider
 
 
+TEST_PRIVATE_KEY = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+TEST_PRIVATE_KEY_BASE64 = base64.b64encode(
+    TEST_PRIVATE_KEY.private_bytes(
+        encoding=serialization.Encoding.PEM,
+        format=serialization.PrivateFormat.PKCS8,
+        encryption_algorithm=serialization.NoEncryption(),
+    )
+).decode()
+
 APP = {
     "GITHUB_APP_ID": "123",
     "GITHUB_APP_INSTALLATION_ID": "456",
-    "GITHUB_APP_PRIVATE_KEY_BASE64": "cHJpdmF0ZQ==",
+    "GITHUB_APP_PRIVATE_KEY_BASE64": TEST_PRIVATE_KEY_BASE64,
 }
 
 
@@ -87,6 +99,43 @@ def test_search_pat_coexists_with_app_coding():
 
     assert isinstance(selected.search, GitHubPatProvider)
     assert isinstance(selected.coding, GitHubAppProvider)
+
+
+def test_search_pat_and_dedicated_coder_pat_select_separate_providers():
+    selected = config.github_providers(
+        {
+            "GITHUB_PERSONAL_ACCESS_TOKEN": "search",
+            "GITHUB_CODER_TOKEN": "coder",
+        }
+    )
+
+    assert selected.search.token() == "search"
+    assert selected.coding.token() == "coder"
+
+
+def test_incomplete_app_disables_explicit_pat_coding_too():
+    selected = config.github_providers(
+        {
+            "GITHUB_CODER_TOKEN": "coder",
+            "GITHUB_APP_ID": "123",
+        }
+    )
+
+    assert selected.coding is None
+    assert "incomplete" in (selected.warning or "")
+
+
+def test_decoded_app_key_must_be_a_valid_pem():
+    selected = config.github_providers(
+        {
+            "GITHUB_APP_ID": "123",
+            "GITHUB_APP_INSTALLATION_ID": "456",
+            "GITHUB_APP_PRIVATE_KEY_BASE64": "cHJpdmF0ZQ==",
+        }
+    )
+
+    assert selected.coding is None
+    assert "valid unencrypted PEM" in (selected.error or "")
 
 
 def test_startup_warnings_cover_incomplete_app_and_ignored_allowlist(caplog):

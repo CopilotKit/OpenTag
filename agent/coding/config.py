@@ -99,9 +99,13 @@ def github_providers(
     return GitHubProviders(coding=coding, search=search or coding)
 
 
-def coding_enabled(env: Mapping[str, str] | None = None) -> bool:
+def coding_enabled(
+    env: Mapping[str, str] | None = None,
+    *,
+    selection: GitHubProviders | None = None,
+) -> bool:
     source = _env(env)
-    selection = github_providers(source)
+    selection = selection or github_providers(source)
     return bool(
         _value(source, "DAYTONA_API_KEY")
         and selection.coding is not None
