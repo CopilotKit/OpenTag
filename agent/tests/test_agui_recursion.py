@@ -9,9 +9,9 @@ from agui import build_agui_agent, iter_agent_events
 
 
 def test_agui_agent_receives_the_main_graph_recursion_limit():
-    graph = SimpleNamespace(nodes={})
+    graph = SimpleNamespace(nodes={}, config={"recursion_limit": 80})
 
-    agent = build_agui_agent(graph, recursion_limit=80)
+    agent = build_agui_agent(graph)
 
     assert agent.config["recursion_limit"] == 80
 

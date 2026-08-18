@@ -136,9 +136,9 @@ def _validated_openai_setting(
     return value
 
 
-def graph_recursion_limit() -> int:
+def graph_recursion_limit(coding_on: bool | None = None) -> int:
     """Steps the main graph may take in one Slack turn."""
-    return 80 if coding_enabled() else 25
+    return 80 if (coding_enabled() if coding_on is None else coding_on) else 25
 
 
 def build_agent():
@@ -169,6 +169,7 @@ def build_agent():
 
     providers = github_providers()
     log_configuration_warnings(providers)
+    coding_on = coding_enabled(selection=providers)
     source_toolsets = internal_source_toolsets(providers.search)
     internal_tools = [
         tool for tools in source_toolsets.values() for tool in tools
@@ -189,7 +190,7 @@ def build_agent():
         else NO_WEB_SEARCH_TOOL_ADDENDUM
     )
     system_prompt = system_prompt + (
-        CODING_ON_ADDENDUM if coding_enabled() else CODING_OFF_ADDENDUM
+        CODING_ON_ADDENDUM if coding_on else CODING_OFF_ADDENDUM
     )
 
     checkpointer = MemorySaver()
@@ -208,12 +209,6 @@ def build_agent():
         "backend": StateBackend(),
         "checkpointer": checkpointer,
     }
-    coding_on = bool(
-        (os.environ.get("DAYTONA_API_KEY") or "").strip()
-        and providers.coding
-        and not providers.error
-        and not providers.warning
-    )
     if coding_on:
         assert providers.coding is not None
         create_kwargs["subagents"] = [
@@ -240,6 +235,6 @@ def build_agent():
     # enough for chat and too low for "read this PR, then code".
     # graph.with_config is for direct invoke. Slack/AG-UI must also get
     # this value on LangGraphAGUIAgent(config=...) in main.py.
-    recursion_limit = graph_recursion_limit()
+    recursion_limit = graph_recursion_limit(coding_on)
     print(f"[AGENT] recursion_limit: {recursion_limit}")
     return agent_graph.with_config({"recursion_limit": recursion_limit})

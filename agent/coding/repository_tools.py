@@ -6,6 +6,7 @@ import re
 import shlex
 from dataclasses import dataclass
 from typing import Any
+from urllib.parse import urlencode
 
 from langchain_core.tools import tool
 
@@ -33,6 +34,8 @@ class PreparedRepository:
     request_signature: tuple[Any, ...]
     approved_signature: tuple[Any, ...] | None = None
     pushed_commit: str | None = None
+    published_signature: tuple[Any, ...] | None = None
+    published_result: str | None = None
 
 
 def _validate_repo(repo: str) -> None:
@@ -86,6 +89,70 @@ def _prepared_result(prepared: PreparedRepository, *, replayed: bool = False) ->
     )
 
 
+def _matching_open_pull(
+    provider: GitHubCredentialProvider,
+    prepared: PreparedRepository,
+    commit: str,
+    *,
+    title: str,
+    body: str,
+) -> dict[str, Any] | None:
+    """Find the PR created by an ambiguous prior POST, if one exists."""
+    head_owner = prepared.push_repo.split("/", 1)[0]
+    query = urlencode(
+        {
+            "state": "open",
+            "head": f"{head_owner}:{prepared.head_branch}",
+            "base": prepared.base_branch,
+        }
+    )
+    pulls = provider.request_json(
+        "GET", f"/repos/{prepared.repo}/pulls?{query}"
+    )
+    if not isinstance(pulls, list):
+        raise RuntimeError("GitHub returned an invalid pull-request list")
+    for pull in pulls:
+        if not isinstance(pull, dict):
+            continue
+        if (
+            str(_nested(pull, "base", "repo", "full_name")).casefold()
+            == prepared.repo.casefold()
+            and str(_nested(pull, "head", "repo", "full_name")).casefold()
+            == prepared.push_repo.casefold()
+            and str(_nested(pull, "base", "ref")) == prepared.base_branch
+            and str(_nested(pull, "head", "ref")) == prepared.head_branch
+            and str(_nested(pull, "head", "sha")) == commit
+            and pull.get("title") == title
+            and pull.get("body") == body
+            and pull.get("draft") is True
+        ):
+            return pull
+    return None
+
+
+def _publish_result(
+    *,
+    action: str,
+    pull: dict[str, Any] | list[Any],
+    test_command: str,
+    test_exit_code: int,
+) -> tuple[str, int]:
+    if not isinstance(pull, dict):
+        raise RuntimeError("GitHub returned an invalid pull-request response")
+    url = pull.get("html_url")
+    number = pull.get("number")
+    if not isinstance(url, str) or not url or not isinstance(number, int):
+        raise RuntimeError("GitHub pull-request response is missing its URL or number")
+    return (
+        f"status: {action}\n"
+        f"pr_url: {url}\n"
+        "branch_pushed: true\n"
+        f"test_command: {test_command}\n"
+        f"test_exit_code: {test_exit_code}",
+        number,
+    )
+
+
 def build_repository_tools(
     backend: PerJobDaytonaBackend,
     provider: GitHubCredentialProvider,
@@ -135,6 +202,10 @@ def build_repository_tools(
             existing_pr = provider.request_json(
                 "GET", f"/repos/{repo}/pulls/{pr_number}"
             )
+            if not isinstance(existing_pr, dict):
+                raise RuntimeError("GitHub returned an invalid pull-request response")
+            if existing_pr.get("state") != "open":
+                raise RuntimeError(f"PR #{pr_number} is not open")
             actual_base = str(_nested(existing_pr, "base", "ref"))
             actual_head = str(_nested(existing_pr, "head", "ref"))
             actual_base_repo = str(
@@ -155,6 +226,8 @@ def build_repository_tools(
         else:
             if not base_branch:
                 repository = provider.request_json("GET", f"/repos/{repo}")
+                if not isinstance(repository, dict):
+                    raise RuntimeError("GitHub returned an invalid repository response")
                 base_branch = str(repository["default_branch"])
             head_branch = head_branch or _generated_branch()
             if head_branch == base_branch:
@@ -277,6 +350,23 @@ def build_repository_tools(
             raise RuntimeError(f"failed to resolve commit: {revision.output}")
         commit = revision.output.strip()
 
+        publish_signature = (
+            commit,
+            repo,
+            base_branch,
+            head_branch,
+            title,
+            body,
+            test_command,
+            test_exit_code,
+            open_anyway,
+        )
+        if (
+            prepared.published_signature == publish_signature
+            and prepared.published_result is not None
+        ):
+            return prepared.published_result
+
         approval_signature = (
             commit,
             title,
@@ -342,11 +432,32 @@ def build_repository_tools(
                     json=payload,
                 )
             else:
-                pull = provider.request_json(
-                    "POST",
-                    f"/repos/{repo}/pulls",
-                    json={**payload, "head": head_branch, "draft": True},
-                )
+                try:
+                    pull = provider.request_json(
+                        "POST",
+                        f"/repos/{repo}/pulls",
+                        json={**payload, "head": head_branch, "draft": True},
+                    )
+                except Exception as create_error:
+                    try:
+                        pull = _matching_open_pull(
+                            provider,
+                            prepared,
+                            commit,
+                            title=title,
+                            body=body,
+                        )
+                    except Exception:
+                        raise create_error
+                    if pull is None:
+                        raise create_error
+
+            result, published_pr_number = _publish_result(
+                action=action,
+                pull=pull,
+                test_command=test_command,
+                test_exit_code=test_exit_code,
+            )
         except Exception as error:
             failure = f"pull request write failed after push: {error}"
             emit_write_failure("Push branch and publish pull request", failure)
@@ -360,12 +471,10 @@ def build_repository_tools(
                 "retry: call publish_changes again; only the PR write will retry"
             )
 
-        return (
-            f"status: {action}\n"
-            f"pr_url: {pull['html_url']}\n"
-            "branch_pushed: true\n"
-            f"test_command: {test_command}\n"
-            f"test_exit_code: {test_exit_code}"
-        )
+        if prepared.pr_number is None:
+            prepared.pr_number = published_pr_number
+        prepared.published_signature = publish_signature
+        prepared.published_result = result
+        return result
 
     return [prepare_repository, publish_changes]

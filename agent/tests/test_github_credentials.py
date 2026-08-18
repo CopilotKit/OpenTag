@@ -1,14 +1,27 @@
+import base64
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
 
 import httpx
 import pytest
+from cryptography.hazmat.primitives import serialization
+from cryptography.hazmat.primitives.asymmetric import rsa
 
 from coding.github_credentials import (
     GitHubAppProvider,
     GitHubCredentialError,
     GitHubPatProvider,
 )
+
+
+TEST_PRIVATE_KEY = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+TEST_PRIVATE_KEY_BASE64 = base64.b64encode(
+    TEST_PRIVATE_KEY.private_bytes(
+        encoding=serialization.Encoding.PEM,
+        format=serialization.PrivateFormat.PKCS8,
+        encryption_algorithm=serialization.NoEncryption(),
+    )
+).decode()
 
 
 def _client(handler):
@@ -60,7 +73,7 @@ def test_app_token_cache_refresh_and_bot_identity(monkeypatch):
     provider = GitHubAppProvider(
         app_id="1",
         installation_id="2",
-        private_key_base64="cHJpdmF0ZQ==",
+        private_key_base64=TEST_PRIVATE_KEY_BASE64,
         client=_client(handler),
         now=lambda: now[0],
     )
@@ -73,7 +86,7 @@ def test_app_token_cache_refresh_and_bot_identity(monkeypatch):
     claims, key, algorithm = signed[0]
     assert claims["iss"] == "1"
     assert claims["exp"] - claims["iat"] == 600
-    assert key == "private"
+    assert isinstance(key, rsa.RSAPrivateKey)
     assert algorithm == "RS256"
 
 
@@ -96,7 +109,7 @@ def test_app_refresh_is_serialized(monkeypatch):
     provider = GitHubAppProvider(
         app_id="1",
         installation_id="2",
-        private_key_base64="cHJpdmF0ZQ==",
+        private_key_base64=TEST_PRIVATE_KEY_BASE64,
         client=_client(handler),
         now=lambda: now,
     )
@@ -118,4 +131,26 @@ def test_failures_redact_the_exact_operation_credential():
     with pytest.raises(GitHubCredentialError) as captured:
         provider.request_json("GET", "/user")
     assert token not in str(captured.value)
+    assert "[redacted]" in str(captured.value)
+
+
+def test_app_failures_redact_the_signed_jwt(monkeypatch):
+    app_jwt = "signed-app-jwt"
+    monkeypatch.setattr(
+        "coding.github_credentials.jwt.encode", lambda *_a, **_k: app_jwt
+    )
+
+    def handler(_request):
+        raise RuntimeError(f"transport leaked {app_jwt}")
+
+    provider = GitHubAppProvider(
+        app_id="1",
+        installation_id="2",
+        private_key_base64=TEST_PRIVATE_KEY_BASE64,
+        client=_client(handler),
+    )
+
+    with pytest.raises(GitHubCredentialError) as captured:
+        provider.token()
+    assert app_jwt not in str(captured.value)
     assert "[redacted]" in str(captured.value)

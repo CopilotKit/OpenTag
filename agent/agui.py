@@ -35,7 +35,10 @@ class OpenTagAGUIAgent(LangGraphAGUIAgent):
 
 
 def build_agui_agent(graph, *, recursion_limit: int | None = None):
-    """Wire the Slack/AG-UI adapter. It does not use graph.with_config."""
+    """Wire the Slack/AG-UI adapter with the graph's resolved step limit."""
+    if recursion_limit is None:
+        graph_config = getattr(graph, "config", None) or {}
+        recursion_limit = graph_config.get("recursion_limit")
     if recursion_limit is None:
         recursion_limit = graph_recursion_limit()
     return OpenTagAGUIAgent(

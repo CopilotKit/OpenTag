@@ -13,6 +13,7 @@ from pydantic import Field
 
 from agui import build_agui_agent
 from coding.github_credentials import GitHubIdentity
+from coding.sandbox import current_run_id
 from coding.subagent import build_coder_subagent
 
 
@@ -117,14 +118,19 @@ class ApprovalResumeProvider:
     def request_json(self, method, path, *, json=None):
         self.requests.append((method, path, json))
         if method == "POST":
-            return {"html_url": "https://github.com/org/repo/pull/9"}
+            return {
+                "html_url": "https://github.com/org/repo/pull/9",
+                "number": 9,
+            }
         raise AssertionError((method, path, json))
 
 
 class ApprovalResumeBackend:
     def __init__(self):
-        self.state = {}
+        self.states = {}
+        self.job_keys = []
         self.branch = ""
+        self.clones = 0
         self.pushes = 0
 
     @property
@@ -132,9 +138,12 @@ class ApprovalResumeBackend:
         return "approval-resume"
 
     def job_state(self):
-        return self.state
+        key = current_run_id()
+        self.job_keys.append(key)
+        return self.states.setdefault(key, {})
 
     def clone_repository(self, **kwargs):
+        self.clones += 1
         self.branch = kwargs["branch"]
 
     def set_git_identity(self, **_kwargs):
@@ -215,7 +224,9 @@ def test_coder_confirmation_survives_subagent_tool_replay():
         )
     )
 
+    assert backend.clones == 1
     assert backend.pushes == 1
+    assert len(set(backend.job_keys)) == 1
     assert provider.requests[-1][:2] == ("POST", "/repos/org/repo/pulls")
 
 

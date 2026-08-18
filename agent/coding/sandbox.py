@@ -68,15 +68,15 @@ def current_run_id() -> str:
         configurable = config.get("configurable") or {}
     except Exception:
         return "unknown"
-    run_id = config.get("run_id") or configurable.get("run_id")
-    if run_id:
-        return str(run_id)
-
     thread_id = configurable.get("thread_id")
     checkpoint_ns = str(configurable.get("checkpoint_ns") or "")
     job_ns = checkpoint_ns.partition("|")[0]
     if job_ns:
         return f"{thread_id}:{job_ns}" if thread_id else job_ns
+
+    run_id = config.get("run_id") or configurable.get("run_id")
+    if run_id:
+        return str(run_id)
     return str(thread_id or "unknown")
 
 
