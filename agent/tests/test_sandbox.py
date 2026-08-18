@@ -66,6 +66,24 @@ def test_current_run_id_falls_back_to_thread_id(monkeypatch):
     assert current_run_id() == "thread-a"
 
 
+def test_current_run_id_uses_the_parent_task_namespace_for_a_coder_job(monkeypatch):
+    namespace = {"value": "tools:job-a|tools:prepare"}
+    monkeypatch.setattr(
+        "langgraph.config.get_config",
+        lambda: {
+            "configurable": {
+                "thread_id": "thread-a",
+                "checkpoint_ns": namespace["value"],
+            }
+        },
+    )
+
+    prepared_job = current_run_id()
+    namespace["value"] = "tools:job-a|tools:publish"
+
+    assert current_run_id() == prepared_job == "thread-a:tools:job-a"
+
+
 def test_redact_secrets_strips_github_token_prefixes():
     text = "auth ghp_ABCDEFG123 github_pat_ZZ gho_YY"
     redacted = redact_secrets(text)

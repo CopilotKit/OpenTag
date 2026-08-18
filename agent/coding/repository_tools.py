@@ -30,6 +30,7 @@ class PreparedRepository:
     head_branch: str
     identity: GitHubIdentity
     pr_number: int | None
+    request_signature: tuple[Any, ...]
     approved_signature: tuple[Any, ...] | None = None
     pushed_commit: str | None = None
 
@@ -71,6 +72,20 @@ def _run_git(backend: PerJobDaytonaBackend, path: str, args: str):
     return backend.execute(f"git -C {shlex.quote(path)} {args}")
 
 
+def _prepared_result(prepared: PreparedRepository, *, replayed: bool = False) -> str:
+    status = "already_prepared" if replayed else "prepared"
+    return (
+        f"status: {status}\n"
+        f"repository: {prepared.repo}\n"
+        f"push_repository: {prepared.push_repo}\n"
+        f"working_directory: {prepared.path}\n"
+        f"base_branch: {prepared.base_branch}\n"
+        f"head_branch: {prepared.head_branch}\n"
+        f"actor: {prepared.identity.login}\n"
+        f"pr_number: {prepared.pr_number or ''}"
+    )
+
+
 def build_repository_tools(
     backend: PerJobDaytonaBackend,
     provider: GitHubCredentialProvider,
@@ -94,16 +109,29 @@ def build_repository_tools(
             _validate_branch(base_branch)
         if head_branch:
             _validate_branch(head_branch)
+        if pr_number is not None and pr_number < 1:
+            raise RuntimeError("pr_number must be positive")
+
+        request_signature = (
+            repo.casefold(),
+            base_branch,
+            head_branch,
+            pr_number,
+            sync_base,
+        )
 
         state = backend.job_state()
-        if state.get("repository") is not None:
+        prior = state.get("repository")
+        if isinstance(prior, PreparedRepository):
+            if prior.request_signature == request_signature:
+                return _prepared_result(prior, replayed=True)
             raise RuntimeError("prepare_repository may be called only once per coder job")
+        if prior is not None:
+            raise RuntimeError("coder job contains invalid repository state")
 
         push_repo = repo
         existing_pr: dict[str, Any] | None = None
         if pr_number is not None:
-            if pr_number < 1:
-                raise RuntimeError("pr_number must be positive")
             existing_pr = provider.request_json(
                 "GET", f"/repos/{repo}/pulls/{pr_number}"
             )
@@ -187,18 +215,10 @@ def build_repository_tools(
             head_branch=head_branch,
             identity=identity,
             pr_number=pr_number,
+            request_signature=request_signature,
         )
         state["repository"] = prepared
-        return (
-            "status: prepared\n"
-            f"repository: {repo}\n"
-            f"push_repository: {push_repo}\n"
-            f"working_directory: {path}\n"
-            f"base_branch: {base_branch}\n"
-            f"head_branch: {head_branch}\n"
-            f"actor: {identity.login}\n"
-            f"pr_number: {pr_number or ''}"
-        )
+        return _prepared_result(prepared)
 
     @tool
     def publish_changes(

@@ -134,6 +134,26 @@ def test_prepare_clones_with_operation_token_and_configures_local_identity():
     assert backend.branch == "opentag/fix"
 
 
+def test_identical_prepare_replay_reuses_the_existing_repository():
+    prepare, _publish_tool, backend, _provider = _tools()
+
+    _prepare(prepare)
+    result = _prepare(prepare)
+
+    assert "status: already_prepared" in result
+    assert len(backend.clone_calls) == 1
+
+
+def test_prepare_replay_cannot_change_the_target():
+    prepare, _publish_tool, backend, _provider = _tools()
+
+    _prepare(prepare)
+
+    with pytest.raises(RuntimeError, match="may be called only once"):
+        _prepare(prepare, head_branch="opentag/other")
+    assert len(backend.clone_calls) == 1
+
+
 def test_prepare_existing_fork_pr_and_syncs_base_through_daytona():
     pr = {
         "base": {"ref": "main", "repo": {"full_name": "org/repo"}},
