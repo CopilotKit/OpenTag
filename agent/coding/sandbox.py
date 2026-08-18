@@ -60,7 +60,7 @@ CreateSandbox = Callable[..., Any]
 
 
 def current_run_id() -> str:
-    """LangGraph run id, or thread id, or `unknown`."""
+    """Stable coder-job id across nested tool calls and approval resumes."""
     try:
         from langgraph.config import get_config
 
@@ -68,12 +68,16 @@ def current_run_id() -> str:
         configurable = config.get("configurable") or {}
     except Exception:
         return "unknown"
-    return str(
-        config.get("run_id")
-        or configurable.get("run_id")
-        or configurable.get("thread_id")
-        or "unknown"
-    )
+    run_id = config.get("run_id") or configurable.get("run_id")
+    if run_id:
+        return str(run_id)
+
+    thread_id = configurable.get("thread_id")
+    checkpoint_ns = str(configurable.get("checkpoint_ns") or "")
+    job_ns = checkpoint_ns.partition("|")[0]
+    if job_ns:
+        return f"{thread_id}:{job_ns}" if thread_id else job_ns
+    return str(thread_id or "unknown")
 
 
 def _raw_sandbox(box):
