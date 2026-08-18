@@ -1,5 +1,17 @@
 # Changelog
 
+## v0.4.1
+
+- fix: harden coder publish replay safety (5c03e70)
+- fix: make coder approvals replay-safe (efec9d7)
+- docs: group optional environment examples (49b235a)
+- feat: add GitHub App coder authentication (7e9be6d)
+
+### Container images
+
+- `ghcr.io/copilotkit/opentag-agent:v0.4.1`
+- `ghcr.io/copilotkit/opentag-runtime:v0.4.1`
+
 ## v0.4.0
 
 - docs: remove superpowers content (0577c63)
