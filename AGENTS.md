@@ -43,7 +43,7 @@ files.
 | AG-UI adapter | `agent/agui.py` | Slack recursion limit and user-facing graph-stop handling |
 | Persona | `agent/prompts/` | `system.py` is the base system prompt |
 | Approval gate | `agent/write_confirmation.py` | Emits `confirm_write` before Linear or Notion writes |
-| Coder | `agent/coding/` | Daytona sandbox, `open_pull_request`, coder prompt |
+| Coder | `agent/coding/` | GitHub credentials, Daytona sandbox, repository publish tools, coder prompt |
 | Coder skills | `agent/coding/skills/` | Committed skills. Do not put them in `agent/skills/` |
 | Deployment | `.railway/railway.ts` | Two services, declared as code |
 

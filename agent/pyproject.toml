@@ -8,10 +8,12 @@ dependencies = [
   "copilotkit>=0.1.76",
   "deepagents>=0.6.12",
   "fastapi>=0.115.14",
+  "httpx>=0.27.0",
   "langchain>=1.2.4",
   "langchain-mcp-adapters>=0.3.0",
   "langchain-openai>=1.1.7",
   "python-dotenv>=1.2.1",
+  "pyjwt[crypto]>=2.10.1",
   "tavily-python>=0.3.0",
   "uvicorn[standard]>=0.40.0",
   "daytona",
@@ -19,7 +21,7 @@ dependencies = [
 ]
 
 [dependency-groups]
-dev = ["pytest>=8.0.0", "httpx>=0.27.0"]
+dev = ["pytest>=8.0.0"]
 
 [tool.setuptools]
 packages = ["prompts", "coding"]

@@ -90,9 +90,11 @@ def test_redact_secrets_replaces_explicit_secret():
     assert "[redacted]" in redacted
 
 
-def test_redact_secrets_replaces_write_token(monkeypatch):
-    monkeypatch.setenv("GITHUB_CODER_TOKEN", "not-a-standard-prefix-token")
-    redacted = redact_secrets("see not-a-standard-prefix-token")
+def test_redact_secrets_replaces_explicit_nonstandard_token():
+    redacted = redact_secrets(
+        "see not-a-standard-prefix-token",
+        secret="not-a-standard-prefix-token",
+    )
     assert "not-a-standard-prefix-token" not in redacted
     assert "[redacted]" in redacted
 
@@ -125,6 +127,34 @@ def test_execute_redacts_token_shaped_output(monkeypatch):
     result = backend.execute("env")
     assert "ghp_LIVESECRET99" not in result.output
     assert result.exit_code == 0
+
+
+def test_daytona_git_failure_redacts_the_operation_token(monkeypatch):
+    token = "arbitrary-installation-secret"
+
+    class GitApi:
+        def clone(self, **kwargs):
+            raise RuntimeError(f"clone denied for {kwargs['password']}")
+
+    box = FakeBox()
+    box.sandbox = SimpleNamespace(git=GitApi())
+    monkeypatch.setenv("DAYTONA_SNAPSHOT", "test-snap")
+    monkeypatch.setattr("coding.sandbox.current_run_id", lambda: "run-a")
+    backend = PerJobDaytonaBackend(create_sandbox=lambda **_k: box)
+
+    try:
+        backend.clone_repository(
+            repo="org/repo",
+            path="workspace/repo",
+            branch="main",
+            username="x-access-token",
+            token=token,
+        )
+    except RuntimeError as error:
+        assert token not in str(error)
+        assert "[redacted]" in str(error)
+    else:
+        raise AssertionError("clone should fail")
 
 
 def test_execute_returns_execute_response_with_truncated_false(monkeypatch):
@@ -443,6 +473,9 @@ def test_git_command_installs_missing_git_once(monkeypatch):
     backend.execute("git status")
 
     assert created[0]["snapshot"] is None
+    assert "GITHUB_TOKEN" not in created[0]["env"]
+    assert "GH_TOKEN" not in created[0]["env"]
+    assert "GIT_ASKPASS" not in created[0]["env"]
     commands = backend._boxes["run-a"].commands
     git_installs = [cmd for cmd in commands if "apt-get" in cmd]
     assert len(git_installs) == 1
@@ -450,19 +483,13 @@ def test_git_command_installs_missing_git_once(monkeypatch):
     assert commands[-1] == "git status"
 
 
-def test_gh_command_installs_missing_gh_once(monkeypatch):
+def test_gh_command_is_never_bootstrapped(monkeypatch):
     box = ToolBox(have_git=True, have_gh=False)
     backend = _backend(monkeypatch, lambda **_k: box)
     backend.execute("gh --version")
     backend.execute("gh --version")
 
-    gh_installs = [cmd for cmd in box.commands if "cli/cli/releases" in cmd]
-    assert len(gh_installs) == 1
-    joined = " ".join(gh_installs)
-    assert "cli/cli/releases/download" in joined
-    assert "gh_2.74.1_linux_" in joined
-    assert ".local/bin/gh" in joined
-    assert "--max-time 60" in joined
+    assert not any("cli/cli/releases" in cmd for cmd in box.commands)
     assert box.commands[-1] == "gh --version"
 
 
@@ -534,24 +561,23 @@ def test_snapshot_skips_install_on_git_and_gh(monkeypatch):
     assert box.commands == ["git status", "gh --version"]
 
 
-def test_gh_install_script_installs_curl_if_missing(monkeypatch):
+def test_gh_command_does_not_install_curl(monkeypatch):
     box = ToolBox(have_git=True, have_gh=False)
     backend = _backend(monkeypatch, lambda **_k: box)
     backend.execute("gh --version")
 
-    gh_install = next(cmd for cmd in box.commands if "cli/cli/releases" in cmd)
-    assert "command -v curl" in gh_install
-    assert "apt-get install -y curl" in gh_install
+    assert not any("cli/cli/releases" in cmd for cmd in box.commands)
+    assert not any("apt-get install -y curl" in cmd for cmd in box.commands)
 
 
-def test_combined_git_and_gh_command_installs_git_before_gh(monkeypatch):
+def test_combined_git_and_gh_command_installs_only_git(monkeypatch):
     box = ToolBox(have_git=False, have_gh=False)
     backend = _backend(monkeypatch, lambda **_k: box)
     backend.execute("git push && gh pr create")
 
     git_at = next(i for i, cmd in enumerate(box.commands) if "apt-get" in cmd)
-    gh_at = next(i for i, cmd in enumerate(box.commands) if "cli/cli/releases" in cmd)
-    assert git_at < gh_at
+    assert git_at >= 0
+    assert not any("cli/cli/releases" in cmd for cmd in box.commands)
 
 
 def test_execute_log_redacts_token_in_command(monkeypatch, capsys):

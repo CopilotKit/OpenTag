@@ -9,10 +9,10 @@ description: >
 
 Fix failing tests in the repo from the brief.
 
-1. Clone the repo. Check out the PR head if `kind` is `pr`, else the default branch.
-2. Create a branch `opentag/fix-tests-<short-id>`.
+1. Call `prepare_repository`, including `pr_number` when `kind` is `pr`.
+2. Work on the returned branch; otherwise request `opentag/fix-tests-<short-id>`.
 3. Find the test command: the brief, then `package.json` `test`/`ci`, then `pytest` or `go test ./...` if those files exist.
 4. Run the command. Read the failure. Edit the smallest set of files that fixes it.
 5. Re-run until exit 0 or you cannot fix it.
-6. If green, commit, push, call `open_pull_request`.
-7. If red, do not call `open_pull_request`. Return the log tail.
+6. If green, commit locally and call `publish_changes`.
+7. If red, do not call `publish_changes`. Return the log tail.

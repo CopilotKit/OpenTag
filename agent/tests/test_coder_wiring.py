@@ -28,7 +28,7 @@ def test_build_agent_omits_coder_when_coding_is_off(monkeypatch):
     monkeypatch.delenv("POSTHOG_PERSONAL_API_KEY", raising=False)
     monkeypatch.delenv("LINEAR_API_KEY", raising=False)
     monkeypatch.delenv("NOTION_MCP_AUTH_TOKEN", raising=False)
-    monkeypatch.setattr(agent_mod, "internal_source_tools", lambda: [])
+    monkeypatch.setattr(agent_mod, "internal_source_toolsets", lambda _provider: {})
     monkeypatch.setattr(agent_mod, "ChatOpenAI", lambda **kwargs: object())
 
     def fake_create_deep_agent(**kwargs):
@@ -65,7 +65,7 @@ def test_build_agent_registers_coder_when_coding_is_on(monkeypatch):
     monkeypatch.delenv("POSTHOG_PERSONAL_API_KEY", raising=False)
     monkeypatch.delenv("LINEAR_API_KEY", raising=False)
     monkeypatch.delenv("NOTION_MCP_AUTH_TOKEN", raising=False)
-    monkeypatch.setattr(agent_mod, "internal_source_tools", lambda: [])
+    monkeypatch.setattr(agent_mod, "internal_source_toolsets", lambda _provider: {})
     monkeypatch.setattr(agent_mod, "ChatOpenAI", lambda **kwargs: object())
     monkeypatch.setattr(
         agent_mod,
@@ -104,6 +104,7 @@ def _capture_coder_graph(monkeypatch, sandbox):
     build_coder_subagent(
         model=object(),
         checkpointer=object(),
+        provider=object(),
         backend=sandbox,
     )
     return captured
@@ -128,6 +129,10 @@ def test_build_coder_subagent_routes_skills_to_host_filesystem(monkeypatch):
     assert backend.default is sandbox
     assert "/skills/" in backend.routes
     assert captured["agent"]["middleware"][0].backend is sandbox
+    assert {tool.name for tool in captured["agent"]["tools"]} == {
+        "prepare_repository",
+        "publish_changes",
+    }
 
     listed = backend.ls("/skills/")
     assert listed.error is None

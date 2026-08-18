@@ -358,15 +358,17 @@ knowledge work, and renders UI from model knowledge.
 | Variable                                   | Enables                                                          |
 | ------------------------------------------ | ---------------------------------------------------------------- |
 | `TAVILY_API_KEY`                           | Live web research                                                |
-| `GITHUB_PERSONAL_ACCESS_TOKEN`             | Read-only repository, code, issue, and PR search                 |
+| `GITHUB_PERSONAL_ACCESS_TOKEN`             | Read-only repository, code, PR, and CI search                    |
 | `POSTHOG_PERSONAL_API_KEY`                 | PostHog analytics, read-only (use the **MCP Server** key preset) |
 | `LINEAR_API_KEY`                           | Hosted Linear MCP                                                |
 | `NOTION_MCP_URL` + `NOTION_MCP_AUTH_TOKEN` | Remote Notion MCP; setting only one disables it                  |
-| `DAYTONA_API_KEY` + a GitHub token         | Coding subagent: clone in Daytona, run tests, open a draft PR after `confirm_write` |
+| `DAYTONA_API_KEY` + a PAT or GitHub App    | Coding subagent: edit in Daytona, then push and publish a draft PR after `confirm_write` |
 
 Every Linear and Notion mutation is intercepted in code before the MCP request
 runs. The interceptor emits `confirm_write` and proceeds only after approval;
-reads and rendering do not pause. Draft PR opens use the same card.
+reads and rendering do not pause. Coder push plus draft-PR create/update uses the
+same card. See [`setup.md`](./setup.md#github) for PAT/App selection and required
+GitHub permissions.
 
 [`setup.md`](./setup.md) documents each source, its overrides, and the full
 environment contract.

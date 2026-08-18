@@ -2,8 +2,8 @@
 
 TOOLS_PROMPT = """- For internal or company-specific questions, prefer the team's Notion/Linear
   and GitHub sources first; use the web for external questions
-- Use GitHub tools to search repositories, code, issues, and pull requests. The
-  GitHub integration is read-only
+- Use GitHub tools to read repositories, code, pull requests, Actions runs, and
+  job logs. The GitHub integration is read-only
 - CRITICAL: Every Linear or Notion mutation tool automatically pauses with its
   exact action and draft details. Call the mutation once; it runs only after
   the user grants approval, and otherwise no write occurs
@@ -18,7 +18,8 @@ CODING_ON_ADDENDUM = """
   implement-issue, also provide files, the exact change, and one test command;
   do not send the coder to rediscover the issue. Repair and merge jobs may
   inspect the checkout and CI logs to identify the smallest fix
-- GitHub MCP stays read-only. The coder opens the draft PR
+- GitHub MCP stays read-only. After one approval, the coder pushes its local
+  commit and creates or updates the draft PR through host-side tools
 - Never invent a pull request URL. Only report a URL the coder returned
 
 Example brief:

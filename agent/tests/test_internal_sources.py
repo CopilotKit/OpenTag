@@ -3,6 +3,7 @@ import logging
 from datetime import datetime
 
 import internal_sources
+import httpx
 import pytest
 from langchain_core.tools import StructuredTool
 from write_confirmation import WriteConfirmationInterceptor
@@ -12,19 +13,20 @@ from write_confirmation import WriteConfirmationInterceptor
 def clear_ambient_credentials(monkeypatch):
     monkeypatch.delenv("GITHUB_PERSONAL_ACCESS_TOKEN", raising=False)
     monkeypatch.delenv("GITHUB_CODER_TOKEN", raising=False)
+    monkeypatch.delenv("GITHUB_APP_ID", raising=False)
+    monkeypatch.delenv("GITHUB_APP_INSTALLATION_ID", raising=False)
+    monkeypatch.delenv("GITHUB_APP_PRIVATE_KEY_BASE64", raising=False)
     monkeypatch.delenv("POSTHOG_PERSONAL_API_KEY", raising=False)
 
 
 def test_mcp_servers_are_configured_in_one_place():
     assert internal_sources.MCP_SERVERS == {
         "github": {
-            "token_env": "GITHUB_PERSONAL_ACCESS_TOKEN",
-            "fallback_token_env": "GITHUB_CODER_TOKEN",
             "url_env": "GITHUB_MCP_URL",
             "default_url": "https://api.githubcopilot.com/mcp/readonly",
             "headers": {
                 "X-MCP-Readonly": "true",
-                "X-MCP-Toolsets": "repos,issues,pull_requests",
+                "X-MCP-Toolsets": "repos,pull_requests,actions",
             },
         },
         "posthog": {
@@ -56,35 +58,31 @@ def test_internal_source_tools_empty_without_env(monkeypatch):
 
 
 def test_github_uses_hosted_read_only_search_mcp_with_pat():
-    assert internal_sources._configured_connections(
+    github = internal_sources._configured_connections(
         {"GITHUB_PERSONAL_ACCESS_TOKEN": "github_pat_test"}
-    ) == {
-        "github": {
-            "transport": "streamable_http",
-            "url": "https://api.githubcopilot.com/mcp/readonly",
-            "headers": {
-                "Authorization": "Bearer github_pat_test",
-                "X-MCP-Readonly": "true",
-                "X-MCP-Toolsets": "repos,issues,pull_requests",
-            },
-        }
+    )["github"]
+
+    assert github["transport"] == "streamable_http"
+    assert github["url"] == "https://api.githubcopilot.com/mcp/readonly"
+    assert github["headers"] == {
+        "X-MCP-Readonly": "true",
+        "X-MCP-Toolsets": "repos,pull_requests,actions",
     }
+    assert github["auth"].provider.token() == "github_pat_test"
 
 
 def test_github_url_can_be_overridden_without_disabling_read_only_mode():
-    assert internal_sources._configured_connections(
+    github = internal_sources._configured_connections(
         {
             "GITHUB_PERSONAL_ACCESS_TOKEN": "github_pat_test",
             "GITHUB_MCP_URL": "https://github.example.test/mcp",
         }
-    )["github"] == {
-        "transport": "streamable_http",
-        "url": "https://github.example.test/mcp",
-        "headers": {
-            "Authorization": "Bearer github_pat_test",
-            "X-MCP-Readonly": "true",
-            "X-MCP-Toolsets": "repos,issues,pull_requests",
-        },
+    )["github"]
+
+    assert github["url"] == "https://github.example.test/mcp"
+    assert github["headers"] == {
+        "X-MCP-Readonly": "true",
+        "X-MCP-Toolsets": "repos,pull_requests,actions",
     }
 
 
@@ -94,10 +92,92 @@ def test_github_coder_token_can_power_read_only_mcp_when_pat_is_unset():
     )["github"]
 
     assert github["headers"] == {
-        "Authorization": "Bearer github_pat_write",
         "X-MCP-Readonly": "true",
-        "X-MCP-Toolsets": "repos,issues,pull_requests",
+        "X-MCP-Toolsets": "repos,pull_requests,actions",
     }
+    assert github["auth"].provider.token() == "github_pat_write"
+
+
+def test_github_mcp_accepts_the_selected_app_provider():
+    class AppProvider:
+        def __init__(self):
+            self.current = "installation-one"
+
+        def token(self):
+            return self.current
+
+    provider = AppProvider()
+    github = internal_sources._configured_connections(
+        {}, github_provider=provider
+    )["github"]
+
+    assert "Authorization" not in github["headers"]
+    request = next(
+        github["auth"].sync_auth_flow(httpx.Request("GET", "https://example.test"))
+    )
+    assert request.headers["Authorization"] == "Bearer installation-one"
+    provider.current = "installation-two"
+    request = next(
+        github["auth"].sync_auth_flow(httpx.Request("GET", "https://example.test"))
+    )
+    assert request.headers["Authorization"] == "Bearer installation-two"
+
+    async def authorize():
+        flow = github["auth"].async_auth_flow(
+            httpx.Request("GET", "https://example.test")
+        )
+        return await anext(flow)
+
+    request = asyncio.run(authorize())
+    assert request.headers["Authorization"] == "Bearer installation-two"
+
+
+def test_github_tools_require_exact_allowlist_and_read_only_hint(monkeypatch):
+    class FakeMCPClient:
+        def __init__(self, connections, *, tool_interceptors):
+            del connections, tool_interceptors
+
+        async def get_tools(self):
+            return [
+                StructuredTool.from_function(
+                    func=lambda: "ok",
+                    name="get_file_contents",
+                    description="allowed read",
+                    metadata={"readOnlyHint": True},
+                ),
+                StructuredTool.from_function(
+                    func=lambda: "missing",
+                    name="get_commit",
+                    description="missing hint",
+                ),
+                StructuredTool.from_function(
+                    func=lambda: "write",
+                    name="create_pull_request",
+                    description="write",
+                    metadata={"readOnlyHint": True},
+                ),
+                StructuredTool.from_function(
+                    func=lambda: "trigger",
+                    name="rerun_workflow_run",
+                    description="trigger",
+                    metadata={"readOnlyHint": True},
+                ),
+            ]
+
+    monkeypatch.setattr(internal_sources, "MultiServerMCPClient", FakeMCPClient)
+    result = asyncio.run(
+        internal_sources._load_tools(
+            {
+                "github": {
+                    "transport": "streamable_http",
+                    "url": "https://example.test",
+                    "headers": {},
+                }
+            }
+        )
+    )
+
+    assert [tool.name for tool in result["github"]] == ["get_file_contents"]
 
 
 def test_posthog_uses_hosted_read_only_mcp_with_personal_api_key():

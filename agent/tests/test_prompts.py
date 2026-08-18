@@ -41,7 +41,7 @@ def test_prompt_completes_useful_work_when_a_capability_is_unavailable():
 
 
 def test_prompt_describes_read_only_github_search():
-    assert "GitHub tools to search repositories" in BASE_SYSTEM_PROMPT
+    assert "GitHub tools to read repositories" in BASE_SYSTEM_PROMPT
     assert "GitHub integration is read-only" in BASE_SYSTEM_PROMPT
 
 

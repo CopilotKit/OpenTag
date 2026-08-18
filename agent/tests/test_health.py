@@ -102,7 +102,7 @@ def test_build_agent_does_not_expose_a_bypassable_manual_confirmation_tool(
     monkeypatch.delenv("GITHUB_CODER_TOKEN", raising=False)
     monkeypatch.delenv("GITHUB_PERSONAL_ACCESS_TOKEN", raising=False)
     monkeypatch.setattr(agent_mod, "ChatOpenAI", lambda **_kwargs: object())
-    monkeypatch.setattr(agent_mod, "internal_source_tools", lambda: [])
+    monkeypatch.setattr(agent_mod, "internal_source_toolsets", lambda _provider: {})
 
     def fake_create_deep_agent(**kwargs):
         captured["tools"] = kwargs["tools"]

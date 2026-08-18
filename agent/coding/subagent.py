@@ -6,15 +6,23 @@ from deepagents import CompiledSubAgent, create_deep_agent
 from deepagents.backends import CompositeBackend, FilesystemBackend
 
 from coding.config import CODER_RECURSION_LIMIT
-from coding.open_pull_request import build_open_pull_request
+from coding.github_credentials import GitHubCredentialProvider
 from coding.prompt import CODER_PROMPT
+from coding.repository_tools import build_repository_tools
 from coding.sandbox import PerJobDaytonaBackend, StopSandboxAfterJob
 
 SKILLS_DIR = Path(__file__).resolve().parent / "skills"
 SKILLS_PREFIX = "/skills/"
 
 
-def build_coder_subagent(*, model, checkpointer, backend=None):
+def build_coder_subagent(
+    *,
+    model,
+    checkpointer,
+    provider: GitHubCredentialProvider,
+    github_tools=(),
+    backend=None,
+):
     """Build the coder CompiledSubAgent. Does not create a Daytona box."""
     sandbox = backend or PerJobDaytonaBackend()
     routed = CompositeBackend(
@@ -29,7 +37,7 @@ def build_coder_subagent(*, model, checkpointer, backend=None):
     graph = create_deep_agent(
         model=model,
         system_prompt=CODER_PROMPT,
-        tools=[build_open_pull_request(sandbox)],
+        tools=[*github_tools, *build_repository_tools(sandbox, provider)],
         skills=[SKILLS_PREFIX],
         backend=routed,
         middleware=[StopSandboxAfterJob(sandbox)],
@@ -38,8 +46,8 @@ def build_coder_subagent(*, model, checkpointer, backend=None):
     return CompiledSubAgent(
         name="coder",
         description=(
-            "Clone a GitHub repo in Daytona, run fix-tests / merge-main / "
-            "fix-ci / implement-issue, then open a draft PR."
+            "Prepare a GitHub repo in Daytona, run fix-tests / merge-main / "
+            "fix-ci / implement-issue, then publish a draft PR."
         ),
         runnable=graph,
     )

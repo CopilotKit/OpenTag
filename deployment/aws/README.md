@@ -83,6 +83,11 @@ task starts; use an empty string for an unused integration.
 Create a second Secrets Manager secret for Datadog. Its entire plaintext value
 must be the raw Datadog API key, not JSON.
 
+For optional GitHub App coding, create a separate Secrets Manager secret whose
+entire plaintext value is the base64-encoded private-key PEM. Pass its complete
+ARN as `githubAppPrivateKeySecretArn`; do not add the private key to the JSON
+application secret. Existing PAT-only deployments require no change.
+
 Changing the OpenTag secret requires a new ECS task. Never put secret values in
 CDK context, command history, or source control.
 
@@ -104,11 +109,15 @@ These CDK context values become container environment variables:
 | `corsAllowOrigins` | `CORS_ALLOW_ORIGINS` | `*` |
 | `daytonaSnapshot` | `DAYTONA_SNAPSHOT` | Unset |
 | `daytonaTtlMinutes` | `DAYTONA_TTL_MINUTES` | `60` |
-| `githubAllowedRepos` | `GITHUB_ALLOWED_REPOS` | Unset |
+| `githubAppId` | `GITHUB_APP_ID` | Unset |
+| `githubAppInstallationId` | `GITHUB_APP_INSTALLATION_ID` | Unset |
 | `githubMcpUrl` | `GITHUB_MCP_URL` | Hosted read-only GitHub MCP |
 | `posthogMcpUrl` | `POSTHOG_MCP_URL` | Hosted read-only PostHog MCP |
 | `linearMcpUrl` | `LINEAR_MCP_URL` | Hosted Linear MCP |
 | `notionMcpUrl` | `NOTION_MCP_URL` | Unset |
+
+`githubAppPrivateKeySecretArn` optionally maps a separate raw Secrets Manager
+secret to `GITHUB_APP_PRIVATE_KEY_BASE64` on the agent container.
 
 The AWS task fixes `AGENT_URL` to `http://127.0.0.1:8123/`, the runtime port to
 `3000`, and the agent port to `8123` because both containers share one task.

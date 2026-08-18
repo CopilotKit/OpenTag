@@ -207,7 +207,7 @@ async def report_write_failure(action: str, error: str) -> None:
 
 
 def emit_write_failure(action: str, error: str) -> None:
-    """Sync entry for tools that cannot await, such as `open_pull_request`."""
+    """Synchronous entry point for graph tools that cannot await."""
 
     def _run() -> None:
         asyncio.run(report_write_failure(action, error))

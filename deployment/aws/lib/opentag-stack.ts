@@ -138,9 +138,15 @@ export class OpenTagStack extends cdk.Stack {
       "daytonaTtlMinutes",
       60,
     );
-    const githubAllowedRepos = contextString(
+    const githubAppId = contextString(this, "githubAppId", "");
+    const githubAppInstallationId = contextString(
       this,
-      "githubAllowedRepos",
+      "githubAppInstallationId",
+      "",
+    );
+    const githubAppPrivateKeySecretArn = contextString(
+      this,
+      "githubAppPrivateKeySecretArn",
       "",
     );
     const enableDatadog = contextBoolean(this, "enableDatadog", true);
@@ -190,6 +196,13 @@ export class OpenTagStack extends cdk.Stack {
       "OpenTagSecret",
       applicationSecretArn.valueAsString,
     );
+    const githubAppPrivateKeySecret = githubAppPrivateKeySecretArn
+      ? secretsmanager.Secret.fromSecretCompleteArn(
+          this,
+          "GitHubAppPrivateKeySecret",
+          githubAppPrivateKeySecretArn,
+        )
+      : undefined;
 
     const serviceCluster = cluster ?? this.createStandaloneCluster(
       appName,
@@ -229,7 +242,11 @@ export class OpenTagStack extends cdk.Stack {
         ),
         ...optionalEnvironment("DAYTONA_SNAPSHOT", daytonaSnapshot),
         DAYTONA_TTL_MINUTES: String(daytonaTtlMinutes),
-        ...optionalEnvironment("GITHUB_ALLOWED_REPOS", githubAllowedRepos),
+        ...optionalEnvironment("GITHUB_APP_ID", githubAppId),
+        ...optionalEnvironment(
+          "GITHUB_APP_INSTALLATION_ID",
+          githubAppInstallationId,
+        ),
         GITHUB_MCP_URL: contextString(
           this,
           "githubMcpUrl",
@@ -275,7 +292,15 @@ export class OpenTagStack extends cdk.Stack {
         streamPrefix: "agent",
       }),
       memoryReservationMiB: 1792,
-      secrets: secretFields(applicationSecret, AGENT_SECRET_KEYS),
+      secrets: {
+        ...secretFields(applicationSecret, AGENT_SECRET_KEYS),
+        ...(githubAppPrivateKeySecret
+          ? {
+              GITHUB_APP_PRIVATE_KEY_BASE64:
+                ecs.Secret.fromSecretsManager(githubAppPrivateKeySecret),
+            }
+          : {}),
+      },
     });
     agentContainer.addPortMappings({
       appProtocol: ecs.AppProtocol.http,
@@ -331,6 +356,7 @@ export class OpenTagStack extends cdk.Stack {
 
     const executionRole = task.obtainExecutionRole();
     applicationSecret.grantRead(executionRole);
+    githubAppPrivateKeySecret?.grantRead(executionRole);
     if (secretsKmsKey) {
       secretsKmsKey.grantDecrypt(executionRole);
     }
