@@ -1475,10 +1475,12 @@ dependencies = [
     { name = "daytona" },
     { name = "deepagents" },
     { name = "fastapi" },
+    { name = "httpx" },
     { name = "langchain" },
     { name = "langchain-daytona" },
     { name = "langchain-mcp-adapters" },
     { name = "langchain-openai" },
+    { name = "pyjwt", extra = ["crypto"] },
     { name = "python-dotenv" },
     { name = "tavily-python" },
     { name = "uvicorn", extra = ["standard"] },
@@ -1486,7 +1488,6 @@ dependencies = [
 
 [package.dev-dependencies]
 dev = [
-    { name = "httpx" },
     { name = "pytest" },
 ]
 
@@ -1497,20 +1498,19 @@ requires-dist = [
     { name = "daytona" },
     { name = "deepagents", specifier = ">=0.6.12" },
     { name = "fastapi", specifier = ">=0.115.14" },
+    { name = "httpx", specifier = ">=0.27.0" },
     { name = "langchain", specifier = ">=1.2.4" },
     { name = "langchain-daytona" },
     { name = "langchain-mcp-adapters", specifier = ">=0.3.0" },
     { name = "langchain-openai", specifier = ">=1.1.7" },
+    { name = "pyjwt", extras = ["crypto"], specifier = ">=2.10.1" },
     { name = "python-dotenv", specifier = ">=1.2.1" },
     { name = "tavily-python", specifier = ">=0.3.0" },
     { name = "uvicorn", extras = ["standard"], specifier = ">=0.40.0" },
 ]
 
 [package.metadata.requires-dev]
-dev = [
-    { name = "httpx", specifier = ">=0.27.0" },
-    { name = "pytest", specifier = ">=8.0.0" },
-]
+dev = [{ name = "pytest", specifier = ">=8.0.0" }]
 
 [[package]]
 name = "opentelemetry-api"

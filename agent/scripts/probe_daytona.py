@@ -26,9 +26,8 @@ load_dotenv(ROOT / ".env")
 from daytona import CreateSandboxFromSnapshotParams, Daytona  # noqa: E402
 from langchain_daytona import DaytonaSandbox  # noqa: E402
 
-from coding.config import snapshot_id, ttl_minutes, write_token  # noqa: E402
+from coding.config import snapshot_id, ttl_minutes  # noqa: E402
 from coding.sandbox import (  # noqa: E402
-    _GH_INSTALL_CMD,
     _GIT_INSTALL_CMD,
     _PROBE_CMD,
     PerJobDaytonaBackend,
@@ -82,7 +81,6 @@ def main() -> int:
     else:
         print(f"DAYTONA_SNAPSHOT: set ({len(snapshot_id() or '')} chars)")
     print(f"DAYTONA_TTL_MINUTES: {ttl_minutes()}")
-    print(f"GITHUB write token: {'set' if write_token() else 'missing'}")
 
     client = Daytona()
     try:
@@ -98,7 +96,6 @@ def main() -> int:
         params = CreateSandboxFromSnapshotParams(
             snapshot=snapshot_id(),
             env_vars={
-                "GITHUB_TOKEN": write_token() or "",
                 "PATH": (
                     "/root/.local/bin:/home/daytona/.local/bin:"
                     "/usr/local/bin:/usr/bin:/bin"
@@ -139,7 +136,7 @@ def main() -> int:
 
         seconds, code, output = _exec_sdk(
             sandbox,
-            "command -v git; command -v gh; command -v curl; uname -m; id; echo PATH=$PATH",
+            "command -v git; command -v curl; uname -m; id; echo PATH=$PATH",
             20,
         )
         probe.step("inspect tools", seconds, code == 0, f"exit={code} {output}")
@@ -153,8 +150,7 @@ def main() -> int:
         )
 
         has_git = _tool_present(output, "GIT")
-        has_gh = _tool_present(output, "GH")
-        print(f"      parsed probe: git={has_git} gh={has_gh}")
+        print(f"      parsed probe: git={has_git}")
 
         if not has_git:
             seconds, code, output = _exec_sdk(sandbox, _GIT_INSTALL_CMD, 180)
@@ -162,17 +158,8 @@ def main() -> int:
         else:
             print("[SKIP] install git (already present)")
 
-        if not has_gh:
-            seconds, code, output = _exec_sdk(sandbox, _GH_INSTALL_CMD, 180)
-            probe.step("install gh (sdk)", seconds, code == 0, f"exit={code} {output[-200:]}")
-        else:
-            print("[SKIP] install gh (already present)")
-
         seconds, code, output = _exec_sdk(sandbox, "git --version", 20)
         probe.step("git --version", seconds, code == 0, f"exit={code} {output}")
-
-        seconds, code, output = _exec_sdk(sandbox, "gh --version", 20)
-        probe.step("gh --version", seconds, code == 0, f"exit={code} {output}")
 
         seconds, code, output = _exec_session(wrapper, "echo after-tools", 20)
         probe.step(
@@ -232,14 +219,6 @@ def main() -> int:
             f"exit={result.exit_code} {result.output}",
         )
 
-        started = time.monotonic()
-        result = backend.execute("gh --version", timeout=180)
-        probe.step(
-            "backend gh --version",
-            time.monotonic() - started,
-            result.exit_code == 0 and "gh version" in (result.output or ""),
-            f"exit={result.exit_code} {result.output}",
-        )
     except Exception as error:
         probe.failed += 1
         print(f"[FAIL] backend {type(error).__name__}: {_out(str(error))}")

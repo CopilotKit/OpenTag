@@ -18,11 +18,15 @@ from langchain_openai import ChatOpenAI
 from langgraph.checkpoint.memory import MemorySaver
 from langgraph.errors import GraphRecursionError
 
-from coding.config import coding_enabled
+from coding.config import (
+    coding_enabled,
+    github_providers,
+    log_configuration_warnings,
+)
 from coding.subagent import build_coder_subagent
 from copilotkit.langgraph import copilotkit_emit_message
 from langchain_core.runnables.config import ensure_config
-from internal_sources import internal_source_tools
+from internal_sources import internal_source_toolsets
 from prompts import (
     BASE_SYSTEM_PROMPT,
     DEFAULT_AGENT_DISPLAY_NAME,
@@ -163,7 +167,12 @@ def build_agent():
         use_responses_api=True,
     )
 
-    internal_tools = internal_source_tools()
+    providers = github_providers()
+    log_configuration_warnings(providers)
+    source_toolsets = internal_source_toolsets(providers.search)
+    internal_tools = [
+        tool for tools in source_toolsets.values() for tool in tools
+    ]
     main_tools = (
         [web_search, *internal_tools]
         if has_web_search
@@ -199,9 +208,21 @@ def build_agent():
         "backend": StateBackend(),
         "checkpointer": checkpointer,
     }
-    if coding_enabled():
+    coding_on = bool(
+        (os.environ.get("DAYTONA_API_KEY") or "").strip()
+        and providers.coding
+        and not providers.error
+        and not providers.warning
+    )
+    if coding_on:
+        assert providers.coding is not None
         create_kwargs["subagents"] = [
-            build_coder_subagent(model=llm, checkpointer=checkpointer)
+            build_coder_subagent(
+                model=llm,
+                checkpointer=checkpointer,
+                provider=providers.coding,
+                github_tools=source_toolsets.get("github", []),
+            )
         ]
 
     agent_graph = create_deep_agent(**create_kwargs)
@@ -211,7 +232,7 @@ def build_agent():
         f"with model={model_name}, reasoning={reasoning_effort}, verbosity={verbosity}"
     )
     print(f"[AGENT] web search: {'enabled' if has_web_search else 'disabled'}")
-    print(f"[AGENT] coding: {'enabled' if coding_enabled() else 'disabled'}")
+    print(f"[AGENT] coding: {'enabled' if coding_on else 'disabled'}")
     print(f"[AGENT] internal-source tools: {len(internal_tools)}")
     print(f"[AGENT] Main tools: {[t.name for t in main_tools]}")
 

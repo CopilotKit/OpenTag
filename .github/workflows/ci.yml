@@ -21,6 +21,10 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm check-types
       - run: pnpm test
+      - name: Install AWS deployment dependencies
+        run: pnpm --dir deployment/aws install --frozen-lockfile
+      - name: Test AWS deployment
+        run: pnpm --dir deployment/aws test
       - name: Validate Railway graph
         run: node node_modules/railway/dist/iac/bin.js
 

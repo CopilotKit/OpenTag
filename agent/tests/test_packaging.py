@@ -30,3 +30,5 @@ def test_coding_dependencies_are_declared():
     deps = project["project"]["dependencies"]
     assert any(dep.startswith("daytona") for dep in deps)
     assert any(dep.startswith("langchain-daytona") for dep in deps)
+    assert any(dep.startswith("httpx") for dep in deps)
+    assert any(dep.startswith("pyjwt[crypto]") for dep in deps)

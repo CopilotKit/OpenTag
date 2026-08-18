@@ -82,13 +82,15 @@ or Channel slug.
 | `OPENAI_REASONING_EFFORT` | No | Defaults to `low` |
 | `OPENAI_VERBOSITY` | No | Defaults to `low` |
 | `TAVILY_API_KEY` | No | Enables live web research |
-| `GITHUB_PERSONAL_ACCESS_TOKEN` | No | Enables read-only GitHub repository, code, issue, and PR search. If reused by the coder, the token itself also needs branch and pull-request write permission |
+| `GITHUB_PERSONAL_ACCESS_TOKEN` | No | Enables read-only GitHub repository, code, PR, Actions-run, and job-log search. It remains the legacy coding fallback |
 | `GITHUB_MCP_URL` | No | Overrides the hosted GitHub MCP URL; OpenTag still sends read-only headers |
 | `DAYTONA_API_KEY` | No | Enables the coding subagent (Daytona sandbox) |
-| `DAYTONA_SNAPSHOT` | No | Optional Daytona snapshot id. If unset, the first command probes the box. `git`, `gh`, and `pnpm` install only when a command needs that tool. The default snapshot already has Node. `pnpm` is enabled with Corepack in `$HOME/.local/bin` |
+| `DAYTONA_SNAPSHOT` | No | Optional Daytona snapshot id. If unset, the first command probes the box. `git` and `pnpm` install only when needed. The default snapshot already has Node. `pnpm` is enabled with Corepack in `$HOME/.local/bin` |
 | `DAYTONA_TTL_MINUTES` | No | Daytona box TTL in minutes. Defaults to `60` |
-| `GITHUB_CODER_TOKEN` | No | Preferred write token for `git` / `gh` in Daytona. It can also power the server-enforced read-only GitHub MCP when `GITHUB_PERSONAL_ACCESS_TOKEN` is unset |
-| `GITHUB_ALLOWED_REPOS` | No | Comma list of `owner/repo` or `owner/*`. If unset, any repo the write token can write is allowed |
+| `GITHUB_CODER_TOKEN` | No | Preferred PAT coding credential. Mutually exclusive with complete GitHub App credentials |
+| `GITHUB_APP_ID` | No | GitHub App ID; all three App variables are required together |
+| `GITHUB_APP_INSTALLATION_ID` | No | Single supported GitHub App installation ID |
+| `GITHUB_APP_PRIVATE_KEY_BASE64` | No | Base64-encoded GitHub App private-key PEM |
 | `POSTHOG_PERSONAL_API_KEY` | No | Enables the hosted PostHog MCP in read-only CLI mode |
 | `POSTHOG_MCP_URL` | No | Overrides the hosted PostHog MCP URL |
 | `LINEAR_API_KEY` | No | Enables the hosted Linear MCP |
@@ -100,14 +102,18 @@ or Channel slug.
 | `SERVER_PORT` | No | Local/container port; defaults to `8123` |
 | `AGENT_RELOAD` | No | Local development reload; disabled by default |
 
-To check a live Daytona box (create, `echo`, `git`, `gh`, then delete):
+To check a live Daytona box (create, `echo`, `git`, then delete):
 
 ```bash
 uv run --directory agent python scripts/probe_daytona.py
 ```
 
 Only `OPENAI_API_KEY` is required. Coding stays off until `DAYTONA_API_KEY` and
-a GitHub token are both set. GitHub MCP stays read-only even when coding is on.
+a PAT or complete GitHub App configuration are set. If both explicit methods are
+configured, or the App configuration is incomplete, coding stays off and startup
+logs the configuration problem. `GITHUB_ALLOWED_REPOS` is no longer enforced;
+if it remains configured, startup warns that GitHub permissions define access.
+GitHub MCP stays read-only even when coding is on.
 Implementation jobs require a scoped brief with files, the exact change, and a
 test command; repair and merge jobs may inspect the checkout and CI logs to
 identify those details. Slack does not say "open the PR" unless the user named
@@ -284,10 +290,27 @@ registered when the key is absent.
 
 Set `GITHUB_PERSONAL_ACCESS_TOKEN` to enable GitHub search. Use a fine-grained
 personal access token limited to the repositories and read permissions the agent
-needs. OpenTag connects to GitHub's hosted MCP with only the repository, issue,
-and pull-request toolsets and requests read-only mode. Set `GITHUB_MCP_URL` only
+needs. OpenTag connects to GitHub's hosted MCP with an explicit allowlist of
+read-only repository, pull-request, Actions-run, and job-log tools. Every loaded
+tool must advertise `readOnlyHint`; triggers, reruns, cancels, deletes, and other
+writes are excluded. Set `GITHUB_MCP_URL` only
 to override the hosted endpoint, then restart `pnpm agent` so it rediscovers the
 tools.
+
+For coding, prefer a fine-grained `GITHUB_CODER_TOKEN`; classic PATs continue to
+work. Alternatively, set all three GitHub App variables. A search PAT may coexist
+with App coding. The required repository permissions are **Contents: read/write**,
+**Pull requests: read/write**, and **Metadata: read-only**. Add **Actions: read**
+for CI inspection and **Workflows: write** only when the agent must modify workflow
+files. Installation-selected repositories are the App authorization boundary.
+OpenTag does not request or configure branch-protection bypass.
+
+Credentials stay on the OpenTag host. Daytona receives the current token only on
+clone, pull, and push API calls; the sandbox receives no GitHub environment
+variable, credential helper, authenticated remote, App JWT, or private key. The
+coder commits locally, then one `confirm_write` covers its push and draft-PR
+create/update. If the push succeeds and the PR write fails, retrying performs only
+the PR write.
 
 ### PostHog
 

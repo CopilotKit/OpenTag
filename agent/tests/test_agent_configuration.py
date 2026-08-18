@@ -45,7 +45,7 @@ def build_with_captured_configuration(monkeypatch):
     monkeypatch.delenv("NOTION_MCP_AUTH_TOKEN", raising=False)
     monkeypatch.delenv("DAYTONA_API_KEY", raising=False)
     monkeypatch.delenv("GITHUB_CODER_TOKEN", raising=False)
-    monkeypatch.setattr(agent_mod, "internal_source_tools", lambda: [])
+    monkeypatch.setattr(agent_mod, "internal_source_toolsets", lambda _provider: {})
 
     def fake_chat_openai(**kwargs):
         captured["model"] = kwargs
@@ -167,7 +167,7 @@ def test_openai_harness_excludes_unusable_delegation_tools(monkeypatch):
     monkeypatch.delenv("DAYTONA_API_KEY", raising=False)
     monkeypatch.delenv("GITHUB_CODER_TOKEN", raising=False)
     monkeypatch.setattr(agent_mod, "ChatOpenAI", lambda **_kwargs: model)
-    monkeypatch.setattr(agent_mod, "internal_source_tools", lambda: [])
+    monkeypatch.setattr(agent_mod, "internal_source_toolsets", lambda _provider: {})
 
     graph = agent_mod.build_agent()
     graph.invoke(

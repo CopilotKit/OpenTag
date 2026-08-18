@@ -112,7 +112,8 @@ test("allows supported non-secret environment overrides through context", () => 
       mermaidUrl: "https://cdn.example.test/mermaid.js",
       daytonaSnapshot: "snap-test",
       daytonaTtlMinutes: "45",
-      githubAllowedRepos: "CopilotKit/*",
+      githubAppId: "12345",
+      githubAppInstallationId: "67890",
       openAiModel: "gpt-test",
       openAiReasoningEffort: "high",
       openAiVerbosity: "medium",
@@ -126,7 +127,8 @@ test("allows supported non-secret environment overrides through context", () => 
           { Name: "AGENT_DISPLAY_NAME", Value: "Kite" },
           { Name: "DAYTONA_SNAPSHOT", Value: "snap-test" },
           { Name: "DAYTONA_TTL_MINUTES", Value: "45" },
-          { Name: "GITHUB_ALLOWED_REPOS", Value: "CopilotKit/*" },
+          { Name: "GITHUB_APP_ID", Value: "12345" },
+          { Name: "GITHUB_APP_INSTALLATION_ID", Value: "67890" },
           { Name: "OPENAI_MODEL", Value: "gpt-test" },
           { Name: "OPENAI_REASONING_EFFORT", Value: "high" },
           { Name: "OPENAI_VERBOSITY", Value: "medium" },
@@ -193,6 +195,23 @@ test("injects application secrets without plaintext values", () => {
   assert.doesNotMatch(json, /:POSTHOG_MCP_URL::/);
   assert.doesNotMatch(json, /sk-[A-Za-z0-9]/);
   assert.doesNotMatch(json, /cpk-[A-Za-z0-9]/);
+});
+
+test("optionally injects a separate GitHub App private-key secret", () => {
+  const secretArn =
+    "arn:aws:secretsmanager:us-east-1:123456789012:secret:github-app-key-AbCdEf";
+  const template = Template.fromStack(
+    stackWithContext({
+      githubAppId: "12345",
+      githubAppInstallationId: "67890",
+      githubAppPrivateKeySecretArn: secretArn,
+    }),
+  );
+  const json = JSON.stringify(template.toJSON());
+
+  assert.match(json, /GITHUB_APP_PRIVATE_KEY_BASE64/);
+  assert.match(json, /github-app-key-AbCdEf/);
+  assert.doesNotMatch(json, /BEGIN PRIVATE KEY/);
 });
 
 test("can disable Datadog before account credentials are available", () => {

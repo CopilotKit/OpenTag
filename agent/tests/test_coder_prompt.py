@@ -7,8 +7,10 @@ SKILLS = Path(__file__).resolve().parents[1] / "coding" / "skills"
 
 def test_coder_prompt_forbids_linear_and_requires_green_check():
     assert "You are the OpenTag coder" in CODER_PROMPT
-    assert "Do not call Linear" in CODER_PROMPT
-    assert "open_pull_request" in CODER_PROMPT
+    assert "prepare_repository" in CODER_PROMPT
+    assert "publish_changes" in CODER_PROMPT
+    assert "Never clone, pull, fetch, or push with git" in CODER_PROMPT
+    assert "never invoke gh" in CODER_PROMPT
     assert "exit 0" in CODER_PROMPT
     assert "open anyway" in CODER_PROMPT
     assert "corepack" in CODER_PROMPT
@@ -40,7 +42,8 @@ def test_four_skill_files_exist():
         assert path.is_file(), path
         text = path.read_text(encoding="utf-8")
         assert name.replace("-", " ") in text.lower() or name in text
-        assert "open_pull_request" in text
+        assert "prepare_repository" in text
+        assert "publish_changes" in text
 
 
 def test_skill_files_start_with_yaml_frontmatter():

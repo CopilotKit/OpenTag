@@ -21,22 +21,20 @@ from deepagents.backends.protocol import (
 )
 from langchain.agents.middleware import AgentMiddleware
 
-from coding.config import snapshot_id, ttl_minutes, write_token
+from coding.config import snapshot_id, ttl_minutes
 
-_TOKEN_RE = re.compile(r"(ghp|github_pat|gho)_[A-Za-z0-9_]+")
-_TOOL_CMD_RE = re.compile(r"\b(git|gh|node|npm|npx|pnpm|corepack|yarn)\b")
+_TOKEN_RE = re.compile(r"(ghp|github_pat|gho|ghs|ghu|ghr)_[A-Za-z0-9_]+")
+_TOOL_CMD_RE = re.compile(r"\b(git|node|npm|npx|pnpm|corepack|yarn)\b")
 _NODE_TOOLS = frozenset({"node", "npm", "npx", "pnpm", "corepack", "yarn"})
 _logger = logging.getLogger(__name__)
 
 _PROBE_TIMEOUT = 30
 _GIT_INSTALL_TIMEOUT = 180
-_GH_INSTALL_TIMEOUT = 120
 _PNPM_INSTALL_TIMEOUT = 120
 _MAX_EXECUTE_OUTPUT = 8000
 _PROBE_CMD = (
     "printf '%s\\n' __probe_ok__; "
     'printf "GIT=%s\\n" "$(command -v git || echo MISSING)"; '
-    'printf "GH=%s\\n" "$(command -v gh || echo MISSING)"; '
     'printf "NODE=%s\\n" "$(command -v node || echo MISSING)"; '
     'printf "PNPM=%s\\n" "$(command -v pnpm || echo MISSING)"'
 )
@@ -45,27 +43,6 @@ _GIT_INSTALL_CMD = (
     "export DEBIAN_FRONTEND=noninteractive "
     'PATH="$HOME/.local/bin:/usr/local/bin:$PATH"; '
     "apt-get update && apt-get install -y git curl"
-)
-_GH_INSTALL_CMD = (
-    "set -e; "
-    'export PATH="$HOME/.local/bin:/usr/local/bin:$PATH"; '
-    "if ! command -v curl >/dev/null; then "
-    "export DEBIAN_FRONTEND=noninteractive; "
-    "apt-get update && apt-get install -y curl; "
-    "fi; "
-    "mkdir -p /tmp/gh-install \"$HOME/.local/bin\"; "
-    "ARCH=$(uname -m); "
-    'case "$ARCH" in x86_64) ARCH=amd64 ;; aarch64|arm64) ARCH=arm64 ;; esac; '
-    "curl -fL --retry 2 --max-time 60 "
-    '"https://github.com/cli/cli/releases/download/v2.74.1/'
-    'gh_2.74.1_linux_${ARCH}.tar.gz" '
-    "-o /tmp/gh-install/gh.tgz; "
-    "tar -xzf /tmp/gh-install/gh.tgz -C /tmp/gh-install; "
-    'GH_BIN=$(find /tmp/gh-install -type f -name gh | head -1); '
-    'cp "$GH_BIN" "$HOME/.local/bin/gh"; '
-    'chmod +x "$HOME/.local/bin/gh"; '
-    'cp "$HOME/.local/bin/gh" /usr/local/bin/gh 2>/dev/null || true; '
-    "command -v gh"
 )
 _PNPM_INSTALL_CMD = (
     "set -e; "
@@ -132,9 +109,8 @@ def _tool_present(output: str, name: str) -> bool:
 
 def redact_secrets(text: str, secret: str | None = None) -> str:
     redacted = _TOKEN_RE.sub(lambda match: f"{match.group(1)}_[redacted]", text)
-    token = secret if secret is not None else write_token()
-    if token:
-        redacted = redacted.replace(token, "[redacted]")
+    if secret:
+        redacted = redacted.replace(secret, "[redacted]")
     return redacted
 
 
@@ -221,6 +197,7 @@ class PerJobDaytonaBackend(SandboxBackendProtocol):
         self._boxes: dict[str, Any] = {}
         self._tool_facts: dict[str, dict[str, bool]] = {}
         self._tools_attempted: set[tuple[str, str]] = set()
+        self._job_state: dict[str, dict[str, Any]] = {}
 
     @property
     def id(self) -> str:
@@ -236,7 +213,6 @@ class PerJobDaytonaBackend(SandboxBackendProtocol):
         box = self._create_sandbox(
             snapshot=snapshot,
             env={
-                "GITHUB_TOKEN": write_token() or "",
                 "PATH": (
                     "/root/.local/bin:/home/daytona/.local/bin:"
                     "/usr/local/bin:/usr/bin:/bin"
@@ -266,7 +242,6 @@ class PerJobDaytonaBackend(SandboxBackendProtocol):
             raise RuntimeError(redact_secrets(output) or "sandbox probe failed")
         return {
             "git": _tool_present(output, "GIT"),
-            "gh": _tool_present(output, "GH"),
             "node": _tool_present(output, "NODE"),
             "pnpm": _tool_present(output, "PNPM"),
         }
@@ -287,12 +262,12 @@ class PerJobDaytonaBackend(SandboxBackendProtocol):
             return
         key = current_run_id()
         facts = self._tool_facts.setdefault(
-            key, {"git": False, "gh": False, "node": False, "pnpm": False}
+            key, {"git": False, "node": False, "pnpm": False}
         )
         needed = {match.group(1) for match in _TOOL_CMD_RE.finditer(command)}
         if needed & _NODE_TOOLS:
             needed.add("pnpm")
-        for name in ("git", "gh", "pnpm"):
+        for name in ("git", "pnpm"):
             if name not in needed:
                 continue
             if facts.get(name):
@@ -308,13 +283,6 @@ class PerJobDaytonaBackend(SandboxBackendProtocol):
                         _GIT_INSTALL_CMD,
                         timeout=_GIT_INSTALL_TIMEOUT,
                         fail_message="git install failed",
-                    )
-                elif name == "gh":
-                    self._run_box(
-                        box,
-                        _GH_INSTALL_CMD,
-                        timeout=_GH_INSTALL_TIMEOUT,
-                        fail_message="gh install failed",
                     )
                 else:
                     self._run_box(
@@ -346,6 +314,108 @@ class PerJobDaytonaBackend(SandboxBackendProtocol):
             return self._ensure(), None
         except Exception as error:
             return None, redact_secrets(f"{type(error).__name__}: {error}")
+
+    def job_state(self) -> dict[str, Any]:
+        """Mutable host-side state scoped to the current coder run."""
+        return self._job_state.setdefault(current_run_id(), {})
+
+    def _git(self, box):
+        raw = _raw_sandbox(box) or box
+        git = getattr(raw, "git", None) or getattr(box, "git", None)
+        if git is None:
+            raise RuntimeError("Daytona sandbox does not expose its Git API")
+        return git
+
+    def _git_call(self, operation: str, secret: str, action):
+        box = self._ensure()
+        try:
+            return action(self._git(box))
+        except Exception as error:
+            detail = redact_secrets(str(error), secret)
+            raise RuntimeError(f"Daytona Git {operation} failed: {detail}") from error
+
+    def clone_repository(
+        self,
+        *,
+        repo: str,
+        path: str,
+        branch: str,
+        username: str,
+        token: str,
+    ) -> None:
+        self._git_call(
+            "clone",
+            token,
+            lambda git: git.clone(
+                url=f"https://github.com/{repo}.git",
+                path=path,
+                branch=branch,
+                username=username,
+                password=token,
+            ),
+        )
+
+    def pull_repository(
+        self,
+        *,
+        path: str,
+        branch: str,
+        remote: str,
+        username: str,
+        token: str,
+    ) -> None:
+        self._git_call(
+            "pull",
+            token,
+            lambda git: git.pull(
+                path=path,
+                branch=branch,
+                remote=remote,
+                username=username,
+                password=token,
+            ),
+        )
+
+    def push_repository(
+        self,
+        *,
+        path: str,
+        branch: str,
+        username: str,
+        token: str,
+    ) -> None:
+        self._git_call(
+            "push",
+            token,
+            lambda git: git.push(
+                path=path,
+                branch=branch,
+                remote="origin",
+                set_upstream=True,
+                username=username,
+                password=token,
+            ),
+        )
+
+    def add_remote(self, *, path: str, name: str, repo: str) -> None:
+        box = self._ensure()
+        try:
+            self._git(box).remote_add(
+                path=path,
+                name=name,
+                url=f"https://github.com/{repo}.git",
+            )
+        except Exception as error:
+            raise RuntimeError(f"Daytona Git remote_add failed: {error}") from error
+
+    def set_git_identity(self, *, path: str, name: str, email: str) -> None:
+        box = self._ensure()
+        try:
+            git = self._git(box)
+            git.set_config("user.name", name, scope="local", path=path)
+            git.set_config("user.email", email, scope="local", path=path)
+        except Exception as error:
+            raise RuntimeError(f"Daytona Git identity setup failed: {error}") from error
 
     def execute(self, command: str, *, timeout: int | None = None, **kwargs):
         if timeout is not None:
@@ -425,6 +495,7 @@ class PerJobDaytonaBackend(SandboxBackendProtocol):
         key = current_run_id()
         box = self._boxes.pop(key, None)
         self._tool_facts.pop(key, None)
+        self._job_state.pop(key, None)
         self._tools_attempted = {
             item for item in self._tools_attempted if item[0] != key
         }
