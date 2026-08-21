@@ -182,7 +182,7 @@ AGENT_DISPLAY_NAME=OpenTag
 
 Both the Node runtime and the Python agent load this one root `.env`; Railway
 supplies the same values as service variables. Tavily, GitHub, PostHog, Linear,
-and Notion are optional — see [Optional research
+Notion, and Composio are optional — see [Optional research
 sources](#optional-research-sources).
 
 `INTELLIGENCE_API_URL` and `INTELLIGENCE_GATEWAY_WS_URL` already default to the
@@ -279,7 +279,8 @@ or one directory, and none of them require touching the Channel lifecycle.
 | Which tools the agent has    | [`agent/tools.py`](./agent/tools.py), [`agent/internal_sources.py`](./agent/internal_sources.py) | Sources register only when their credentials are present                                                                |
 | What gets rendered in chat   | [`app/components/`](./app/components), [`app/tools/`](./app/tools)                               | Issue cards, tables, charts, diagrams                                                                                   |
 | Mentions, commands, triggers | [`app/channel.tsx`](./app/channel.tsx)                                                           | The whole Channel surface in one file                                                                                   |
-| Which writes need approval   | [`agent/write_confirmation.py`](./agent/write_confirmation.py)                                   | The interceptor that emits `confirm_write`                                                                              |
+| Which writes need approval   | [`agent/write_confirmation.py`](./agent/write_confirmation.py)                                   | The interceptor that emits `confirm_write`; `COMPOSIO_APPROVALS` is the equivalent dial for Composio                    |
+| Which connected apps people can use | `COMPOSIO_TOOLKITS`, `COMPOSIO_USER_TOOLKITS`                                             | One slug per app. Adding one later needs no code change — but it does need a dashboard step and a restart               |
 | The deployment topology      | [`.railway/railway.ts`](./.railway/railway.ts)                                                   | Two services, declared as code                                                                                          |
 
 If you are customizing with a coding agent, read [`AGENTS.md`](./AGENTS.md)
@@ -295,6 +296,8 @@ workflow instead of letting an agent improvise one.
 - File-aware prompts.
 - A LangGraph interrupt and resumable confirmation card before Linear or Notion
   writes.
+- Optional Composio toolkits resolved per turn — a shared team account, each
+  person's own, or both at once — behind their own approval gate.
 - Graceful, idempotent shutdown for Channels, HTTP, and the rendering browser.
 - Nullable parent-message ID normalization through `SanitizingHttpAgent`.
 
@@ -312,6 +315,8 @@ CopilotKit Intelligence
           │ outbound websocket from your runtime
           ▼
 runtime (Node + CopilotRuntime with embedded Channels)
+          ├── Composio toolkits (optional; shared or per-Slack-user)
+          │
           │ AG-UI
           ▼
 agent (Python + LangGraph deepagents)
@@ -363,6 +368,16 @@ knowledge work, and renders UI from model knowledge.
 | `LINEAR_API_KEY`                           | Hosted Linear MCP                                                |
 | `NOTION_MCP_URL` + `NOTION_MCP_AUTH_TOKEN` | Remote Notion MCP; setting only one disables it                  |
 | `DAYTONA_API_KEY` + a PAT or GitHub App    | Coding subagent: edit in Daytona, then push and publish a draft PR after `confirm_write` |
+| `COMPOSIO_API_KEY` + `COMPOSIO_TOOLKITS` and/or `COMPOSIO_USER_TOOLKITS` | Any Composio toolkit — shared team accounts, or each person's own connected from inside a thread |
+
+Composio is the one that grows without code. Adding Salesforce six months from
+now is two steps: add the toolkit at [app.composio.dev](https://app.composio.dev),
+then add its slug to a list and restart the runtime. No new MCP block, no
+TypeScript, no test change. Two steps, though — neither of them automatic, and a
+shared team account takes a third: `pnpm composio:connect <slug>` once, to bind
+the connection to the identity shared calls actually run as. See
+[`setup.md`](./setup.md#composio) for approval modes, shared versus personal
+accounts, and what Google's consent screen will tell your users.
 
 Every Linear and Notion mutation is intercepted in code before the MCP request
 runs. The interceptor emits `confirm_write` and proceeds only after approval;
