@@ -25,3 +25,8 @@ deployment/aws/cdk.context.json
 
 # Subagent-driven-development scratch (ledger, briefs, review packages)
 .superpowers
+
+# Composio design and implementation plan — working documents, kept locally.
+# The repo removed docs/superpowers specs and plans in 0577c63; same call here.
+docs/composio-tools-design.md
+docs/composio-tools-plan.md
