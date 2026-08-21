@@ -13,11 +13,16 @@ import { appCommands } from "./commands/index.js";
 import { IssueCard, IssueList, PageList } from "./components/index.js";
 import { createAppContext } from "./context/app-context.js";
 import { DEFAULT_AGENT_DISPLAY_NAME } from "./env.js";
-import { ConfirmWrite } from "./human-in-the-loop/index.js";
+import {
+  ConfirmToolRun,
+  ConfirmWrite,
+  ConnectAccount,
+} from "./human-in-the-loop/index.js";
 import { parseConfirmWriteInterrupt } from "./interrupt.js";
 import { FILE_ISSUE_CALLBACK, fileIssueSubmit } from "./modals/file-issue.js";
 import { IncidentCard } from "./tools/showcase-tools.js";
 import { RenderChart } from "./tools/render-chart.js";
+import { composioTools } from "./tools/composio/index.js";
 import { createAppTools } from "./tools/index.js";
 import {
   subscribeThreadTool,
@@ -39,15 +44,28 @@ export function createOpenTagChannel(
     tools: createAppTools(agentDisplayName),
     context: [...createAppContext(agentDisplayName)],
     commands: appCommands,
+    // Not bookkeeping: once the in-process cache is gone, a click is served by
+    // re-rendering the named component from here. An unregistered card's
+    // buttons raise `ActionExpiredError`, which the Channel swallows — so the
+    // person clicks and nothing happens at all. `ConfirmToolRun` and
+    // `ConnectAccount` are the ones that make this load-bearing; both exist to
+    // be clicked minutes later, long after their turn ended.
     components: [
       IssueCard,
       IssueList,
       PageList,
       IncidentCard,
       ConfirmWrite,
+      ConfirmToolRun,
+      ConnectAccount,
       RenderChart,
     ],
   });
+
+  // Built once, here, rather than per turn: an unconfigured deployment gets an
+  // empty array and never constructs the SDK, and a misconfigured one prints
+  // its warnings at boot instead of once per message.
+  const composio = composioTools(process.env, name);
 
   type MessageHandlerInput = Parameters<
     Parameters<typeof channel.onMessage>[0]
@@ -84,7 +102,10 @@ export function createOpenTagChannel(
     if (message.actor.kind === "bot" || message.actor.kind === "app") return;
 
     if (await thread.isSubscribed()) {
-      await runAgentSafely({ thread, message }, [unsubscribeThreadTool]);
+      await runAgentSafely({ thread, message }, [
+        unsubscribeThreadTool,
+        ...composio,
+      ]);
       return;
     }
 
@@ -101,18 +122,27 @@ export function createOpenTagChannel(
 
     if (isNewConversation) {
       await thread.subscribe();
-      await runAgentSafely({ thread, message }, [unsubscribeThreadTool]);
+      await runAgentSafely({ thread, message }, [
+        unsubscribeThreadTool,
+        ...composio,
+      ]);
       return;
     }
 
-    await runAgentSafely({ thread, message }, [subscribeThreadTool]);
+    await runAgentSafely({ thread, message }, [
+      subscribeThreadTool,
+      ...composio,
+    ]);
   });
 
   channel.onMessage(async ({ thread, message }) => {
     if (message.actor.kind === "bot" || message.actor.kind === "app") return;
 
     if (await thread.isSubscribed()) {
-      await runAgentSafely({ thread, message }, [unsubscribeThreadTool]);
+      await runAgentSafely({ thread, message }, [
+        unsubscribeThreadTool,
+        ...composio,
+      ]);
     }
   });
 

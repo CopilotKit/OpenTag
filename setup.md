@@ -47,6 +47,11 @@ uv sync
 cd ..
 ```
 
+Node 22 is a floor, not a preference. `package.json` declares
+`engines: { node: ">=22" }` because `@composio/core` pulls `openai@7`, which
+requires it. On Node 20 you are stopped at install rather than at runtime, which
+is the point.
+
 `@copilotkit/channels` and `@copilotkit/runtime` are intentionally pinned.
 [`package.json`](./package.json) is the single source of truth for both
 versions; this file does not restate them, because a hand-copied pin drifts on
@@ -146,6 +151,12 @@ The AG-UI endpoint is `http://localhost:8123/`; `/health` reports the
 | `PORT` | No | Channel HTTP port; defaults to `3000` |
 | `LOG_LEVEL` | No | Defaults to `error`; use `debug` to see Channel lifecycle breadcrumbs |
 | `MERMAID_URL` | No | Overrides the Mermaid browser bundle URL used by diagram rendering |
+| `COMPOSIO_API_KEY` | No | Master switch for Composio toolkits. Absent means the feature is never constructed |
+| `COMPOSIO_TOOLKITS` | No | Toolkit slugs everyone shares one connection for |
+| `COMPOSIO_USER_TOOLKITS` | No | Toolkit slugs scoped to whoever sent the message |
+| `COMPOSIO_APPROVALS` | No | `off`, `destructive` (default), or `writes`. An unrecognized value fails startup |
+| `COMPOSIO_WORKSPACE_USER_ID` | No | Composio `user_id` the shared toolkits run as; defaults to `INTELLIGENCE_CHANNEL_NAME` |
+| `COMPOSIO_AUTH_CONFIGS` | No | **Read only by `pnpm composio:connect`, never by the runtime.** `toolkit:auth_config_id` pairs, ids case-sensitive; pins which auth config a *shared* toolkit connects against when it has several |
 
 The API key selects a project; the Channel name selects a Channel inside it.
 When `INTELLIGENCE_LEARNING_CONTAINER_ID` is set, it must name an existing
@@ -279,6 +290,9 @@ Before a Linear or Notion mutation reaches MCP, a Python interceptor emits
 graph with the user's decision. The MCP handler runs only after approval. Reads
 and UI rendering are never gated.
 
+Composio calls are gated separately and differently — a second card, its own
+`COMPOSIO_APPROVALS` dial, and no graph to resume. See [Composio](#composio).
+
 ## Optional sources
 
 ### Tavily
@@ -333,6 +347,230 @@ Notion is optional and remote-only, not a separate Railway service. Set both
 discovers the tools. If either value is absent OpenTag skips Notion without
 blocking startup.
 
+### Composio
+
+Composio adds a toolkit — Gmail, Linear, Jira, Google Calendar, Salesforce —
+without a new MCP block, a `preserve()` line, or a matching test assertion. It
+lives in the Node runtime, not the Python agent, because a verified user
+identity exists only there: `ChannelToolContext` carries a resolved actor, and
+`Thread.runAgent()` has no way to hand a structured user id to the agent.
+
+Setup is **two steps per app**, not one:
+
+1. Add the toolkit at <https://app.composio.dev>. That creates its auth config.
+2. Add its slug to `COMPOSIO_TOOLKITS` or `COMPOSIO_USER_TOOLKITS`. For a
+   **shared** toolkit, also run `pnpm composio:connect <slug>` once and open the
+   link it prints — that needs no running runtime, so do it before you restart.
+   Nobody in Slack can do it for you, and the dashboard cannot either; see
+   [Shared team accounts versus personal
+   ones](#shared-team-accounts-versus-personal-ones). Personal toolkits skip it
+   — each user connects their own from a thread.
+3. Restart the runtime, once.
+
+**The slug is the tricky part.** It is Composio's own, lowercase and unspaced:
+Google Calendar is `googlecalendar`, not `google-calendar` or `gcal`. Take it
+from the toolkit's page URL at <https://app.composio.dev> (`/toolkit/gmail`), or
+from the Toolkits list in their docs. A typo is **silent** — OpenTag does not
+validate slugs against Composio at startup, so a misspelled toolkit is simply a
+configured toolkit that never appears: the agent has no tools for it and
+`search_my_tools` never mentions it. If an app you configured seems absent,
+check the spelling before anything else.
+
+Adding Salesforce six months later is those same steps — no code, no test
+change, no edit to `.railway/railway.ts` or the CDK stack. It is not zero-touch:
+step 1 is a person in a dashboard and step 3 is a restart.
+
+`COMPOSIO_API_KEY` is the master switch. Without it nothing is constructed — no
+SDK client, no session, no tool the model can see but must not call. A key with
+both toolkit lists empty is equally inert.
+
+Composio is deliberately local-first. Its variables are not declared in
+[`.railway/railway.ts`](./.railway/railway.ts) or in
+[`deployment/aws/`](./deployment/aws), so a value set by hand on the Railway
+`runtime` service is not carried across an IaC apply. Add a `preserve()` line
+before you rely on it in a deployment.
+
+#### Shared team accounts versus personal ones
+
+`COMPOSIO_TOOLKITS` runs every Slack user through **one** connection, under the
+Composio `user_id` in `COMPOSIO_WORKSPACE_USER_ID` (defaulting to
+`INTELLIGENCE_CHANNEL_NAME`). That is right for the team's Linear or Jira.
+
+`COMPOSIO_USER_TOOLKITS` scopes to the person speaking, keyed by their verified
+platform actor id. You ask about "my calendar" and get yours; your colleague
+gets theirs. A turn with no resolvable actor gets no personal tools at all and
+never falls back to the shared identity.
+
+Both lists may be set at once, and one turn can use both.
+
+How an account actually gets connected differs by list, and this is where the
+surprises are:
+
+- **Personal.** The agent posts a public **Connect** card carrying no link.
+  Whoever clicks it receives a one-time link privately, minted for them; someone
+  else clicking the same card connects their own account. A pre-minted link
+  posted in a channel would let whoever opens it bind their own mailbox to
+  another person's identity, so the link never appears in the thread. Where
+  there is no private channel — the Teams adapter implements no ephemeral post —
+  OpenTag says it cannot deliver the link rather than posting it publicly.
+- **Shared.** There is no in-Slack path, by design. `connect_my_app` refuses a
+  shared toolkit, because the account would be created under the clicker's own
+  id while every shared call resolves under `COMPOSIO_WORKSPACE_USER_ID` — the
+  user would authorize, come back, and find nothing works. The operator
+  connects it once, from a terminal:
+
+  ```bash
+  pnpm composio:connect linear
+  ```
+
+  It reads your local `.env`, mints a Composio Connect Link bound to the
+  resulting `COMPOSIO_WORKSPACE_USER_ID`, and prints it. Open that link
+  yourself, in a browser signed in to the account the whole team should act
+  through. The link is a bearer capability: whoever completes it *is* the
+  account every shared call runs as, so do not forward it.
+
+  **The identity must match the deployed one.** `COMPOSIO_WORKSPACE_USER_ID`
+  defaults to `INTELLIGENCE_CHANNEL_NAME`, and Composio variables are set by
+  hand on the Railway `runtime` service (above) — so a local `.env` with a
+  different Channel name binds the connection to a `user_id` production never
+  looks up. Nothing errors: you authorize successfully, deploy, and the bot
+  still says the toolkit needs connecting. Set `COMPOSIO_WORKSPACE_USER_ID`
+  explicitly to the same value in both places, and confirm the `binds to:` line
+  the script prints is the one production uses.
+
+  The script needs no running runtime — no `pnpm dev`, no agent — and never
+  guesses which auth config to use. A slug that is not in `COMPOSIO_TOOLKITS`, a
+  toolkit with no auth config yet, and a toolkit with several auth configs and
+  no pin each exit non-zero naming the fix. In the last case, pin one with
+  `COMPOSIO_AUTH_CONFIGS=linear:ac_...` and run it again; a pin is taken as
+  given and is not checked against the project, so a wrong id fails at Composio
+  rather than here.
+
+**"Connect my account" in the Composio dashboard is a test button.** It binds
+the connection to the dashboard's own user id, which OpenTag never passes, so
+the bot cannot see it and nobody on your team needs to touch it. Use
+`pnpm composio:connect` instead — a shared toolkit is connected only when a
+connected account exists under the exact value of `COMPOSIO_WORKSPACE_USER_ID`,
+and that script is the only thing that creates one.
+
+Per-user isolation was verified against the live API, not assumed: with two
+active connected accounts in a project, sessions created for four other ids all
+reported every toolkit unconnected. Connections do not leak across identities.
+
+#### Approvals
+
+`COMPOSIO_APPROVALS` decides what stops for a human:
+
+| Mode | Behavior |
+| --- | --- |
+| `off` | Never asks. |
+| `destructive` | **Default.** Asks only before tools Composio tags `destructiveHint`. |
+| `writes` | Asks before anything not tagged `readOnlyHint` — how the Linear and Notion MCP integrations already behave. |
+
+Measured coverage: gmail exposes 63 tools of which 9 are destructive, linear 47
+of which 3, googlecalendar 49 of which 8. So `destructive` gates deletes and
+their neighbours and leaves everything else silent. A slug OpenTag cannot
+classify — past the 300-tool listing cap, or invented by the model — is treated
+as destructive, so it is gated in every mode but `off`.
+
+A gated call runs in **two turns**, and that is worth understanding before you
+set `writes`. The managed Intelligence adapter reports
+`supportsBlockingChoice: false`, so nothing can block waiting for a click; the
+tool posts a card and returns "stop here", and the Approve button executes and
+rewrites the card in place. The consequence: **the model never sees the result
+of a gated call** and cannot summarize or chain off it. Fine for a delete, where
+"Done." on the card is the entire answer. On `writes`, every write becomes a
+conversational dead end.
+
+**An approval card shows the arguments, in the channel.** Not the tool name —
+the values. Every non-empty argument becomes a labelled row: recipients, the
+subject, the body, up to 300 characters per row and 12 rows before the rest is
+counted and elided. So gating "email that supplier from my Gmail" posts the
+draft where everyone in the thread can read it, and the same is true of a
+calendar invite's guest list or an issue's description.
+
+That is deliberate and it is not going to change: an approver who cannot see
+what they are approving is a rubber stamp, and the card is the only place the
+arguments are ever shown. But it is worth weighing before you put personal
+toolkits behind approvals, because the person whose mailbox it is may not expect
+the thread to see the draft. The dial is `COMPOSIO_APPROVALS`, and it is
+all-or-nothing: on the `destructive` default only deletes are carded, so a sent
+mail posts nothing; on `writes` every write is carded, arguments and all. There
+is no per-toolkit or per-channel setting. Arguments are never written to logs
+and never travel in the Slack button payload — the card is the only place they
+appear.
+
+Each gated call posts its own card; a batch is not one card. A personal-scope
+call may be approved only by the person it was composed for — otherwise Bob
+approving Alice's delete would run against Bob's account — while a shared-scope
+call may be approved by anyone in the thread. Pending calls live in memory, so a
+card clicked after a restart answers `This approval expired — the bot restarted.
+Ask again.` instead of executing or hanging.
+
+#### The three startup warnings
+
+OpenTag prints these once at boot and keeps running:
+
+- A personal-shaped app (`gmail`, `googlecalendar`, `outlook`, `googledrive`) in
+  `COMPOSIO_TOOLKITS`. Every Slack user will act through one mailbox.
+  Occasionally correct — a shared `support@` — usually a mistake.
+- The same slug in both lists. The personal account wins and the shared entry is
+  dropped for that toolkit; on a turn with no resolvable actor, neither scope
+  offers it.
+- A toolkit also configured over MCP — `LINEAR_API_KEY`,
+  `NOTION_MCP_AUTH_TOKEN`, `POSTHOG_PERSONAL_API_KEY`, or
+  `GITHUB_PERSONAL_ACCESS_TOKEN`. The agent then sees two complete tool sets for
+  that app with different approval behavior and may pick either, so whether an
+  action asks for approval varies per turn. Remove one.
+
+#### What Google shows your users
+
+Consent screens say **Composio**, not OpenTag. The Connect card says so up
+front, because the alternative is a user deciding the bot is phishing them.
+
+Composio-managed auth is the default and the right choice. Self-branding is
+**worse** until Google verification is finished: without it users get "Google
+hasn't verified this app → Advanced → (unsafe)", which is a scarier screen than
+a correctly named third party. Verification for restricted Gmail scopes is a
+security assessment, not a form.
+
+Two consequences of managed auth:
+
+- All of one person's Composio connections share **one** Google OAuth grant.
+  Scopes accumulate across toolkits and the consent screen shows the union —
+  observed live as "Composio already has access to 12 capabilities". Revoking
+  Composio in Google account settings disconnects **every** app at once.
+- Managed auth requests Composio's default scopes. You do not pick them.
+
+A Google Workspace that allowlists third-party apps can block the flow before it
+ever reaches OpenTag. That is an admin action in Google, not in Composio, and
+the symptom is a user who never gets past the consent screen.
+
+#### Restarts, caching, and logs
+
+OpenTag stores no credentials. Composio holds connected accounts server-side
+keyed by `user_id`, so **a restart asks nobody to reconnect** — it empties an
+in-process cache and nothing else. A cold session costs roughly a second
+(session creation plus the tool listing); afterwards it is free. A cached
+session carries a 10-minute TTL, and connecting an account drops that person's
+entry outright — session, tool listing, and classification together — so the
+next turn sees the new connection instead of waiting out the TTL.
+
+Every Composio call logs one line: slug, effect, the resolved `user_id`, and
+Composio's own `logId` for correlating against their dashboard. Never the
+arguments — that is where the mail bodies are. `execute()` does not throw on
+tool failure, so a failed write returns its error verbatim rather than reading
+as a success.
+
+Composio's remote sandbox — the tools slugged `COMPOSIO_REMOTE_BASH_TOOL` and
+`COMPOSIO_REMOTE_WORKBENCH`, remote shell and Python; not environment variables
+— is disabled on every
+session without exception. A default session hands both out with no opt-in, and
+OpenTag already has a sandbox in `agent/coding/` behind its own credentials.
+
+[`docs/composio-tools-design.md`](./docs/composio-tools-design.md) records the
+design and the API findings verified against the live service.
+
 ## Railway
 
 The IaC file declares exactly:
@@ -347,7 +585,8 @@ Production Intelligence URLs are literal configuration, the API key is
 preserved, and the Channel name is `open-tag`. `AGENT_DISPLAY_NAME` is preserved
 independently on both services and must match when overridden. `OPENAI_API_KEY`
 is required on `agent`; Tavily, Daytona/coder, GitHub, PostHog, Linear, and the
-paired remote Notion variables are optional preserved settings.
+paired remote Notion variables are optional preserved settings. The `COMPOSIO_*`
+variables are deliberately absent — see [Composio](#composio).
 
 Evaluate the configuration locally without applying it:
 
