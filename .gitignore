@@ -22,3 +22,6 @@ state.db-wal
 # AWS CDK synthesis artifacts
 deployment/aws/cdk.out
 deployment/aws/cdk.context.json
+
+# Subagent-driven-development scratch (ledger, briefs, review packages)
+.superpowers
