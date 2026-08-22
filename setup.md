@@ -97,6 +97,7 @@ or Channel slug.
 | `LINEAR_MCP_URL` | No | Overrides the hosted Linear MCP URL |
 | `NOTION_MCP_AUTH_TOKEN` | No | Bearer token for a remote Notion MCP; requires `NOTION_MCP_URL` |
 | `NOTION_MCP_URL` | No | Remote Notion MCP endpoint; requires `NOTION_MCP_AUTH_TOKEN` |
+| `PARALLEL_MCP_URL` | No | Enables no-account live web search and URL fetching; set to `https://search.parallel.ai/mcp` |
 | `CORS_ALLOW_ORIGINS` | No | Comma-separated allowed origins; defaults to `*` |
 | `SERVER_HOST` | No | Local bind host; defaults to `0.0.0.0` |
 | `SERVER_PORT` | No | Local/container port; defaults to `8123` |
@@ -332,6 +333,15 @@ Notion is optional and remote-only, not a separate Railway service. Set both
 `NOTION_MCP_URL` and `NOTION_MCP_AUTH_TOKEN`, then restart `pnpm agent` so it
 discovers the tools. If either value is absent OpenTag skips Notion without
 blocking startup.
+
+### Parallel Search MCP
+
+Set `PARALLEL_MCP_URL=https://search.parallel.ai/mcp`, then restart
+`pnpm agent` so OpenTag discovers `parallel_web_search` and
+`parallel_web_fetch`. The remote endpoint is free and requires no account, API
+key, or OAuth. The URL is the opt-in: when it is unset, OpenTag does not connect
+to Parallel. Tavily's existing `web_search` remains available when both sources
+are configured.
 
 ## Railway
 

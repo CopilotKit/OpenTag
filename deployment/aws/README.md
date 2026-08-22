@@ -115,6 +115,7 @@ These CDK context values become container environment variables:
 | `posthogMcpUrl` | `POSTHOG_MCP_URL` | Hosted read-only PostHog MCP |
 | `linearMcpUrl` | `LINEAR_MCP_URL` | Hosted Linear MCP |
 | `notionMcpUrl` | `NOTION_MCP_URL` | Unset |
+| `parallelMcpUrl` | `PARALLEL_MCP_URL` | Unset; use `https://search.parallel.ai/mcp` to opt in |
 
 `githubAppPrivateKeySecretArn` optionally maps a separate raw Secrets Manager
 secret to `GITHUB_APP_PRIVATE_KEY_BASE64` on the agent container.

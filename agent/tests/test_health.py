@@ -1,7 +1,13 @@
 from fastapi.testclient import TestClient
+import pytest
 
 # Import before tests mutate environment variables.
 import agent as agent_mod  # noqa: E402
+
+
+@pytest.fixture(autouse=True)
+def clear_parallel_source(monkeypatch):
+    monkeypatch.delenv("PARALLEL_MCP_URL", raising=False)
 
 
 def test_health_ok(monkeypatch):

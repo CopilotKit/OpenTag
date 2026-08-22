@@ -31,6 +31,7 @@ from prompts import (
     BASE_SYSTEM_PROMPT,
     DEFAULT_AGENT_DISPLAY_NAME,
     NO_WEB_SEARCH_TOOL_ADDENDUM,
+    PARALLEL_SEARCH_TOOL_ADDENDUM,
     WEB_SEARCH_TOOL_ADDENDUM,
     CODING_OFF_ADDENDUM,
     CODING_ON_ADDENDUM,
@@ -157,7 +158,7 @@ def build_agent():
         default="low",
         allowed=VALID_VERBOSITY_LEVELS,
     )
-    has_web_search = bool(os.environ.get("TAVILY_API_KEY"))
+    has_tavily_search = bool(os.environ.get("TAVILY_API_KEY"))
     model_name = os.environ.get("OPENAI_MODEL", "gpt-5.5")
     llm = ChatOpenAI(
         model=model_name,
@@ -174,22 +175,32 @@ def build_agent():
     internal_tools = [
         tool for tools in source_toolsets.values() for tool in tools
     ]
+    parallel_tool_names = {
+        tool.name for tool in source_toolsets.get("parallel", [])
+    }
+    has_parallel_search = {
+        "parallel_web_search",
+        "parallel_web_fetch",
+    }.issubset(parallel_tool_names)
     main_tools = (
         [web_search, *internal_tools]
-        if has_web_search
+        if has_tavily_search
         else [*internal_tools]
     )
 
+    search_prompt = ""
+    if has_tavily_search:
+        search_prompt += WEB_SEARCH_TOOL_ADDENDUM
+    if has_parallel_search:
+        search_prompt += PARALLEL_SEARCH_TOOL_ADDENDUM
+    if not search_prompt:
+        search_prompt = NO_WEB_SEARCH_TOOL_ADDENDUM
     agent_display_name = (
         os.environ.get("AGENT_DISPLAY_NAME", DEFAULT_AGENT_DISPLAY_NAME).strip()
         or DEFAULT_AGENT_DISPLAY_NAME
     )
-    system_prompt = build_base_system_prompt(agent_display_name) + (
-        WEB_SEARCH_TOOL_ADDENDUM
-        if has_web_search
-        else NO_WEB_SEARCH_TOOL_ADDENDUM
-    )
-    system_prompt = system_prompt + (
+    system_prompt = build_base_system_prompt(agent_display_name) + search_prompt
+    system_prompt += (
         CODING_ON_ADDENDUM if coding_on else CODING_OFF_ADDENDUM
     )
 
@@ -226,6 +237,7 @@ def build_agent():
         "[AGENT] OpenTag Agent created "
         f"with model={model_name}, reasoning={reasoning_effort}, verbosity={verbosity}"
     )
+    has_web_search = has_tavily_search or has_parallel_search
     print(f"[AGENT] web search: {'enabled' if has_web_search else 'disabled'}")
     print(f"[AGENT] coding: {'enabled' if coding_on else 'disabled'}")
     print(f"[AGENT] internal-source tools: {len(internal_tools)}")

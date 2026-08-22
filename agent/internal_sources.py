@@ -1,4 +1,4 @@
-"""Optional GitHub, PostHog, Linear, and Notion MCP integrations."""
+"""Optional GitHub, PostHog, Linear, Notion, and Parallel MCP integrations."""
 
 import asyncio
 import logging
@@ -38,6 +38,12 @@ MCP_SERVERS = {
         "token_env": "NOTION_MCP_AUTH_TOKEN",
         "url_env": "NOTION_MCP_URL",
         "default_url": None,
+    },
+    "parallel": {
+        "token_env": None,
+        "url_env": "PARALLEL_MCP_URL",
+        "default_url": None,
+        "tool_name_prefix": True,
     },
 }
 MCP_LOAD_TIMEOUT_SECONDS = 8.0
@@ -102,37 +108,41 @@ def _configured_connections(
     connections: dict[str, dict[str, Any]] = {}
     for name, config in MCP_SERVERS.items():
         is_github = name == "github"
-        token = None if is_github else env.get(config.get("token_env", ""))
+        token_env = config.get("token_env")
+        token = env.get(token_env) if token_env else None
         configured_url = env.get(config["url_env"])
         url = configured_url or config["default_url"]
-        if (is_github and github_provider is None) or (not is_github and not token):
+        if (is_github and github_provider is None) or (token_env and not token):
             if configured_url:
                 logger.warning(
                     "[TOOLS] skipping %s: %s must be set with %s",
                     name,
-                    config.get("token_env", "GitHub credentials"),
+                    token_env or "GitHub credentials",
                     config["url_env"],
                 )
             continue
         if not url:
-            logger.warning(
-                "[TOOLS] skipping %s: %s must be set with %s",
-                name,
-                config["url_env"],
-                config.get("token_env", "GitHub credentials"),
-            )
+            if is_github or token_env:
+                logger.warning(
+                    "[TOOLS] skipping %s: %s must be set with %s",
+                    name,
+                    config["url_env"],
+                    token_env or "GitHub credentials",
+                )
             continue
 
         headers = dict(config.get("headers", {}))
         if token:
             headers["Authorization"] = f"Bearer {token}"
-        connections[name] = {
+        connection: dict[str, Any] = {
             "transport": "streamable_http",
             "url": url,
-            "headers": headers,
         }
+        if headers:
+            connection["headers"] = headers
         if is_github:
-            connections[name]["auth"] = GitHubProviderAuth(github_provider)
+            connection["auth"] = GitHubProviderAuth(github_provider)
+        connections[name] = connection
     return connections
 
 
@@ -151,9 +161,15 @@ async def _load_tools(
     for name, connection in connections.items():
         try:
             confirmation = WriteConfirmationInterceptor()
+            client_options = (
+                {"tool_name_prefix": True}
+                if MCP_SERVERS[name].get("tool_name_prefix")
+                else {}
+            )
             client = MultiServerMCPClient(
                 {name: connection},
                 tool_interceptors=[confirmation],
+                **client_options,
             )
             tools = await asyncio.wait_for(
                 client.get_tools(),

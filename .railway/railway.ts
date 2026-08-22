@@ -41,6 +41,7 @@ export default defineRailway(() => {
       LINEAR_API_KEY: preserve(),
       NOTION_MCP_URL: preserve(),
       NOTION_MCP_AUTH_TOKEN: preserve(),
+      PARALLEL_MCP_URL: preserve(),
     },
   });
 

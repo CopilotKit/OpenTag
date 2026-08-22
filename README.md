@@ -276,7 +276,7 @@ or one directory, and none of them require touching the Channel lifecycle.
 | The persona and behavior     | [`agent/prompts/`](./agent/prompts)                                                              | `system.py` holds the base system prompt                                                                                |
 | The agent itself             | [`agent/agent.py`](./agent/agent.py)                                                             | A LangGraph deep agent; model and reasoning effort come from the environment                                            |
 | **The agent framework**      | `AGENT_URL`                                                                                      | Point it at _any_ AG-UI-compatible agent. The runtime speaks AG-UI over HTTP and does not care what is on the other end |
-| Which tools the agent has    | [`agent/tools.py`](./agent/tools.py), [`agent/internal_sources.py`](./agent/internal_sources.py) | Sources register only when their credentials are present                                                                |
+| Which tools the agent has    | [`agent/tools.py`](./agent/tools.py), [`agent/internal_sources.py`](./agent/internal_sources.py) | Sources register only when their opt-in configuration is present                                                        |
 | What gets rendered in chat   | [`app/components/`](./app/components), [`app/tools/`](./app/tools)                               | Issue cards, tables, charts, diagrams                                                                                   |
 | Mentions, commands, triggers | [`app/channel.tsx`](./app/channel.tsx)                                                           | The whole Channel surface in one file                                                                                   |
 | Which writes need approval   | [`agent/write_confirmation.py`](./agent/write_confirmation.py)                                   | The interceptor that emits `confirm_write`                                                                              |
@@ -320,7 +320,8 @@ agent (Python + LangGraph deepagents)
           ├── GitHub MCP (optional, read-only)
           ├── PostHog MCP (optional, read-only)
           ├── Linear MCP (optional)
-          └── Notion MCP (optional remote server)
+          ├── Notion MCP (optional remote server)
+          └── Parallel Search MCP (optional, no account or API key)
 ```
 
 | You run                                                | CopilotKit Intelligence manages                |
@@ -362,6 +363,7 @@ knowledge work, and renders UI from model knowledge.
 | `POSTHOG_PERSONAL_API_KEY`                 | PostHog analytics, read-only (use the **MCP Server** key preset) |
 | `LINEAR_API_KEY`                           | Hosted Linear MCP                                                |
 | `NOTION_MCP_URL` + `NOTION_MCP_AUTH_TOKEN` | Remote Notion MCP; setting only one disables it                  |
+| `PARALLEL_MCP_URL`                         | Live web search and URL fetching with no account or API key      |
 | `DAYTONA_API_KEY` + a PAT or GitHub App    | Coding subagent: edit in Daytona, then push and publish a draft PR after `confirm_write` |
 
 Every Linear and Notion mutation is intercepted in code before the MCP request
@@ -369,6 +371,11 @@ runs. The interceptor emits `confirm_write` and proceeds only after approval;
 reads and rendering do not pause. Coder push plus draft-PR create/update uses the
 same card. See [`setup.md`](./setup.md#github) for PAT/App selection and required
 GitHub permissions.
+
+Set `PARALLEL_MCP_URL=https://search.parallel.ai/mcp` to opt into Parallel
+Search MCP. Its tools are exposed as `parallel_web_search` and
+`parallel_web_fetch`, so Tavily's existing `web_search` remains available when
+both sources are configured.
 
 [`setup.md`](./setup.md) documents each source, its overrides, and the full
 environment contract.

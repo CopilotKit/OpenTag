@@ -14,6 +14,7 @@ from .tools import (
 )
 from .web_search import (
     NO_WEB_SEARCH_TOOL_ADDENDUM,
+    PARALLEL_SEARCH_TOOL_ADDENDUM,
     WEB_SEARCH_TOOL_ADDENDUM,
 )
 
@@ -33,6 +34,7 @@ __all__ = [
     "current_date_context",
     "current_date_prompt",
     "NO_WEB_SEARCH_TOOL_ADDENDUM",
+    "PARALLEL_SEARCH_TOOL_ADDENDUM",
     "WEB_SEARCH_TOOL_ADDENDUM",
     "CODING_ON_ADDENDUM",
     "CODING_OFF_ADDENDUM",
