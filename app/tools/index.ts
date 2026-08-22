@@ -5,8 +5,12 @@
  * Add new tools here and include them in `appTools`. Wire the array into
  * `createChannel({ tools })`.
  */
+import {
+  blockCatalogTool,
+  isBlockCatalogEnabled,
+} from "./block-catalog.js";
 import { readThreadTool } from "./read-thread.js";
-import { showCapabilitiesTool } from "./capabilities.js";
+import { createShowCapabilitiesTool } from "./capabilities.js";
 import { renderDiagramTool } from "./render-diagram.js";
 import { renderTableTool } from "./render-table.js";
 import { issueCardTool, issueListTool, pageListTool } from "./render-tools.js";
@@ -19,6 +23,7 @@ import {
   showKnowledgeSummaryTool,
 } from "./showcase-tools.js";
 import type { ChannelTool } from "@copilotkit/channels";
+import { DEFAULT_AGENT_DISPLAY_NAME } from "../env.js";
 
 /**
  * Every tool is a plain `ChannelTool`: its handler receives the generic
@@ -28,18 +33,29 @@ import type { ChannelTool } from "@copilotkit/channels";
  * `thread` methods, so there's no per-adapter context and no cast needed —
  * the array assigns straight into `createChannel({ tools })`.
  */
-export const appTools: ChannelTool[] = [
-  readThreadTool,
-  showCapabilitiesTool,
-  renderDiagramTool,
-  renderTableTool,
-  issueCardTool,
-  issueListTool,
-  pageListTool,
-  showIncidentTool,
-  showStatusTool,
-  showLinksTool,
-  showWorkPlanTool,
-  showDecisionBriefTool,
-  showKnowledgeSummaryTool,
-];
+export function createAppTools(
+  agentDisplayName = DEFAULT_AGENT_DISPLAY_NAME,
+  env: NodeJS.ProcessEnv = process.env,
+): ChannelTool[] {
+  return [
+    readThreadTool,
+    createShowCapabilitiesTool(agentDisplayName),
+    renderDiagramTool,
+    renderTableTool,
+    issueCardTool,
+    issueListTool,
+    pageListTool,
+    showIncidentTool,
+    showStatusTool,
+    showLinksTool,
+    showWorkPlanTool,
+    showDecisionBriefTool,
+    showKnowledgeSummaryTool,
+    // Off by default, and *absent* rather than refusing when off: a tool the
+    // agent can see but must not call leaks into its reasoning and turns into
+    // "I can't do that here" instead of the topic not existing.
+    ...(isBlockCatalogEnabled(env) ? [blockCatalogTool] : []),
+  ];
+}
+
+export const appTools = createAppTools();

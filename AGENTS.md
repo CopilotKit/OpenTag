@@ -40,8 +40,11 @@ files.
 | Environment contract | `app/env.ts` | Required variables and in-code defaults |
 | Rendered UI | `app/components/`, `app/tools/` | Issue cards, tables, charts, diagrams |
 | Agent | `agent/agent.py` | LangGraph deep agent served over AG-UI |
+| AG-UI adapter | `agent/agui.py` | Slack recursion limit and user-facing graph-stop handling |
 | Persona | `agent/prompts/` | `system.py` is the base system prompt |
 | Approval gate | `agent/write_confirmation.py` | Emits `confirm_write` before Linear or Notion writes |
+| Coder | `agent/coding/` | GitHub credentials, Daytona sandbox, repository publish tools, coder prompt |
+| Coder skills | `agent/coding/skills/` | Committed skills. Do not put them in `agent/skills/` |
 | Deployment | `.railway/railway.ts` | Two services, declared as code |
 
 Reference docs: [`README.md`](./README.md) for the quick start,

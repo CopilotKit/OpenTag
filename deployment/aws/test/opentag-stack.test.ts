@@ -79,6 +79,7 @@ test("creates one private rolling environment service containing both containers
     ContainerDefinitions: Match.arrayWith([
       Match.objectLike({
         Environment: Match.arrayWith([
+          { Name: "AGENT_DISPLAY_NAME", Value: "OpenTag" },
           { Name: "OPENAI_MODEL", Value: "gpt-5.5" },
           { Name: "OPENAI_REASONING_EFFORT", Value: "low" },
           { Name: "OPENAI_VERBOSITY", Value: "low" },
@@ -88,6 +89,7 @@ test("creates one private rolling environment service containing both containers
       Match.objectLike({
         DependsOn: [{ Condition: "HEALTHY", ContainerName: "agent" }],
         Environment: Match.arrayWith([
+          { Name: "AGENT_DISPLAY_NAME", Value: "OpenTag" },
           {
             Name: "AGENT_URL",
             Value: "http://127.0.0.1:8123/",
@@ -105,8 +107,13 @@ test("allows supported non-secret environment overrides through context", () => 
   const template = Template.fromStack(
     stackWithContext({
       intelligenceApiUrl: "https://intelligence.example.test",
+      agentDisplayName: "Kite",
       logLevel: "debug",
       mermaidUrl: "https://cdn.example.test/mermaid.js",
+      daytonaSnapshot: "snap-test",
+      daytonaTtlMinutes: "45",
+      githubAppId: "12345",
+      githubAppInstallationId: "67890",
       openAiModel: "gpt-test",
       openAiReasoningEffort: "high",
       openAiVerbosity: "medium",
@@ -117,6 +124,11 @@ test("allows supported non-secret environment overrides through context", () => 
     ContainerDefinitions: Match.arrayWith([
       Match.objectLike({
         Environment: Match.arrayWith([
+          { Name: "AGENT_DISPLAY_NAME", Value: "Kite" },
+          { Name: "DAYTONA_SNAPSHOT", Value: "snap-test" },
+          { Name: "DAYTONA_TTL_MINUTES", Value: "45" },
+          { Name: "GITHUB_APP_ID", Value: "12345" },
+          { Name: "GITHUB_APP_INSTALLATION_ID", Value: "67890" },
           { Name: "OPENAI_MODEL", Value: "gpt-test" },
           { Name: "OPENAI_REASONING_EFFORT", Value: "high" },
           { Name: "OPENAI_VERBOSITY", Value: "medium" },
@@ -125,6 +137,7 @@ test("allows supported non-secret environment overrides through context", () => 
       }),
       Match.objectLike({
         Environment: Match.arrayWith([
+          { Name: "AGENT_DISPLAY_NAME", Value: "Kite" },
           {
             Name: "INTELLIGENCE_API_URL",
             Value: "https://intelligence.example.test",
@@ -200,6 +213,8 @@ test("injects application secrets without plaintext values", () => {
   assert.match(json, /OpenTagSecretArn/);
   assert.match(json, /DatadogApiKeySecretArn/);
   assert.match(json, /OPENAI_API_KEY/);
+  assert.match(json, /DAYTONA_API_KEY/);
+  assert.match(json, /GITHUB_CODER_TOKEN/);
   assert.match(json, /INTELLIGENCE_API_KEY/);
   assert.doesNotMatch(json, /:GITHUB_MCP_URL::/);
   assert.doesNotMatch(json, /:LINEAR_MCP_URL::/);
@@ -207,6 +222,23 @@ test("injects application secrets without plaintext values", () => {
   assert.doesNotMatch(json, /:POSTHOG_MCP_URL::/);
   assert.doesNotMatch(json, /sk-[A-Za-z0-9]/);
   assert.doesNotMatch(json, /cpk-[A-Za-z0-9]/);
+});
+
+test("optionally injects a separate GitHub App private-key secret", () => {
+  const secretArn =
+    "arn:aws:secretsmanager:us-east-1:123456789012:secret:github-app-key-AbCdEf";
+  const template = Template.fromStack(
+    stackWithContext({
+      githubAppId: "12345",
+      githubAppInstallationId: "67890",
+      githubAppPrivateKeySecretArn: secretArn,
+    }),
+  );
+  const json = JSON.stringify(template.toJSON());
+
+  assert.match(json, /GITHUB_APP_PRIVATE_KEY_BASE64/);
+  assert.match(json, /github-app-key-AbCdEf/);
+  assert.doesNotMatch(json, /BEGIN PRIVATE KEY/);
 });
 
 test("can disable Datadog before account credentials are available", () => {

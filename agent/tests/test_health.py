@@ -104,8 +104,11 @@ def test_build_agent_does_not_expose_a_bypassable_manual_confirmation_tool(
 
     monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
     monkeypatch.delenv("TAVILY_API_KEY", raising=False)
+    monkeypatch.delenv("DAYTONA_API_KEY", raising=False)
+    monkeypatch.delenv("GITHUB_CODER_TOKEN", raising=False)
+    monkeypatch.delenv("GITHUB_PERSONAL_ACCESS_TOKEN", raising=False)
     monkeypatch.setattr(agent_mod, "ChatOpenAI", lambda **_kwargs: object())
-    monkeypatch.setattr(agent_mod, "internal_source_tools", lambda: [])
+    monkeypatch.setattr(agent_mod, "internal_source_toolsets", lambda _provider: {})
 
     def fake_create_deep_agent(**kwargs):
         captured["tools"] = kwargs["tools"]
@@ -129,7 +132,5 @@ def test_system_prompt_requires_confirmation_only_for_writes():
 
 
 def test_system_prompt_uses_opentag_persona():
-    assert (
-        "OpenTag, a general-purpose team knowledge-work agent"
-        in agent_mod.BASE_SYSTEM_PROMPT
-    )
+    assert "CRITICAL: Your user-facing name is OpenTag" in agent_mod.BASE_SYSTEM_PROMPT
+    assert "general-purpose team knowledge-work agent" in agent_mod.BASE_SYSTEM_PROMPT

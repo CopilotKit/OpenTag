@@ -5,6 +5,7 @@ import type { AppEnvironment } from "./env.js";
 import { OPENTAG_SERVICE_USER, createOpenTagRuntime } from "./runtime-host.js";
 
 const environment: AppEnvironment = {
+  agentDisplayName: "OpenTag",
   agentUrl: "http://agent.internal",
   agentAuthHeader: "Bearer agent-secret",
   intelligenceApiKey: "cpk-1_test-secret",
@@ -39,6 +40,7 @@ describe("createOpenTagRuntime", () => {
 
     expect(runtime.mode).toBe("intelligence");
     expect(runtime.channels).toEqual(channels);
+    expect(runtime.learning).toBeUndefined();
     expect(intelligence.ɵgetApiUrl()).toBe(environment.intelligenceApiUrl);
     expect(intelligence.ɵgetClientWsUrl()).toContain("gateway.example.test");
     expect(
@@ -66,5 +68,17 @@ describe("createOpenTagRuntime", () => {
     await listener.channels?.stop();
     expect(stopSlack).toHaveBeenCalledOnce();
     expect(stopTeams).toHaveBeenCalledOnce();
+  });
+
+  it("passes the configured Learning Container to Intelligence Runtime", () => {
+    const { runtime } = createOpenTagRuntime({
+      environment: {
+        ...environment,
+        learningContainerId: "support-quality",
+      },
+      channels: [],
+    });
+
+    expect(runtime.learning).toEqual({ containerId: "support-quality" });
   });
 });

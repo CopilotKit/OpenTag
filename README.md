@@ -174,6 +174,10 @@ OPENAI_API_KEY=sk-...
 AGENT_URL=http://localhost:8123/
 INTELLIGENCE_API_KEY=cpk-...
 INTELLIGENCE_CHANNEL_NAME=open-tag
+# Optional: assign OpenTag Threads to an existing Learning Container.
+INTELLIGENCE_LEARNING_CONTAINER_ID=support-quality
+# Optional: use another user-facing identity, such as Kite.
+AGENT_DISPLAY_NAME=OpenTag
 ```
 
 Both the Node runtime and the Python agent load this one root `.env`; Railway
@@ -184,6 +188,11 @@ sources](#optional-research-sources).
 `INTELLIGENCE_API_URL` and `INTELLIGENCE_GATEWAY_WS_URL` already default to the
 production Intelligence endpoints in
 [`app/env.ts`](./app/env.ts), so leaving them unset is correct.
+
+`INTELLIGENCE_LEARNING_CONTAINER_ID` is also optional. When set, it must name
+an existing Learning Container in the project selected by
+`INTELLIGENCE_API_KEY`; when omitted, OpenTag does not assign Threads to a
+Learning Container.
 
 ### 4. Run the stack
 
@@ -263,6 +272,7 @@ or one directory, and none of them require touching the Channel lifecycle.
 
 | To change…                   | Edit                                                                                             | Notes                                                                                                                   |
 | ---------------------------- | ------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------- |
+| The user-facing name         | `AGENT_DISPLAY_NAME`                                                                             | Defaults to `OpenTag`; set it once for the agent persona and capability UI                                              |
 | The persona and behavior     | [`agent/prompts/`](./agent/prompts)                                                              | `system.py` holds the base system prompt                                                                                |
 | The agent itself             | [`agent/agent.py`](./agent/agent.py)                                                             | A LangGraph deep agent; model and reasoning effort come from the environment                                            |
 | **The agent framework**      | `AGENT_URL`                                                                                      | Point it at _any_ AG-UI-compatible agent. The runtime speaks AG-UI over HTTP and does not care what is on the other end |
@@ -349,15 +359,18 @@ knowledge work, and renders UI from model knowledge.
 | Variable                                   | Enables                                                          |
 | ------------------------------------------ | ---------------------------------------------------------------- |
 | `TAVILY_API_KEY`                           | Live web research                                                |
-| `GITHUB_PERSONAL_ACCESS_TOKEN`             | Read-only repository, code, issue, and PR search                 |
+| `GITHUB_PERSONAL_ACCESS_TOKEN`             | Read-only repository, code, PR, and CI search                    |
 | `POSTHOG_PERSONAL_API_KEY`                 | PostHog analytics, read-only (use the **MCP Server** key preset) |
 | `LINEAR_API_KEY`                           | Hosted Linear MCP                                                |
 | `NOTION_MCP_URL` + `NOTION_MCP_AUTH_TOKEN` | Remote Notion MCP; setting only one disables it                  |
 | `PARALLEL_MCP_URL`                         | Live web search and URL fetching with no account or API key      |
+| `DAYTONA_API_KEY` + a PAT or GitHub App    | Coding subagent: edit in Daytona, then push and publish a draft PR after `confirm_write` |
 
 Every Linear and Notion mutation is intercepted in code before the MCP request
 runs. The interceptor emits `confirm_write` and proceeds only after approval;
-reads and rendering do not pause.
+reads and rendering do not pause. Coder push plus draft-PR create/update uses the
+same card. See [`setup.md`](./setup.md#github) for PAT/App selection and required
+GitHub permissions.
 
 Set `PARALLEL_MCP_URL=https://search.parallel.ai/mcp` to opt into Parallel
 Search MCP. Its tools are exposed as `parallel_web_search` and

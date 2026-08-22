@@ -1,5 +1,65 @@
 # Changelog
 
+## v0.4.1
+
+- fix: harden coder publish replay safety (5c03e70)
+- fix: make coder approvals replay-safe (efec9d7)
+- docs: group optional environment examples (49b235a)
+- feat: add GitHub App coder authentication (7e9be6d)
+
+### Container images
+
+- `ghcr.io/copilotkit/opentag-agent:v0.4.1`
+- `ghcr.io/copilotkit/opentag-runtime:v0.4.1`
+
+## v0.4.0
+
+- docs: remove superpowers content (0577c63)
+- chore: configure coding subagent deployments (aae3eaf)
+- feat: add optional Daytona coding subagent (4b336d7)
+
+### Container images
+
+- `ghcr.io/copilotkit/opentag-agent:v0.4.0`
+- `ghcr.io/copilotkit/opentag-runtime:v0.4.0`
+
+## v0.3.0
+
+- feat: configure an Intelligence Learning Container (f09049a)
+
+### Container images
+
+- `ghcr.io/copilotkit/opentag-agent:v0.3.0`
+- `ghcr.io/copilotkit/opentag-runtime:v0.3.0`
+
+## v0.2.4
+
+- test: update Slack container assertions (28b7cc9)
+- chore: bump cpk deps (8058eb1)
+
+### Container images
+
+- `ghcr.io/copilotkit/opentag-agent:v0.2.4`
+- `ghcr.io/copilotkit/opentag-runtime:v0.2.4`
+
+## v0.2.3
+
+- feat(tools): add the Slack block catalog showcase tool (3b43135)
+
+### Container images
+
+- `ghcr.io/copilotkit/opentag-agent:v0.2.3`
+- `ghcr.io/copilotkit/opentag-runtime:v0.2.3`
+
+## v0.2.2
+
+- feat: make agent display name configurable (#42) (020b1d9)
+
+### Container images
+
+- `ghcr.io/copilotkit/opentag-agent:v0.2.2`
+- `ghcr.io/copilotkit/opentag-runtime:v0.2.2`
+
 ## v0.2.1
 
 - Merge pull request #44 from CopilotKit/tyler/oss-792-give-opentag-a-tool-to-unsubscribe-from-threads (812ba98)

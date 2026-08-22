@@ -24,9 +24,17 @@ export default defineRailway(() => {
     },
     env: {
       PORT: "8123",
+      AGENT_DISPLAY_NAME: preserve(),
       OPENAI_API_KEY: preserve(),
       TAVILY_API_KEY: preserve(),
+      DAYTONA_API_KEY: preserve(),
+      DAYTONA_SNAPSHOT: preserve(),
+      DAYTONA_TTL_MINUTES: preserve(),
       GITHUB_PERSONAL_ACCESS_TOKEN: preserve(),
+      GITHUB_CODER_TOKEN: preserve(),
+      GITHUB_APP_ID: preserve(),
+      GITHUB_APP_INSTALLATION_ID: preserve(),
+      GITHUB_APP_PRIVATE_KEY_BASE64: preserve(),
       GITHUB_MCP_URL: preserve(),
       POSTHOG_PERSONAL_API_KEY: preserve(),
       POSTHOG_MCP_URL: preserve(),
@@ -55,12 +63,14 @@ export default defineRailway(() => {
     },
     env: {
       PORT: "3000",
+      AGENT_DISPLAY_NAME: preserve(),
       AGENT_URL:
         "http://${{agent.RAILWAY_PRIVATE_DOMAIN}}:${{agent.PORT}}/",
       INTELLIGENCE_API_KEY: preserve(),
       INTELLIGENCE_API_URL: "https://api.intelligence.copilotkit.ai",
       INTELLIGENCE_GATEWAY_WS_URL:
         "wss://realtime.intelligence.copilotkit.ai",
+      INTELLIGENCE_LEARNING_CONTAINER_ID: preserve(),
       INTELLIGENCE_CHANNEL_NAME: "open-tag",
       PLAYWRIGHT_BROWSERS_PATH: "0",
       RAILPACK_DEPLOY_APT_PACKAGES:

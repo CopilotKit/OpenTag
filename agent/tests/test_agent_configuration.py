@@ -60,10 +60,15 @@ def build_with_captured_configuration(
     monkeypatch.delenv("POSTHOG_PERSONAL_API_KEY", raising=False)
     monkeypatch.delenv("LINEAR_API_KEY", raising=False)
     monkeypatch.delenv("NOTION_MCP_AUTH_TOKEN", raising=False)
+    monkeypatch.delenv("DAYTONA_API_KEY", raising=False)
+    monkeypatch.delenv("GITHUB_CODER_TOKEN", raising=False)
+    monkeypatch.delenv("GITHUB_APP_ID", raising=False)
+    monkeypatch.delenv("GITHUB_APP_INSTALLATION_ID", raising=False)
+    monkeypatch.delenv("GITHUB_APP_PRIVATE_KEY_BASE64", raising=False)
     monkeypatch.setattr(
         agent_mod,
-        "internal_source_tools",
-        lambda: internal_tools or [],
+        "internal_source_toolsets",
+        lambda _provider: {"parallel": internal_tools or []} if parallel else {},
     )
 
     def fake_chat_openai(**kwargs):
@@ -174,6 +179,17 @@ def test_build_agent_keeps_tavily_first_when_parallel_is_also_enabled(
     assert captured["agent"]["tools"] == [agent_mod.web_search, *parallel_tools]
 
 
+def test_build_agent_uses_configured_display_name(monkeypatch):
+    monkeypatch.setenv("AGENT_DISPLAY_NAME", "Kite")
+
+    _, captured = build_with_captured_configuration(monkeypatch)
+
+    assert "CRITICAL: Your user-facing name is Kite" in captured["agent"][
+        "system_prompt"
+    ]
+    assert "You are OpenTag" not in captured["agent"]["system_prompt"]
+
+
 @pytest.mark.parametrize(
     ("name", "value"),
     [
@@ -245,8 +261,10 @@ def test_openai_harness_excludes_unusable_delegation_tools(monkeypatch):
     monkeypatch.delenv("LINEAR_API_KEY", raising=False)
     monkeypatch.delenv("NOTION_MCP_AUTH_TOKEN", raising=False)
     monkeypatch.delenv("PARALLEL_MCP_URL", raising=False)
+    monkeypatch.delenv("DAYTONA_API_KEY", raising=False)
+    monkeypatch.delenv("GITHUB_CODER_TOKEN", raising=False)
     monkeypatch.setattr(agent_mod, "ChatOpenAI", lambda **_kwargs: model)
-    monkeypatch.setattr(agent_mod, "internal_source_tools", lambda: [])
+    monkeypatch.setattr(agent_mod, "internal_source_toolsets", lambda _provider: {})
 
     graph = agent_mod.build_agent()
     graph.invoke(
@@ -271,6 +289,11 @@ def _configure_minimal_environment(monkeypatch):
     monkeypatch.delenv("LINEAR_API_KEY", raising=False)
     monkeypatch.delenv("NOTION_MCP_AUTH_TOKEN", raising=False)
     monkeypatch.delenv("PARALLEL_MCP_URL", raising=False)
+    monkeypatch.delenv("DAYTONA_API_KEY", raising=False)
+    monkeypatch.delenv("GITHUB_CODER_TOKEN", raising=False)
+    monkeypatch.delenv("GITHUB_APP_ID", raising=False)
+    monkeypatch.delenv("GITHUB_APP_INSTALLATION_ID", raising=False)
+    monkeypatch.delenv("GITHUB_APP_PRIVATE_KEY_BASE64", raising=False)
 
 
 def _response_payload(output, response_id):

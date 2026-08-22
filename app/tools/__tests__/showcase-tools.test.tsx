@@ -20,6 +20,7 @@ import {
   showStatusTool,
   showLinksTool,
 } from "../showcase-tools.js";
+import { CapabilitiesCard } from "../capabilities.js";
 import { appTools } from "../index.js";
 
 type IncidentCtx = Parameters<typeof showIncidentTool.handler>[1];
@@ -27,6 +28,17 @@ type StatusCtx = Parameters<typeof showStatusTool.handler>[1];
 type LinksCtx = Parameters<typeof showLinksTool.handler>[1];
 
 describe("show_capabilities render-tool", () => {
+  it("renders a configured identity throughout the capability showcase", () => {
+    const initial = JSON.stringify(
+      renderSlackMessage(
+        renderToIR(<CapabilitiesCard agentDisplayName="Kite" />),
+      ).blocks,
+    );
+
+    expect(initial).toContain("Meet Kite");
+    expect(initial).not.toContain("Meet OpenTag");
+  });
+
   it("posts an interactive capability showcase instead of prose", async () => {
     const tool = appTools.find(({ name }) => name === "show_capabilities");
     expect(tool).toBeDefined();

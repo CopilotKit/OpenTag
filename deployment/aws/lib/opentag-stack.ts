@@ -22,7 +22,9 @@ const DATADOG_FORWARDER_TEMPLATE_URL =
 const AGENT_SECRET_KEYS = [
   "OPENAI_API_KEY",
   "TAVILY_API_KEY",
+  "DAYTONA_API_KEY",
   "GITHUB_PERSONAL_ACCESS_TOKEN",
+  "GITHUB_CODER_TOKEN",
   "POSTHOG_PERSONAL_API_KEY",
   "LINEAR_API_KEY",
   "NOTION_MCP_AUTH_TOKEN",
@@ -102,6 +104,11 @@ export class OpenTagStack extends cdk.Stack {
       `${appName}-${environmentName}`,
     );
     const channelName = contextString(this, "channelName", "open-tag");
+    const agentDisplayName = contextString(
+      this,
+      "agentDisplayName",
+      "OpenTag",
+    );
     const intelligenceApiUrl = contextString(
       this,
       "intelligenceApiUrl",
@@ -124,6 +131,23 @@ export class OpenTagStack extends cdk.Stack {
       this,
       "openAiVerbosity",
       "low",
+    );
+    const daytonaSnapshot = contextString(this, "daytonaSnapshot", "");
+    const daytonaTtlMinutes = contextNumber(
+      this,
+      "daytonaTtlMinutes",
+      60,
+    );
+    const githubAppId = contextString(this, "githubAppId", "");
+    const githubAppInstallationId = contextString(
+      this,
+      "githubAppInstallationId",
+      "",
+    );
+    const githubAppPrivateKeySecretArn = contextString(
+      this,
+      "githubAppPrivateKeySecretArn",
+      "",
     );
     const enableDatadog = contextBoolean(this, "enableDatadog", true);
     const datadogSite = contextString(
@@ -172,6 +196,13 @@ export class OpenTagStack extends cdk.Stack {
       "OpenTagSecret",
       applicationSecretArn.valueAsString,
     );
+    const githubAppPrivateKeySecret = githubAppPrivateKeySecretArn
+      ? secretsmanager.Secret.fromSecretCompleteArn(
+          this,
+          "GitHubAppPrivateKeySecret",
+          githubAppPrivateKeySecretArn,
+        )
+      : undefined;
 
     const serviceCluster = cluster ?? this.createStandaloneCluster(
       appName,
@@ -203,10 +234,18 @@ export class OpenTagStack extends cdk.Stack {
       containerName: "agent",
       cpu: 1024,
       environment: {
+        AGENT_DISPLAY_NAME: agentDisplayName,
         CORS_ALLOW_ORIGINS: contextString(
           this,
           "corsAllowOrigins",
           "*",
+        ),
+        ...optionalEnvironment("DAYTONA_SNAPSHOT", daytonaSnapshot),
+        DAYTONA_TTL_MINUTES: String(daytonaTtlMinutes),
+        ...optionalEnvironment("GITHUB_APP_ID", githubAppId),
+        ...optionalEnvironment(
+          "GITHUB_APP_INSTALLATION_ID",
+          githubAppInstallationId,
         ),
         GITHUB_MCP_URL: contextString(
           this,
@@ -257,7 +296,15 @@ export class OpenTagStack extends cdk.Stack {
         streamPrefix: "agent",
       }),
       memoryReservationMiB: 1792,
-      secrets: secretFields(applicationSecret, AGENT_SECRET_KEYS),
+      secrets: {
+        ...secretFields(applicationSecret, AGENT_SECRET_KEYS),
+        ...(githubAppPrivateKeySecret
+          ? {
+              GITHUB_APP_PRIVATE_KEY_BASE64:
+                ecs.Secret.fromSecretsManager(githubAppPrivateKeySecret),
+            }
+          : {}),
+      },
     });
     agentContainer.addPortMappings({
       appProtocol: ecs.AppProtocol.http,
@@ -269,6 +316,7 @@ export class OpenTagStack extends cdk.Stack {
       containerName: "runtime",
       cpu: 1024,
       environment: {
+        AGENT_DISPLAY_NAME: agentDisplayName,
         AGENT_URL: "http://127.0.0.1:8123/",
         INTELLIGENCE_API_URL: intelligenceApiUrl,
         INTELLIGENCE_CHANNEL_NAME: channelName,
@@ -312,6 +360,7 @@ export class OpenTagStack extends cdk.Stack {
 
     const executionRole = task.obtainExecutionRole();
     applicationSecret.grantRead(executionRole);
+    githubAppPrivateKeySecret?.grantRead(executionRole);
     if (secretsKmsKey) {
       secretsKmsKey.grantDecrypt(executionRole);
     }

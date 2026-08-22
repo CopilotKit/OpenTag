@@ -67,7 +67,9 @@ Create one JSON secret with these fields:
   "AGENT_AUTH_HEADER": "",
   "OPENAI_API_KEY": "...",
   "TAVILY_API_KEY": "",
+  "DAYTONA_API_KEY": "",
   "GITHUB_PERSONAL_ACCESS_TOKEN": "",
+  "GITHUB_CODER_TOKEN": "",
   "POSTHOG_PERSONAL_API_KEY": "",
   "LINEAR_API_KEY": "",
   "NOTION_MCP_AUTH_TOKEN": ""
@@ -81,6 +83,11 @@ task starts; use an empty string for an unused integration.
 Create a second Secrets Manager secret for Datadog. Its entire plaintext value
 must be the raw Datadog API key, not JSON.
 
+For optional GitHub App coding, create a separate Secrets Manager secret whose
+entire plaintext value is the base64-encoded private-key PEM. Pass its complete
+ARN as `githubAppPrivateKeySecretArn`; do not add the private key to the JSON
+application secret. Existing PAT-only deployments require no change.
+
 Changing the OpenTag secret requires a new ECS task. Never put secret values in
 CDK context, command history, or source control.
 
@@ -90,6 +97,7 @@ These CDK context values become container environment variables:
 
 | CDK context | Container variable | Default |
 | --- | --- | --- |
+| `agentDisplayName` | `AGENT_DISPLAY_NAME` on both containers | `OpenTag` |
 | `channelName` | `INTELLIGENCE_CHANNEL_NAME` | `open-tag` |
 | `intelligenceApiUrl` | `INTELLIGENCE_API_URL` | CopilotKit hosted API |
 | `intelligenceGatewayWsUrl` | `INTELLIGENCE_GATEWAY_WS_URL` | CopilotKit hosted realtime gateway |
@@ -99,11 +107,18 @@ These CDK context values become container environment variables:
 | `openAiReasoningEffort` | `OPENAI_REASONING_EFFORT` | `low` |
 | `openAiVerbosity` | `OPENAI_VERBOSITY` | `low` |
 | `corsAllowOrigins` | `CORS_ALLOW_ORIGINS` | `*` |
+| `daytonaSnapshot` | `DAYTONA_SNAPSHOT` | Unset |
+| `daytonaTtlMinutes` | `DAYTONA_TTL_MINUTES` | `60` |
+| `githubAppId` | `GITHUB_APP_ID` | Unset |
+| `githubAppInstallationId` | `GITHUB_APP_INSTALLATION_ID` | Unset |
 | `githubMcpUrl` | `GITHUB_MCP_URL` | Hosted read-only GitHub MCP |
 | `posthogMcpUrl` | `POSTHOG_MCP_URL` | Hosted read-only PostHog MCP |
 | `linearMcpUrl` | `LINEAR_MCP_URL` | Hosted Linear MCP |
 | `notionMcpUrl` | `NOTION_MCP_URL` | Unset |
 | `parallelMcpUrl` | `PARALLEL_MCP_URL` | Unset; use `https://search.parallel.ai/mcp` to opt in |
+
+`githubAppPrivateKeySecretArn` optionally maps a separate raw Secrets Manager
+secret to `GITHUB_APP_PRIVATE_KEY_BASE64` on the agent container.
 
 The AWS task fixes `AGENT_URL` to `http://127.0.0.1:8123/`, the runtime port to
 `3000`, and the agent port to `8123` because both containers share one task.

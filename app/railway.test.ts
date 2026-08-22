@@ -66,9 +66,14 @@ describe("Railway deployment graph", () => {
       },
     });
     expect(agent?.variables).toMatchObject({
+      AGENT_DISPLAY_NAME: { type: "preserve" },
       OPENAI_API_KEY: { type: "preserve" },
       TAVILY_API_KEY: { type: "preserve" },
       GITHUB_PERSONAL_ACCESS_TOKEN: { type: "preserve" },
+      GITHUB_CODER_TOKEN: { type: "preserve" },
+      GITHUB_APP_ID: { type: "preserve" },
+      GITHUB_APP_INSTALLATION_ID: { type: "preserve" },
+      GITHUB_APP_PRIVATE_KEY_BASE64: { type: "preserve" },
       GITHUB_MCP_URL: { type: "preserve" },
       POSTHOG_PERSONAL_API_KEY: { type: "preserve" },
       POSTHOG_MCP_URL: { type: "preserve" },
@@ -94,6 +99,7 @@ describe("Railway deployment graph", () => {
         healthcheckPath: "/api/copilotkit/info",
       },
       variables: {
+        AGENT_DISPLAY_NAME: { type: "preserve" },
         AGENT_URL: {
           type: "literal",
           value:
@@ -108,6 +114,7 @@ describe("Railway deployment graph", () => {
           type: "literal",
           value: "wss://realtime.intelligence.copilotkit.ai",
         },
+        INTELLIGENCE_LEARNING_CONTAINER_ID: { type: "preserve" },
         INTELLIGENCE_CHANNEL_NAME: {
           type: "literal",
           value: "open-tag",

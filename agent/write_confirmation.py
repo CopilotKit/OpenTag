@@ -1,9 +1,11 @@
 """Approval enforcement for mutating MCP tools."""
 
+import asyncio
 import json
 import logging
 import re
 from collections import OrderedDict
+from concurrent.futures import ThreadPoolExecutor
 
 from copilotkit.langgraph import copilotkit_emit_message, copilotkit_interrupt
 from langchain_core.messages import ToolMessage
@@ -145,6 +147,92 @@ def _thread_key() -> str | None:
     return str(thread_id) if thread_id else None
 
 
+def parse_confirm_write_response(response) -> bool:
+    """Return the boolean `confirmed` value from a confirm_write resume."""
+    if isinstance(response, str):
+        try:
+            response = json.loads(response)
+        except json.JSONDecodeError:
+            response = None
+
+    if (
+        not isinstance(response, dict)
+        or not isinstance(response.get("confirmed"), bool)
+    ):
+        raise RuntimeError(
+            "confirm_write resume must contain a boolean `confirmed` value"
+        )
+    return response["confirmed"] is True
+
+
+def require_write_confirmation(
+    *,
+    action: str,
+    fields: list[dict],
+    extra_args: dict | None = None,
+) -> bool:
+    """Pause on the existing confirm_write card. Return True if approved."""
+    _answer, response = copilotkit_interrupt(
+        action="confirm_write",
+        args={
+            "action": action,
+            "fields": fields,
+            **(extra_args or {}),
+        },
+    )
+    return parse_confirm_write_response(response)
+
+
+async def report_write_failure(action: str, error: str) -> None:
+    """Tell the thread the confirmed write failed.
+
+    Without this the approval card is the last word the user sees, and a
+    rejected write is indistinguishable from a completed one.
+    """
+    text = _flatten_text(error) or error
+    try:
+        # Markdown bold, matching the cards — the platform renderers
+        # convert `**x**` to each surface's own bold.
+        await copilotkit_emit_message(
+            ensure_config(),
+            f"⚠️ **{action}** failed — {text}",
+        )
+    except Exception as emit_error:
+        # The tool result still reaches the agent, which can retry or
+        # explain; a failed report must not also fail the turn.
+        logger.warning(
+            "[WRITE] could not report a failed write to the thread: %s",
+            type(emit_error).__name__,
+        )
+
+
+def emit_write_failure(action: str, error: str) -> None:
+    """Synchronous entry point for graph tools that cannot await."""
+
+    def _run() -> None:
+        asyncio.run(report_write_failure(action, error))
+
+    try:
+        asyncio.get_running_loop()
+    except RuntimeError:
+        try:
+            _run()
+        except Exception as emit_error:
+            logger.warning(
+                "[WRITE] could not report a failed write to the thread: %s",
+                type(emit_error).__name__,
+            )
+        return
+    try:
+        with ThreadPoolExecutor(max_workers=1) as pool:
+            pool.submit(_run).result()
+    except Exception as emit_error:
+        logger.warning(
+            "[WRITE] could not report a failed write to the thread: %s",
+            type(emit_error).__name__,
+        )
+
+
 class WriteConfirmationInterceptor:
     """Require approval for every MCP tool not marked read-only."""
 
@@ -187,25 +275,7 @@ class WriteConfirmationInterceptor:
         return {"attempt": attempts + 1, "previous_error": error}
 
     async def _report_failure(self, action: str, error: str) -> None:
-        """Tell the thread the confirmed write failed.
-
-        Without this the approval card is the last word the user sees, and a
-        rejected write is indistinguishable from a completed one.
-        """
-        try:
-            # Markdown bold, matching the cards — the platform renderers
-            # convert `**x**` to each surface's own bold.
-            await copilotkit_emit_message(
-                ensure_config(),
-                f"⚠️ **{action}** failed — {error}",
-            )
-        except Exception as emit_error:
-            # The tool result still reaches the agent, which can retry or
-            # explain; a failed report must not also fail the turn.
-            logger.warning(
-                "[WRITE] could not report a failed write to the thread: %s",
-                type(emit_error).__name__,
-            )
+        await report_write_failure(action, error)
 
     async def __call__(
         self,
@@ -219,30 +289,13 @@ class WriteConfirmationInterceptor:
         action = action[:1].upper() + action[1:]
         thread = _thread_key()
         key = None if thread is None else (thread, request.name)
-        _answer, response = copilotkit_interrupt(
-            action="confirm_write",
-            args={
-                "action": action,
-                "fields": summarize_args(request.args),
-                **self._retry_args(key),
-            },
+        confirmed = require_write_confirmation(
+            action=action,
+            fields=summarize_args(request.args),
+            extra_args=self._retry_args(key),
         )
 
-        if isinstance(response, str):
-            try:
-                response = json.loads(response)
-            except json.JSONDecodeError:
-                response = None
-
-        if (
-            not isinstance(response, dict)
-            or not isinstance(response.get("confirmed"), bool)
-        ):
-            raise RuntimeError(
-                "confirm_write resume must contain a boolean `confirmed` value"
-            )
-
-        if response["confirmed"] is False:
+        if confirmed is False:
             # The user ended this sequence; the next confirmation for this tool
             # starts from a clean slate rather than citing an abandoned attempt.
             self._forget_failure(key)
