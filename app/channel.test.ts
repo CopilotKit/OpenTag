@@ -278,6 +278,66 @@ describe("createOpenTagChannel", () => {
     );
   });
 
+  it("answers a mention once and ignores later revisions of it", async () => {
+    const { adapter, agent, channel } = makeChannel();
+    const revision = (kind: "created" | "updated", revisionId: string) => ({
+      conversationKey: "revised-thread",
+      replyTarget: {},
+      userText: "@Kite say hi",
+      platform: "slack",
+      actor: { id: "U1", kind: "human" as const },
+      operation: {
+        kind,
+        logicalMessageId: "m1",
+        revisionId,
+        mentioned: true,
+      },
+    });
+
+    await channel.ɵruntime.start();
+    await adapter.getSink().onTurn(revision("created", "m1"));
+    // Slack re-announces the message as changed for every reply added to its
+    // thread, so these arrive on their own — nobody edited anything.
+    await adapter.getSink().onTurn(revision("updated", "m1-r2"));
+    await adapter.getSink().onTurn(revision("updated", "m1-r3"));
+
+    expect((agent as CapturingAgent).calls).toHaveLength(1);
+  });
+
+  it("ignores revisions of an unmentioned message in a subscribed thread", async () => {
+    const { adapter, agent, channel } = makeChannel();
+
+    await channel.ɵruntime.start();
+    await adapter.getSink().onTurn({
+      conversationKey: "revised-subscribed-thread",
+      replyTarget: {},
+      userText: "@Kite watch this thread",
+      platform: "slack",
+      actor: { id: "U1", kind: "human" },
+      operation: {
+        kind: "created",
+        logicalMessageId: "m1",
+        revisionId: "m1",
+        mentioned: true,
+      },
+    });
+    await adapter.getSink().onTurn({
+      conversationKey: "revised-subscribed-thread",
+      replyTarget: {},
+      userText: "what next?",
+      platform: "slack",
+      actor: { id: "U1", kind: "human" },
+      operation: {
+        kind: "updated",
+        logicalMessageId: "m2",
+        revisionId: "m2-r2",
+        mentioned: false,
+      },
+    });
+
+    expect((agent as CapturingAgent).calls).toHaveLength(1);
+  });
+
   it("keeps an existing unsubscribed conversation mention-only and offers subscribe", async () => {
     const { adapter, agent, channel, stateStore } = makeChannel();
     adapter.messages = [

@@ -114,7 +114,22 @@ export function createOpenTagChannel(
     }
   };
 
+  /**
+   * True for anything but the first revision of a message.
+   *
+   * Slack re-announces a message as changed for reasons that have nothing to do
+   * with somebody editing its text — adding a reply to a thread is enough — and
+   * every revision arrives here as a fresh mention carrying a new revision id,
+   * so the ingress dedup (keyed on that id) cannot collapse them. Answering one
+   * posts a reply, the reply revises the message again, and the next revision
+   * asks the same question: one "@bot say hi" turned into fifty identical
+   * answers in seconds. Only the original message starts a turn.
+   */
+  const isRevision = ({ operation }: MessageHandlerInput["message"]): boolean =>
+    operation.kind !== "created";
+
   channel.onMention(async ({ thread, message }) => {
+    if (isRevision(message)) return;
     if (message.actor.kind === "bot" || message.actor.kind === "app") return;
 
     if (await thread.isSubscribed()) {
@@ -152,6 +167,7 @@ export function createOpenTagChannel(
   });
 
   channel.onMessage(async ({ thread, message }) => {
+    if (isRevision(message)) return;
     if (message.actor.kind === "bot" || message.actor.kind === "app") return;
 
     if (await thread.isSubscribed()) {
