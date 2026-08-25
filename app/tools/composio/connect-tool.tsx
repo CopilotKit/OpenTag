@@ -225,6 +225,10 @@ export async function handleConnectClick(
   // round trip. A cached session predating the connect would keep reporting the
   // toolkit as unconnected until its TTL expired.
   invalidateSession(clicker.id);
+  // They have the link, so the card has done its job. Releasing the guard lets
+  // a genuinely new failure post a fresh card instead of being told one is
+  // already waiting.
+  markConnectCardResolved(clicker.id, toolkit);
   // ...and dropped again when the flow actually completes, since the line above
   // runs while the user still has the consent screen open.
   invalidateOnConnection(authorization, clicker.id);
@@ -235,6 +239,36 @@ export async function handleConnectClick(
  * re-derives it from the environment. Only `config` is needed, and only to
  * decide which toolkits a person is allowed to connect.
  */
+/**
+ * Conversations that already have a live connect card, per toolkit.
+ *
+ * Without this the agent loops: it searches, is told truthfully that the app
+ * is not connected, posts a card, searches again, is told the same true thing,
+ * and posts another — until the graph's step limit cuts it off. Observed in
+ * Slack as a dozen identical cards in one turn. The tool's "stop here" return
+ * string is only advice; this is what actually stops it.
+ *
+ * Keyed by person rather than by conversation: the card belongs to them, not
+ * to the thread, and the public `Thread` a tool receives exposes no
+ * conversation id. Cleared when they connect, so a later failure can post a
+ * fresh card. Bounded like the pending-approval registry, for the same reason:
+ * entries outlive the turn and nothing else evicts them.
+ */
+const posted = new Set<string>();
+const MAX_POSTED = 256;
+
+function postedKey(userId: string, slug: string): string {
+  return `${userId}::${slug}`;
+}
+
+export function markConnectCardResolved(userId: string, slug: string): void {
+  posted.delete(postedKey(userId, slug));
+}
+
+export function clearConnectCards(): void {
+  posted.clear();
+}
+
 export function createConnectTool(config: ComposioConfig): ChannelTool {
   return defineChannelTool({
     name: "connect_my_app",
@@ -265,7 +299,23 @@ export function createConnectTool(config: ComposioConfig): ChannelTool {
         return "I can't tell who you are on this platform, so I can't connect an account for you.";
       }
 
+      const key = postedKey(ctx.actor.id, slug);
+      if (posted.has(key)) {
+        return (
+          `A Connect ${slug} card is already waiting for this user. Do not post another ` +
+          "and do not search again — tell them to use it and stop."
+        );
+      }
+
       await ctx.thread.post(<ConnectAccount toolkit={slug} />);
+
+      posted.add(key);
+      // Oldest-first eviction; Set preserves insertion order.
+      while (posted.size > MAX_POSTED) {
+        const oldest = posted.values().next();
+        if (oldest.done) break;
+        posted.delete(oldest.value);
+      }
 
       return `Posted a Connect ${slug} card. Stop here — the user connects, then asks again.`;
     },

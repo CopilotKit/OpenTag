@@ -21,7 +21,12 @@ import {
 } from "@copilotkit/channels";
 import { ConnectAccount } from "../../../human-in-the-loop/index.js";
 import { resetComposioClient } from "../client.js";
-import { createConnectTool, handleConnectClick } from "../connect-tool.js";
+import {
+  clearConnectCards,
+  createConnectTool,
+  handleConnectClick,
+  markConnectCardResolved,
+} from "../connect-tool.js";
 import type { ComposioConfig } from "../config.js";
 import {
   clearSessionCache,
@@ -217,6 +222,9 @@ const savedEnv: Record<string, string | undefined> = {};
 
 beforeEach(() => {
   clearSessionCache();
+  // One live card per person is deliberately remembered across turns, so it
+  // has to be forgotten between tests.
+  clearConnectCards();
   // The click reads the environment, so the environment is part of the setup.
   for (const [key, value] of Object.entries(ENV_UNDER_TEST)) {
     savedEnv[key] = process.env[key];
@@ -303,6 +311,46 @@ describe("connect_my_app", () => {
     expect(post).toHaveBeenCalledTimes(1);
     expect(String(result)).not.toContain("not configured");
   });
+
+  it("refuses to post a second card for the same person", async () => {
+    const tool = createConnectTool(config);
+    const { ctx, post } = makeCtx();
+
+    const first = await tool.handler({ toolkit: "gmail" }, ctx);
+    const second = await tool.handler({ toolkit: "gmail" }, ctx);
+
+    // Without this the agent loops: search reports gmail unconnected, it posts
+    // a card, searches again, gets the same true answer, posts another — a
+    // dozen identical cards in one turn until the step limit stops it.
+    expect(post).toHaveBeenCalledTimes(1);
+    expect(String(first)).toContain("Posted a Connect gmail card");
+    expect(String(second)).toContain("already waiting");
+    expect(String(second)).toContain("do not search again");
+  });
+
+  it("still posts a card for a different person", async () => {
+    const tool = createConnectTool(config);
+    const alice = makeCtx("U1");
+    const bob = makeCtx("U2");
+
+    await tool.handler({ toolkit: "gmail" }, alice.ctx);
+    await tool.handler({ toolkit: "gmail" }, bob.ctx);
+
+    expect(alice.post).toHaveBeenCalledTimes(1);
+    expect(bob.post).toHaveBeenCalledTimes(1);
+  });
+
+  it("posts a fresh card once the person has connected", async () => {
+    const tool = createConnectTool(config);
+    const { ctx, post } = makeCtx();
+
+    await tool.handler({ toolkit: "gmail" }, ctx);
+    markConnectCardResolved("U1", "gmail");
+    await tool.handler({ toolkit: "gmail" }, ctx);
+
+    expect(post).toHaveBeenCalledTimes(2);
+  });
+
 });
 
 describe("the public card", () => {
