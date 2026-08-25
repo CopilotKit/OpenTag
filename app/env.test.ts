@@ -86,12 +86,39 @@ describe("readEnvironment", () => {
     const environment = readEnvironment({
       ...requiredEnvironment,
       SLACK_BOT_TOKEN: "xoxb-unused",
+      SLACK_APP_TOKEN: "xapp-unused",
       TEAMS_CLIENT_ID: "teams-unused",
     });
 
     expect(environment).not.toHaveProperty("slackBotToken");
     expect(environment).not.toHaveProperty("teamsClientId");
     expect(environment).not.toHaveProperty("teamsPort");
+  });
+
+  it("leaves Slack delivery to Intelligence unless both tokens are set", () => {
+    expect(readEnvironment(requiredEnvironment).slackDirect).toBeUndefined();
+  });
+
+  it("opts into direct Slack delivery when both tokens are set", () => {
+    const environment = readEnvironment({
+      ...requiredEnvironment,
+      SLACK_BOT_TOKEN: "xoxb-1",
+      SLACK_APP_TOKEN: "xapp-1",
+    });
+
+    expect(environment.slackDirect).toEqual({
+      botToken: "xoxb-1",
+      appToken: "xapp-1",
+    });
+  });
+
+  it("refuses a half-configured direct Slack adapter rather than falling back", () => {
+    expect(() =>
+      readEnvironment({ ...requiredEnvironment, SLACK_BOT_TOKEN: "xoxb-1" }),
+    ).toThrow("SLACK_APP_TOKEN");
+    expect(() =>
+      readEnvironment({ ...requiredEnvironment, SLACK_APP_TOKEN: "xapp-1" }),
+    ).toThrow("SLACK_BOT_TOKEN");
   });
 });
 

@@ -24,6 +24,7 @@ export function createOpenTagApplication(
       environment.channelName,
       agent,
       environment.agentDisplayName,
+      environment.slackDirect,
     ),
   ];
   const runtimeHost = createOpenTagRuntime({ environment, channels });
