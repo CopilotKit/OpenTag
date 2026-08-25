@@ -157,14 +157,16 @@ The AG-UI endpoint is `http://localhost:8123/`; `/health` reports the
 | `COMPOSIO_APPROVALS` | No | `off`, `destructive` (default), or `writes`. An unrecognized value fails startup |
 | `COMPOSIO_WORKSPACE_USER_ID` | No | Composio `user_id` the shared toolkits run as; defaults to `INTELLIGENCE_CHANNEL_NAME` |
 | `COMPOSIO_AUTH_CONFIGS` | No | **Read only by `pnpm composio:connect`, never by the runtime.** `toolkit:auth_config_id` pairs, ids case-sensitive; pins which auth config a *shared* toolkit connects against when it has several |
+| `SLACK_BOT_TOKEN` | No | With `SLACK_APP_TOKEN`, delivers Slack directly instead of through Intelligence. Needed only so a Composio connect link can reach one person privately |
+| `SLACK_APP_TOKEN` | No | App-level token with `connections:write`. Setting one token without the other fails at startup |
 
 The API key selects a project; the Channel name selects a Channel inside it.
 When `INTELLIGENCE_LEARNING_CONTAINER_ID` is set, it must name an existing
 Learning Container in that same project. Omitting it preserves the default
 behavior and leaves OpenTag Threads unassigned to Learning.
 Legacy organization, project, Channel ID, and runtime-instance ID variables are
-not used. Slack and Teams credentials do not belong here — Intelligence owns
-them.
+not used. Teams credentials do not belong here — Intelligence owns them, and it
+owns Slack too unless the two Slack tokens above are set.
 
 Both Intelligence URLs are defaulted in [`app/env.ts`](./app/env.ts) rather than
 in `.env`. That is deliberate, and it is why `copilotkit channels status`
@@ -384,11 +386,18 @@ step 1 is a person in a dashboard and step 3 is a restart.
 SDK client, no session, no tool the model can see but must not call. A key with
 both toolkit lists empty is equally inert.
 
-Composio is deliberately local-first. Its variables are not declared in
-[`.railway/railway.ts`](./.railway/railway.ts) or in
-[`deployment/aws/`](./deployment/aws), so a value set by hand on the Railway
-`runtime` service is not carried across an IaC apply. Add a `preserve()` line
-before you rely on it in a deployment.
+Both deployments carry these variables now. On Railway every one is
+`preserve()`, so setting them on the `runtime` service survives an IaC apply. On
+AWS the non-secret ones are CDK context (`-c composioUserToolkits=gmail`) and
+`COMPOSIO_API_KEY` is a field in the JSON application secret, admitted as soon
+as either toolkit list names something — see
+[`deployment/aws/README.md`](./deployment/aws/README.md). A deployment that
+names no toolkit reads no Composio variable at all.
+
+Personal toolkits also need direct Slack delivery, because the connect link has
+to reach one person privately and the managed adapter cannot post a private
+message: set `SLACK_BOT_TOKEN` and `SLACK_APP_TOKEN` (both, or neither), which on
+AWS means `-c slackDirectDelivery=true` plus the two token fields in the secret.
 
 #### Shared team accounts versus personal ones
 

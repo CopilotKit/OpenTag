@@ -214,6 +214,75 @@ test("optionally injects a separate GitHub App private-key secret", () => {
   assert.doesNotMatch(json, /BEGIN PRIVATE KEY/);
 });
 
+test("leaves Composio and direct Slack delivery out until asked for", () => {
+  const template = Template.fromStack(stackWithContext());
+  const json = JSON.stringify(template.toJSON());
+
+  // ECS fails a task whose secret has no such field, so an unconfigured
+  // deployment must not name these at all.
+  assert.doesNotMatch(json, /COMPOSIO_/);
+  assert.doesNotMatch(json, /SLACK_BOT_TOKEN|SLACK_APP_TOKEN/);
+});
+
+test("configures Composio on the runtime container only", () => {
+  const template = Template.fromStack(
+    stackWithContext({
+      composioApprovals: "writes",
+      composioAuthConfigs: "gmail:ac_ExAmPle2Cd",
+      composioToolkits: "linear,jira",
+      composioUserToolkits: "gmail,googlecalendar",
+      composioWorkspaceUserId: "open-tag",
+    }),
+  );
+  const json = JSON.stringify(template.toJSON());
+
+  template.hasResourceProperties("AWS::ECS::TaskDefinition", {
+    ContainerDefinitions: Match.arrayWith([
+      Match.objectLike({
+        Environment: Match.arrayWith([
+          { Name: "COMPOSIO_APPROVALS", Value: "writes" },
+          { Name: "COMPOSIO_AUTH_CONFIGS", Value: "gmail:ac_ExAmPle2Cd" },
+          { Name: "COMPOSIO_TOOLKITS", Value: "linear,jira" },
+          { Name: "COMPOSIO_USER_TOOLKITS", Value: "gmail,googlecalendar" },
+          { Name: "COMPOSIO_WORKSPACE_USER_ID", Value: "open-tag" },
+        ]),
+        Name: "runtime",
+      }),
+    ]),
+  });
+  // Naming a toolkit is what admits the key; nothing else has to be set.
+  assert.match(json, /COMPOSIO_API_KEY/);
+  assert.doesNotMatch(json, /ak_[A-Za-z0-9]/);
+
+  const tasks = Template.fromStack(
+    stackWithContext({ composioUserToolkits: "gmail" }),
+  ).findResources("AWS::ECS::TaskDefinition");
+  const agentContainers = Object.values(tasks).flatMap(
+    (task: { Properties?: { ContainerDefinitions?: { Name: string }[] } }) =>
+      (task.Properties?.ContainerDefinitions ?? []).filter(
+        (container) => container.Name === "agent",
+      ),
+  );
+  assert.equal(agentContainers.length, 1);
+  assert.doesNotMatch(
+    JSON.stringify(agentContainers),
+    /COMPOSIO_/,
+    "the Python agent has no identity to scope credentials with",
+  );
+});
+
+test("takes both Slack tokens only when direct delivery is asked for", () => {
+  const json = JSON.stringify(
+    Template.fromStack(
+      stackWithContext({ slackDirectDelivery: true }),
+    ).toJSON(),
+  );
+
+  assert.match(json, /SLACK_BOT_TOKEN/);
+  assert.match(json, /SLACK_APP_TOKEN/);
+  assert.doesNotMatch(json, /xoxb-|xapp-/);
+});
+
 test("can disable Datadog before account credentials are available", () => {
   const template = Template.fromStack(
     stackWithContext({ enableDatadog: false }),

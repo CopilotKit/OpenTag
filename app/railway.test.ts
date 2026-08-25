@@ -94,11 +94,21 @@ describe("Railway deployment graph", () => {
         watchPatterns: [],
       },
       deploy: {
-        startCommand: "pnpm runtime",
+        // Not `pnpm runtime`: pnpm 11 has a built-in command by that name,
+        // which shadows the script and exits non-zero.
+        startCommand: "pnpm run runtime",
         healthcheckPath: "/api/copilotkit/info",
       },
       variables: {
         AGENT_DISPLAY_NAME: { type: "preserve" },
+        COMPOSIO_API_KEY: { type: "preserve" },
+        COMPOSIO_TOOLKITS: { type: "preserve" },
+        COMPOSIO_USER_TOOLKITS: { type: "preserve" },
+        COMPOSIO_WORKSPACE_USER_ID: { type: "preserve" },
+        COMPOSIO_APPROVALS: { type: "preserve" },
+        COMPOSIO_AUTH_CONFIGS: { type: "preserve" },
+        SLACK_BOT_TOKEN: { type: "preserve" },
+        SLACK_APP_TOKEN: { type: "preserve" },
         AGENT_URL: {
           type: "literal",
           value:

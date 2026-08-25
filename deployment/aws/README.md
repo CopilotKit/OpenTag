@@ -88,6 +88,20 @@ entire plaintext value is the base64-encoded private-key PEM. Pass its complete
 ARN as `githubAppPrivateKeySecretArn`; do not add the private key to the JSON
 application secret. Existing PAT-only deployments require no change.
 
+Two integrations add fields to the JSON secret only when you turn them on, and
+each is read on the runtime container alone:
+
+| Field | Add it when |
+| --- | --- |
+| `COMPOSIO_API_KEY` | `composioToolkits` or `composioUserToolkits` names a toolkit |
+| `SLACK_BOT_TOKEN`, `SLACK_APP_TOKEN` | `slackDirectDelivery=true` |
+
+Naming a toolkit is what admits the Composio key, so there is no separate flag
+to disagree with the toolkit lists. Turn either on without adding its fields and
+the task fails to start, because ECS resolves every named field — which is also
+why a deployment using neither must leave them out of the secret entirely rather
+than set them empty.
+
 Changing the OpenTag secret requires a new ECS task. Never put secret values in
 CDK context, command history, or source control.
 
@@ -115,9 +129,23 @@ These CDK context values become container environment variables:
 | `posthogMcpUrl` | `POSTHOG_MCP_URL` | Hosted read-only PostHog MCP |
 | `linearMcpUrl` | `LINEAR_MCP_URL` | Hosted Linear MCP |
 | `notionMcpUrl` | `NOTION_MCP_URL` | Unset |
+| `composioToolkits` | `COMPOSIO_TOOLKITS` on the runtime | Unset |
+| `composioUserToolkits` | `COMPOSIO_USER_TOOLKITS` on the runtime | Unset |
+| `composioWorkspaceUserId` | `COMPOSIO_WORKSPACE_USER_ID` | Unset (falls back to the channel name) |
+| `composioApprovals` | `COMPOSIO_APPROVALS` | Unset (the runtime defaults to `destructive`) |
+| `composioAuthConfigs` | `COMPOSIO_AUTH_CONFIGS` | Unset |
 
 `githubAppPrivateKeySecretArn` optionally maps a separate raw Secrets Manager
 secret to `GITHUB_APP_PRIVATE_KEY_BASE64` on the agent container.
+
+`slackDirectDelivery=true` hands the Slack edge to this deployment instead of
+Intelligence, which is needed for one thing only: a Composio connect link has to
+reach one person privately, and the managed adapter cannot post a private
+message. Leave it off unless personal Composio toolkits are in use.
+
+The Composio settings land on the runtime container and nowhere else. Identity
+reaches those tools only there; the Python agent receives no verified actor and
+so cannot scope credentials to a person.
 
 The AWS task fixes `AGENT_URL` to `http://127.0.0.1:8123/`, the runtime port to
 `3000`, and the agent port to `8123` because both containers share one task.

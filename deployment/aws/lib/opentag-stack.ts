@@ -35,6 +35,20 @@ const RUNTIME_SECRET_KEYS = [
   "AGENT_AUTH_HEADER",
 ] as const;
 
+/**
+ * Read from the application secret only when Composio is configured, and only
+ * by the runtime — identity reaches Composio's tools there and nowhere else.
+ * ECS fails a task whose secret is missing a named field, so an unconfigured
+ * deployment must not name these at all.
+ */
+const COMPOSIO_SECRET_KEYS = ["COMPOSIO_API_KEY"] as const;
+
+/** Same reasoning, for direct Slack delivery. */
+const SLACK_DIRECT_SECRET_KEYS = [
+  "SLACK_BOT_TOKEN",
+  "SLACK_APP_TOKEN",
+] as const;
+
 function contextString(
   scope: Construct,
   key: string,
@@ -148,6 +162,42 @@ export class OpenTagStack extends cdk.Stack {
       this,
       "githubAppPrivateKeySecretArn",
       "",
+    );
+    const composioToolkits = contextString(this, "composioToolkits", "");
+    const composioUserToolkits = contextString(
+      this,
+      "composioUserToolkits",
+      "",
+    );
+    const composioWorkspaceUserId = contextString(
+      this,
+      "composioWorkspaceUserId",
+      "",
+    );
+    const composioApprovals = contextString(this, "composioApprovals", "");
+    const composioAuthConfigs = contextString(
+      this,
+      "composioAuthConfigs",
+      "",
+    );
+    /**
+     * Naming a toolkit is the request for Composio, so the API key is expected
+     * in the application secret from that point on — one knob rather than a
+     * separate flag that can disagree with the toolkit lists. Named neither
+     * way, the key is not read and an existing secret needs no new field.
+     */
+    const composioEnabled =
+      composioToolkits.length > 0 || composioUserToolkits.length > 0;
+    /**
+     * Direct Slack delivery, which exists only so a connect link can be
+     * private to whoever clicks it. Both token fields are expected in the
+     * application secret when this is on; one alone cannot start a Socket Mode
+     * adapter and the runtime refuses to boot on it.
+     */
+    const slackDirectDelivery = contextBoolean(
+      this,
+      "slackDirectDelivery",
+      false,
     );
     const enableDatadog = contextBoolean(this, "enableDatadog", true);
     const datadogSite = contextString(
@@ -314,6 +364,14 @@ export class OpenTagStack extends cdk.Stack {
       environment: {
         AGENT_DISPLAY_NAME: agentDisplayName,
         AGENT_URL: "http://127.0.0.1:8123/",
+        ...optionalEnvironment("COMPOSIO_APPROVALS", composioApprovals),
+        ...optionalEnvironment("COMPOSIO_AUTH_CONFIGS", composioAuthConfigs),
+        ...optionalEnvironment("COMPOSIO_TOOLKITS", composioToolkits),
+        ...optionalEnvironment("COMPOSIO_USER_TOOLKITS", composioUserToolkits),
+        ...optionalEnvironment(
+          "COMPOSIO_WORKSPACE_USER_ID",
+          composioWorkspaceUserId,
+        ),
         INTELLIGENCE_API_URL: intelligenceApiUrl,
         INTELLIGENCE_CHANNEL_NAME: channelName,
         INTELLIGENCE_GATEWAY_WS_URL: intelligenceGatewayWsUrl,
@@ -342,7 +400,15 @@ export class OpenTagStack extends cdk.Stack {
         streamPrefix: "runtime",
       }),
       memoryReservationMiB: 1792,
-      secrets: secretFields(applicationSecret, RUNTIME_SECRET_KEYS),
+      secrets: {
+        ...secretFields(applicationSecret, RUNTIME_SECRET_KEYS),
+        ...(composioEnabled
+          ? secretFields(applicationSecret, COMPOSIO_SECRET_KEYS)
+          : {}),
+        ...(slackDirectDelivery
+          ? secretFields(applicationSecret, SLACK_DIRECT_SECRET_KEYS)
+          : {}),
+      },
     });
     runtimeContainer.addPortMappings({
       appProtocol: ecs.AppProtocol.http,

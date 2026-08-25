@@ -46,7 +46,9 @@ export default defineRailway(() => {
 
   const runtime = service("runtime", {
     source: github(REPO, { branch: BRANCH }),
-    start: "pnpm runtime",
+    // `pnpm run runtime`, not `pnpm runtime`: pnpm 11 added a built-in
+    // `runtime` command, which shadows the script and exits non-zero.
+    start: "pnpm run runtime",
     // Rich rendering needs Chromium and its runtime libraries.
     build: {
       builder: "RAILPACK",
@@ -71,6 +73,20 @@ export default defineRailway(() => {
         "wss://realtime.intelligence.copilotkit.ai",
       INTELLIGENCE_LEARNING_CONTAINER_ID: preserve(),
       INTELLIGENCE_CHANNEL_NAME: "open-tag",
+      // Composio runs in this process, not the agent — identity reaches tools
+      // only here. Every one is `preserve()`: absent `COMPOSIO_API_KEY` the
+      // feature does not load at all, so a deployment that never sets these
+      // behaves exactly as it does today.
+      COMPOSIO_API_KEY: preserve(),
+      COMPOSIO_TOOLKITS: preserve(),
+      COMPOSIO_USER_TOOLKITS: preserve(),
+      COMPOSIO_WORKSPACE_USER_ID: preserve(),
+      COMPOSIO_APPROVALS: preserve(),
+      COMPOSIO_AUTH_CONFIGS: preserve(),
+      // Both or neither, and only to make a connect link private to whoever
+      // clicks it; unset leaves Intelligence owning the Slack edge.
+      SLACK_BOT_TOKEN: preserve(),
+      SLACK_APP_TOKEN: preserve(),
       PLAYWRIGHT_BROWSERS_PATH: "0",
       RAILPACK_DEPLOY_APT_PACKAGES:
         "fonts-liberation fonts-noto-color-emoji fonts-unifont libasound2 libatk-bridge2.0-0 libatk1.0-0 libatspi2.0-0 libcairo2 libcups2 libdbus-1-3 libdrm2 libexpat1 libfontconfig1 libfreetype6 libgbm1 libglib2.0-0 libnspr4 libnss3 libpango-1.0-0 libx11-6 libx11-xcb1 libxcb1 libxcomposite1 libxdamage1 libxext6 libxfixes3 libxkbcommon0 libxrandr2 libxrender1 libxshmfence1",
