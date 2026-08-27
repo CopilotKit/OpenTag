@@ -3,6 +3,7 @@ import type { RequestListener } from "node:http";
 import { describe, expect, it, vi } from "vitest";
 import type { ChannelsControl } from "@copilotkit/runtime/v2";
 import {
+  installUnhandledRejectionBackstop,
   startOpenTagServer,
   type HttpServerLike,
   type RuntimeListener,
@@ -131,6 +132,34 @@ describe("startOpenTagServer", () => {
     expect(controls.stop).toHaveBeenCalledOnce();
     expect(server.closeCalls).toBe(1);
     expect(closeBrowser).toHaveBeenCalledOnce();
+  });
+});
+
+describe("installUnhandledRejectionBackstop", () => {
+  it("logs every leaked rejection, including a non-Error reason", () => {
+    const target = new EventEmitter();
+    const consoleError = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => undefined);
+    const leaked = new TypeError("terminated");
+
+    installUnhandledRejectionBackstop(target);
+    target.emit("unhandledRejection", leaked);
+    target.emit("unhandledRejection", "second");
+
+    expect(consoleError).toHaveBeenCalledTimes(2);
+    expect(consoleError.mock.calls[0]?.[1]).toBe(leaked);
+    expect(consoleError.mock.calls[1]?.[1]).toBe("second");
+    consoleError.mockRestore();
+  });
+
+  it("subscribes the live process by default, which is what the entrypoint relies on", () => {
+    const on = vi.spyOn(process, "on").mockReturnValue(process);
+
+    installUnhandledRejectionBackstop();
+
+    expect(on).toHaveBeenCalledWith("unhandledRejection", expect.any(Function));
+    on.mockRestore();
   });
 });
 
