@@ -26,6 +26,13 @@ export interface SignalTarget {
   off(signal: NodeJS.Signals, listener: () => void): unknown;
 }
 
+export interface RejectionTarget {
+  on(
+    event: "unhandledRejection",
+    listener: (reason: unknown) => void,
+  ): unknown;
+}
+
 export interface RunningOpenTagServer {
   server: HttpServerLike;
   shutdown(): Promise<void>;
@@ -156,6 +163,22 @@ export async function startOpenTagServer(
   return { server: startedServer, shutdown };
 }
 
+/**
+ * Node terminates the process on an unhandled rejection. When a fetch to the
+ * agent fails, the transport leaks one *in addition to* rejecting the promise
+ * the caller awaits. Every call site already catches that awaited rejection, so
+ * no application-level try/catch can reach the leaked copy, and a transient
+ * agent hiccup takes the whole runtime down with it. Logging the leak keeps the
+ * Channel session alive.
+ */
+export function installUnhandledRejectionBackstop(
+  target: RejectionTarget = process,
+): void {
+  target.on("unhandledRejection", (reason) => {
+    console.error("[opentag] unhandled rejection; runtime kept alive", reason);
+  });
+}
+
 export async function main(): Promise<RunningOpenTagServer> {
   const application = createOpenTagApplication();
   const running = await startOpenTagServer({
@@ -177,6 +200,7 @@ const isMain =
   import.meta.url === pathToFileURL(process.argv[1]).href;
 
 if (isMain) {
+  installUnhandledRejectionBackstop();
   try {
     const { Agent, setGlobalDispatcher } = await import("undici");
     setGlobalDispatcher(
