@@ -9,6 +9,7 @@ import {
   blockCatalogTool,
   isBlockCatalogEnabled,
 } from "./block-catalog.js";
+import { connectAppTool } from "./connect-app.js";
 import { readThreadTool } from "./read-thread.js";
 import { createShowCapabilitiesTool } from "./capabilities.js";
 import { renderDiagramTool } from "./render-diagram.js";
@@ -51,6 +52,11 @@ export function createAppTools(
     showWorkPlanTool,
     showDecisionBriefTool,
     showKnowledgeSummaryTool,
+    // Registered unconditionally. Which apps a person can connect is the
+    // agent's configuration, not the runtime's — on a two-service deployment the
+    // toolkit lists are set on the agent alone — so the surface offers the
+    // button and the agent decides when asking for one makes sense.
+    connectAppTool,
     // Off by default, and *absent* rather than refusing when off: a tool the
     // agent can see but must not call leaks into its reasoning and turns into
     // "I can't do that here" instead of the topic not existing.
