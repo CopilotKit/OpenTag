@@ -23,6 +23,8 @@ jobs:
       - run: pnpm test
       - name: Install AWS deployment dependencies
         run: pnpm --dir deployment/aws install --frozen-lockfile
+      - name: Typecheck AWS deployment
+        run: pnpm --dir deployment/aws build
       - name: Test AWS deployment
         run: pnpm --dir deployment/aws test
       - name: Validate Railway graph
