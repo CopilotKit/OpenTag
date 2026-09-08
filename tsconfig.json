@@ -20,7 +20,8 @@
     "app/**/*.ts",
     "app/**/*.tsx",
     "server.ts",
-    "scripts/**/*.ts"
+    "scripts/**/*.ts",
+    ".railway/railway.ts"
   ],
   "exclude": ["node_modules", "e2e"]
 }
