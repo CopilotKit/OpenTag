@@ -146,11 +146,16 @@ For Microsoft Teams, use `--adapter teams`. Two Teams steps stay yours because
 nothing can work around them: granting tenant admin consent, and uploading the
 app package through **Apps → Manage your apps → Upload an app**.
 
-#### Three Slack details that cost the most time
+#### Four Slack details that cost the most time
 
 These apply on either path. Follow the CLI's emitted `nextAction` rather than
 remembered Slack steps, and watch for:
 
+- **Leave Socket Mode off.** Managed delivery never uses it, and a Slack app with
+  Socket Mode on installs green and delivers nothing to the Request URL — so
+  nothing reaches Intelligence and nothing reaches your runtime. It is the one
+  failure here that looks exactly like success. See
+  [`setup.md`](./setup.md#leave-socket-mode-off).
 - After creating the app from the link, open **OAuth & Permissions** and choose
   **Reinstall to Workspace**. Slack applies the manifest's real scopes only on
   reinstall.
@@ -320,7 +325,8 @@ agent (Python + LangGraph deepagents)
           ├── GitHub MCP (optional, read-only)
           ├── PostHog MCP (optional, read-only)
           ├── Linear MCP (optional)
-          └── Notion MCP (optional remote server)
+          ├── Notion MCP (optional remote server)
+          └── Composio toolkits (optional; shared or per-person accounts)
 ```
 
 | You run                                                | CopilotKit Intelligence manages                |
@@ -329,16 +335,27 @@ agent (Python + LangGraph deepagents)
 | The long-running Node Channels runtime                 | Platform ingress and credentialed delivery     |
 | Deployment, state, and logs                            | Runtime registration, health, and reconnects   |
 
-Neither leg is Socket Mode, and neither needs a tunnel or a public URL of your
-own. Slack reaches Intelligence over HTTPS, authenticated by the signing secret
-Intelligence holds. Intelligence reaches your runtime over a websocket your
-process opens outbound, authenticated by `INTELLIGENCE_API_KEY`.
+Neither of those legs is Socket Mode, and neither needs a tunnel or a public URL
+of your own. Slack reaches Intelligence over HTTPS, authenticated by the signing
+secret Intelligence holds. Intelligence reaches your runtime over a websocket
+your process opens outbound, authenticated by `INTELLIGENCE_API_KEY`.
 
 There is one canonical runtime host: [`server.ts`](./server.ts).
 [`app/index.ts`](./app/index.ts) composes one `CopilotKitIntelligence`, one
-`CopilotRuntime`, and one adapter-free managed Channel. Intelligence owns the
-Slack and Microsoft Teams adapters, their credentials, and attachments — no
-platform credential belongs in this repository's environment.
+`CopilotRuntime`, and one adapter-free managed Channel.
+Intelligence owns the Slack and Microsoft Teams adapters, their credentials, and
+attachments.
+
+No platform credential belongs here at all. Composio's per-person toolkits need
+a connect link to reach one person privately, and the managed adapter delivers
+that itself with the SDK pair pinned in [`package.json`](./package.json) —
+proven end to end on Slack.
+Teams has no private message, so a Teams-backed Channel cannot deliver a connect
+link and says so rather than posting one in the thread. What per-person toolkits
+do need is `AGENT_AUTH_HEADER`, a shared secret between the two services, set to
+a **non-empty** value: the agent treats an empty string as unconfigured and
+refuses to mint. Leave it unset and nothing else changes.
+See [`setup.md`](./setup.md#composio).
 
 `@copilotkit/channels` and `@copilotkit/runtime` are pinned for reproducible
 deploys. [`package.json`](./package.json) is the source of truth for both
@@ -361,6 +378,7 @@ knowledge work, and renders UI from model knowledge.
 | `GITHUB_PERSONAL_ACCESS_TOKEN`             | Read-only repository, code, PR, and CI search                    |
 | `POSTHOG_PERSONAL_API_KEY`                 | PostHog analytics, read-only (use the **MCP Server** key preset) |
 | `LINEAR_API_KEY`                           | Hosted Linear MCP                                                |
+| `COMPOSIO_API_KEY`                         | Composio toolkits, under one shared team account or under each person's own (per-person accounts are Slack-only and need `AGENT_AUTH_HEADER`; see setup.md) |
 | `NOTION_MCP_URL` + `NOTION_MCP_AUTH_TOKEN` | Remote Notion MCP; setting only one disables it                  |
 | `DAYTONA_API_KEY` + a PAT or GitHub App    | Coding subagent: edit in Daytona, then push and publish a draft PR after `confirm_write` |
 

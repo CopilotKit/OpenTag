@@ -42,7 +42,8 @@ files.
 | Agent | `agent/agent.py` | LangGraph deep agent served over AG-UI |
 | AG-UI adapter | `agent/agui.py` | Slack recursion limit and user-facing graph-stop handling |
 | Persona | `agent/prompts/` | `system.py` is the base system prompt |
-| Approval gate | `agent/write_confirmation.py` | Emits `confirm_write` before Linear or Notion writes |
+| Approval gate | `agent/write_confirmation.py` | Emits `confirm_write` before a Linear, Notion, or Composio write |
+| Composio | `agent/composio_tools/` | Toolkit sessions, per-person identity, effect classification, connect links |
 | Coder | `agent/coding/` | GitHub credentials, Daytona sandbox, repository publish tools, coder prompt |
 | Coder skills | `agent/coding/skills/` | Committed skills. Do not put them in `agent/skills/` |
 | Deployment | `.railway/railway.ts` | Two services, declared as code |
@@ -80,10 +81,21 @@ you actually ran; do not claim a check that did not run.
 - **Channel names claim deliveries.** Two runtimes declaring the same name in one
   Intelligence project race per delivery and the loser is silently starved. Give a
   local runtime its own project, key, and Channel name — never reuse `open-tag`.
+- **Socket Mode stays off on the Slack app.** With it on, Slack delivers events
+  over the socket and stops posting them to the Request URL, so Intelligence —
+  and therefore your runtime — receives nothing while the app still reads as
+  installed. Do not turn it on to "test locally"; there is nothing here that
+  needs it.
+- **Personal Composio toolkits are Slack-only, and need a non-empty
+  `AGENT_AUTH_HEADER` on both services.** The speaker arrives as
+  `forwardedProps.channelActor`, and `agent/composio_tools/state.py` is the one
+  place that decides what counts as an identity — `agent/agui.py` applies it to
+  every run. `agent/agent_auth.py` treats an empty secret as unconfigured and
+  refuses to mint a connect link on that basis.
 - **Slash commands and modals are registered but unverified on the managed
-  path.** Delivery depends on the generated Slack manifest declaring
-  `slash_commands`; as of the 0.7.0 verification it declared none. Do not describe
-  them as working without sending a real command.
+  path.** Delivery depends on the generated Slack manifest, which Intelligence
+  produces server-side — nothing in this repository decides it. Do not describe
+  them as working without sending a real command against your own Channel.
 - **Trigger routing is not symmetric.** A mentioned turn goes to `onMention` if
   registered and falls back to `onMessage`; an unmentioned turn reaches
   `onMessage` only. `onMention` subscribes the thread. Always verify with a
@@ -94,12 +106,20 @@ you actually ran; do not claim a check that did not run.
 
 - **Pinned SDK versions live in `package.json` and nowhere else.** Do not restate
   `@copilotkit/channels` or `@copilotkit/runtime` versions in prose or in a test
-  assertion. Three copies of `0.7.0` drifted at once when the deps were bumped,
-  and one of them broke the build. `app/cleanup.test.ts` asserts the pin *shape*
+  assertion. Three copies of an earlier pin drifted at once when the deps were
+  bumped, and one broke the build. `app/cleanup.test.ts` asserts the pin *shape*
   for this reason.
-- **No Slack or Teams credential belongs in this repository.** Intelligence owns
-  the adapters. One root `.env` configures both services; the Python agent loads
-  it explicitly for local development.
+- **No platform credential belongs here.** Intelligence owns the adapters, so no
+  Slack or Teams token, signing secret, or app token goes in this repository and
+  this app attaches no adapter of its own. It briefly held `SLACK_BOT_TOKEN` and
+  `SLACK_APP_TOKEN` so a Composio connect link could reach one person privately;
+  the managed adapter in the pair pinned in `package.json` does that itself, and
+  the pair was worse than useless — a second Slack ingress answered every message
+  twice, and its Socket Mode connection stopped Slack delivering events to
+  Intelligence from 24 August until it was turned off. Both tokens and the
+  adapter are gone from this repository; `app/server.test.ts` pins the removal.
+  One root `.env` configures both services; the Python agent loads it explicitly
+  for local development.
 - **`@copilotkit/channels` and `@copilotkit/runtime` upgrade together.** They ship
   as a tested pair.
 - Commit messages follow the conventional prefixes already in the log (`feat:`,
