@@ -446,6 +446,43 @@ wheels = [
 ]
 
 [[package]]
+name = "composio"
+version = "0.21.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "composio-client" },
+    { name = "json-schema-to-pydantic" },
+    { name = "jsonschema" },
+    { name = "openai" },
+    { name = "pydantic" },
+    { name = "pysher" },
+    { name = "requests" },
+    { name = "typing-extensions" },
+    { name = "urllib3" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/9f/2c/169aa85a8d42edf7e18032285beff001f8b492d253fa428eaf62dc75ee85/composio-0.21.0.tar.gz", hash = "sha256:334fbcc2358467a2eed7e04133fdd9080cf63007e53caffa50555023724e956a", size = 309944, upload-time = "2026-08-27T18:27:00.589Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/0a/e7/28a2d0f4e63cd98e5a6d491496b9c7939996eb1823b0021b0b71e3bc8ce6/composio-0.21.0-py3-none-any.whl", hash = "sha256:8c26d8248b6f01c0b9e2453035291756f6c17d4f4971aaf073230206f8ec39f5", size = 187352, upload-time = "2026-08-27T18:26:48.764Z" },
+]
+
+[[package]]
+name = "composio-client"
+version = "1.43.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "anyio" },
+    { name = "distro" },
+    { name = "httpx" },
+    { name = "pydantic" },
+    { name = "sniffio" },
+    { name = "typing-extensions" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/b9/4b/3789f4c1347fd01349b66ecaeffb5ef623434c3b1fa4f5c5993fddb69c68/composio_client-1.43.0.tar.gz", hash = "sha256:bb96700da0c2aabc394cebc954be0ebf419557cc42b40f5d148aac52a5aff6f9", size = 246767, upload-time = "2026-07-08T09:06:02.42Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/07/a2/3ae1f5471a52189ac558de6b0e088dc3575d695a0f91278cddf464274694/composio_client-1.43.0-py3-none-any.whl", hash = "sha256:3274d965b9efb6be90a51977f4c068ed24e2cad9160de4d40d3176d8bb4ce2d9", size = 277716, upload-time = "2026-07-08T09:06:01.007Z" },
+]
+
+[[package]]
 name = "copilotkit"
 version = "0.1.94"
 source = { registry = "https://pypi.org/simple" }
@@ -1038,6 +1075,18 @@ wheels = [
 ]
 
 [[package]]
+name = "json-schema-to-pydantic"
+version = "0.4.11"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "pydantic" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/60/d8/423895b918706c80db1cee679c13fbe810200b9a9d9a9442c7a58d35c3f2/json_schema_to_pydantic-0.4.11.tar.gz", hash = "sha256:35448ed711a28dd33396b095c8492939b4925aa30eb31942e9b8e08d04279465", size = 56597, upload-time = "2026-03-09T20:53:55.692Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/f3/64/7cfeb8c6d2a5e73e0f8d732032aa62be9a7724c04beb461d677de0b4beb3/json_schema_to_pydantic-0.4.11-py3-none-any.whl", hash = "sha256:da2ccc39d070ee03dbcf0517d16720e3e33f7aa8d61257ace09af8c51bd46348", size = 17842, upload-time = "2026-03-09T20:53:54.576Z" },
+]
+
+[[package]]
 name = "jsonpatch"
 version = "1.33"
 source = { registry = "https://pypi.org/simple" }
@@ -1448,7 +1497,7 @@ wheels = [
 
 [[package]]
 name = "openai"
-version = "2.45.0"
+version = "2.54.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "anyio" },
@@ -1460,17 +1509,18 @@ dependencies = [
     { name = "tqdm" },
     { name = "typing-extensions" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/78/60/d4219875289b11d2c2f7da93c36283da224a2e55865ed865ab64e0ce9217/openai-2.45.0.tar.gz", hash = "sha256:10d34ca9c5643bce775852fddbfc172505cb1d4de1ccd101696c3ecff358765d", size = 1109653, upload-time = "2026-07-09T18:02:44.091Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/50/9a/8c75e8c8a5b407a0586faeb2afac91674ff955c191ecc1d6d3b6669f6788/openai-2.54.0.tar.gz", hash = "sha256:e3e6f8bc1ba30ddf381ace1a14340eed381cb984a1a59bd0f34b5be3b5d49cfa", size = 1100285, upload-time = "2026-08-11T18:46:59.035Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/f1/b0/2291689e3ec4723fbf5bbf3b54afcd7b160f9ddc98ca7aedfd0132af5677/openai-2.45.0-py3-none-any.whl", hash = "sha256:5df105f5f8c9b711fcb9d06d2d3888cebc82506db216484c14a4e53cdf651777", size = 1629470, upload-time = "2026-07-09T18:02:42.21Z" },
+    { url = "https://files.pythonhosted.org/packages/64/a8/bb76c7356de8ad57f59d5ff993d434df0607f07f08bcc9c9a5c275e399c0/openai-2.54.0-py3-none-any.whl", hash = "sha256:89089789197ccdb87f173a03145ed1598d00795220c93e96cf712b1cbf5e5f2b", size = 1660351, upload-time = "2026-08-11T18:46:56.684Z" },
 ]
 
 [[package]]
 name = "opentag-agent"
 version = "0.1.0"
-source = { virtual = "." }
+source = { editable = "." }
 dependencies = [
     { name = "ag-ui-langgraph" },
+    { name = "composio" },
     { name = "copilotkit" },
     { name = "daytona" },
     { name = "deepagents" },
@@ -1494,13 +1544,14 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "ag-ui-langgraph", specifier = ">=0.0.23" },
+    { name = "composio", specifier = ">=0.17.0" },
     { name = "copilotkit", specifier = ">=0.1.76" },
-    { name = "daytona" },
+    { name = "daytona", specifier = ">=0.204.0" },
     { name = "deepagents", specifier = ">=0.6.12" },
     { name = "fastapi", specifier = ">=0.115.14" },
     { name = "httpx", specifier = ">=0.27.0" },
     { name = "langchain", specifier = ">=1.2.4" },
-    { name = "langchain-daytona" },
+    { name = "langchain-daytona", specifier = ">=0.0.7" },
     { name = "langchain-mcp-adapters", specifier = ">=0.3.0" },
     { name = "langchain-openai", specifier = ">=1.1.7" },
     { name = "pyjwt", extras = ["crypto"], specifier = ">=2.10.1" },
@@ -2017,6 +2068,16 @@ wheels = [
 crypto = [
     { name = "cryptography" },
 ]
+
+[[package]]
+name = "pysher"
+version = "1.0.8"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "requests" },
+    { name = "websocket-client" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/12/a0/d0638470df605ce266991fb04f74c69ab1bed3b90ac3838e9c3c8b69b66a/Pysher-1.0.8.tar.gz", hash = "sha256:7849c56032b208e49df67d7bd8d49029a69042ab0bb45b2ed59fa08f11ac5988", size = 9071, upload-time = "2022-10-10T13:41:09.936Z" }
 
 [[package]]
 name = "pytest"

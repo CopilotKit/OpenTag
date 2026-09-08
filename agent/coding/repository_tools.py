@@ -395,6 +395,11 @@ def build_repository_tools(
             confirmed = require_write_confirmation(
                 action="Push branch and publish pull request",
                 fields=fields,
+                # Said, because the card now assumes the worst of anything that
+                # does not say. Pushing a branch and opening a pull request adds
+                # things and destroys none, and a card that cries danger over
+                # every ordinary write teaches people to approve red ones.
+                effect="write",
             )
             if not confirmed:
                 return (

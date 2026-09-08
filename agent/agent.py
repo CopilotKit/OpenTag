@@ -1,7 +1,9 @@
 """OpenTag's general-purpose knowledge-work Deep Agent."""
 
+import logging
 import os
 from pathlib import Path
+from uuid import uuid4
 
 from copilotkit import CopilotKitMiddleware
 from deepagents import (
@@ -24,8 +26,13 @@ from coding.config import (
     log_configuration_warnings,
 )
 from coding.subagent import build_coder_subagent
-from copilotkit.langgraph import copilotkit_emit_message
+from ag_ui_langgraph import CustomEventNames
+from langchain_core.callbacks.manager import adispatch_custom_event
 from langchain_core.runnables.config import ensure_config
+from composio_tools.config import DEFAULT_WORKSPACE_USER_ID
+from composio_tools.runtime import composio_runtime
+from composio_tools.state import ComposioAgentState
+from composio_tools.tools import build_composio_tools
 from internal_sources import internal_source_toolsets
 from prompts import (
     BASE_SYSTEM_PROMPT,
@@ -36,8 +43,11 @@ from prompts import (
     CODING_ON_ADDENDUM,
     current_date_prompt,
     build_base_system_prompt,
+    composio_addendum,
 )
 from tools import web_search
+
+logger = logging.getLogger(__name__)
 
 load_dotenv(Path(__file__).resolve().parent.parent / ".env")
 
@@ -85,13 +95,28 @@ class LogToolCalls(AgentMiddleware):
         print(f"[TOOL] start {name}")
         if name == "task":
             try:
-                await copilotkit_emit_message(
-                    ensure_config(),
-                    "Starting the coder in a Daytona sandbox. "
-                    "This can take a few minutes.",
+                # The adapter turns this event into a complete text message.
+                # It requires message_id/message; a role/content payload makes
+                # the event consumer fail after dispatch has already returned.
+                await adispatch_custom_event(
+                    CustomEventNames.ManuallyEmitMessage.value,
+                    {
+                        "message_id": str(uuid4()),
+                        "message": (
+                            "Starting the coder in a Daytona sandbox. "
+                            "This can take a few minutes."
+                        ),
+                    },
+                    config=ensure_config(),
                 )
             except Exception:
-                pass
+                # A note that did not arrive must not take the coder run with
+                # it. Logged rather than swallowed: silence here is what let the
+                # broken dispatch above go unnoticed.
+                logger.warning(
+                    "[TOOL] could not tell the thread the coder was starting",
+                    exc_info=True,
+                )
         try:
             result = await handler(request)
         except GraphRecursionError as error:
@@ -174,23 +199,54 @@ def build_agent():
     internal_tools = [
         tool for tools in source_toolsets.values() for tool in tools
     ]
+    # The same runtime the connect route uses, built once per process. Two
+    # session caches would mean two sessions per identity, and one process
+    # holding one session is the reason this moved into the agent at all.
+    # `DEFAULT_WORKSPACE_USER_ID`, not a second spelling of it. The runtime
+    # caches on this id, and `main.py` passes the constant for the connect
+    # route: two spellings would build two caches, so the account an operator
+    # connected through the route is not the one a turn runs in.
+    composio = composio_runtime(
+        default_user_id=os.environ.get(
+            "INTELLIGENCE_CHANNEL_NAME", DEFAULT_WORKSPACE_USER_ID
+        ),
+    )
+    composio_tools: list = (
+        []
+        if composio is None
+        else build_composio_tools(composio.config, composio.cache, composio.effects)
+    )
+
     main_tools = (
-        [web_search, *internal_tools]
+        [web_search, *internal_tools, *composio_tools]
         if has_web_search
-        else [*internal_tools]
+        else [*internal_tools, *composio_tools]
     )
 
     agent_display_name = (
         os.environ.get("AGENT_DISPLAY_NAME", DEFAULT_AGENT_DISPLAY_NAME).strip()
         or DEFAULT_AGENT_DISPLAY_NAME
     )
-    system_prompt = build_base_system_prompt(agent_display_name) + (
+    # Only claim the internal-source tools that were actually registered. The
+    # prompt used to describe Notion, Linear and GitHub tools unconditionally,
+    # so an agent holding only the Composio search believed it already had them
+    # and answered without looking.
+    system_prompt = build_base_system_prompt(
+        agent_display_name,
+        internal_sources=tuple(name for name, tools in source_toolsets.items() if tools),
+    ) + (
         WEB_SEARCH_TOOL_ADDENDUM
         if has_web_search
         else NO_WEB_SEARCH_TOOL_ADDENDUM
     )
     system_prompt = system_prompt + (
         CODING_ON_ADDENDUM if coding_on else CODING_OFF_ADDENDUM
+    )
+    # Which apps exist is known here and was never passed on, so the model
+    # answered questions about its own reach by guessing. It names apps only;
+    # `search_my_tools` still owns which actions each one has.
+    system_prompt = system_prompt + composio_addendum(
+        composio.config if composio is not None else None
     )
 
     checkpointer = MemorySaver()
@@ -208,6 +264,11 @@ def build_agent():
         # create_agent rejects duplicate middleware names.
         "backend": StateBackend(),
         "checkpointer": checkpointer,
+        # Declared whether or not Composio is configured. The Channel forwards
+        # the actor on every run and the AG-UI adapter drops a forwarded key the
+        # state schema does not name, so leaving it out would make "who spoke"
+        # depend on an unrelated feature flag.
+        "state_schema": ComposioAgentState,
     }
     if coding_on:
         assert providers.coding is not None
@@ -229,6 +290,18 @@ def build_agent():
     print(f"[AGENT] web search: {'enabled' if has_web_search else 'disabled'}")
     print(f"[AGENT] coding: {'enabled' if coding_on else 'disabled'}")
     print(f"[AGENT] internal-source tools: {len(internal_tools)}")
+    print(
+        "[AGENT] composio: "
+        + (
+            "disabled"
+            if composio is None
+            else "shared="
+            + (",".join(composio.config.workspace_toolkits) or "none")
+            + " personal="
+            + (",".join(composio.config.user_toolkits) or "none")
+            + f" approvals={composio.config.approvals}"
+        )
+    )
     print(f"[AGENT] Main tools: {[t.name for t in main_tools]}")
 
     # A coding turn uses many GitHub MCP reads before task(). 25 steps is

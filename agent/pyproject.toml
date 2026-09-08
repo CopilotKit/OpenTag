@@ -5,6 +5,11 @@ description = "OpenTag general-purpose team knowledge-work agent — CopilotKit 
 requires-python = ">=3.12"
 dependencies = [
   "ag-ui-langgraph>=0.0.23",
+  # 0.17.0 is the first release whose client exposes `.sessions`, and everything
+  # in `composio_tools/sessions.py` goes through it. Below that the SDK offers
+  # `tool_router` and no alias, so a lower resolution installs, imports, and
+  # raises on the first turn that touches a toolkit.
+  "composio>=0.17.0",
   "copilotkit>=0.1.76",
   "deepagents>=0.6.12",
   "fastapi>=0.115.14",
@@ -16,17 +21,21 @@ dependencies = [
   "pyjwt[crypto]>=2.10.1",
   "tavily-python>=0.3.0",
   "uvicorn[standard]>=0.40.0",
-  "daytona",
-  "langchain-daytona",
+  # Floors, not bare names: a bare requirement resolves to whatever the index
+  # offers on the day the image is built, and the lockfile hides that until
+  # somebody regenerates it. These are the releases the lock resolves today.
+  "daytona>=0.204.0",
+  "langchain-daytona>=0.0.7",
 ]
 
 [dependency-groups]
 dev = ["pytest>=8.0.0"]
 
 [tool.setuptools]
-packages = ["prompts", "coding"]
+packages = ["prompts", "coding", "composio_tools"]
 py-modules = [
   "agent",
+  "agent_auth",
   "agui",
   "internal_sources",
   "main",
@@ -39,3 +48,11 @@ coding = ["skills/*/SKILL.md"]
 
 [tool.pytest.ini_options]
 pythonpath = ["."]
+
+# Without this table uv treats the project as virtual: it is never built, and
+# every `[tool.setuptools]` line above describes a wheel that nothing produces.
+# The agent image's second `uv sync --frozen --no-dev`, the one that runs after
+# the source COPYs, is the step that builds it.
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"

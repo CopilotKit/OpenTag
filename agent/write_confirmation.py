@@ -1,13 +1,24 @@
 """Approval enforcement for mutating MCP tools."""
 
-import asyncio
 import json
 import logging
 import re
+import uuid
 from collections import OrderedDict
-from concurrent.futures import ThreadPoolExecutor
 
-from copilotkit.langgraph import copilotkit_emit_message, copilotkit_interrupt
+from ag_ui_langgraph import CustomEventNames
+from composio_tools.classify import (
+    DESTRUCTIVE,
+    READ,
+    READ_ONLY_HINT,
+    WRITE,
+    effect_of,
+)
+from copilotkit.langgraph import copilotkit_interrupt
+from langchain_core.callbacks import (
+    adispatch_custom_event,
+    dispatch_custom_event,
+)
 from langchain_core.messages import ToolMessage
 from langchain_core.runnables.config import ensure_config
 from langchain_core.tools import BaseTool
@@ -27,9 +38,31 @@ _MAX_VALUE = 300
 # Longest failure text carried into the thread and onto the next card.
 _MAX_ERROR = 240
 
+# Everything the confirmation card understands. It renders danger for anything
+# else, including a missing value, so a card leaves here carrying one of these
+# three words and never a fourth.
+_CARD_EFFECTS = frozenset({READ, WRITE, DESTRUCTIVE})
+
 # How many (thread, tool) failures are remembered at once. The interceptor
 # outlives every conversation, so this memory is bounded rather than unbounded.
 _MAX_TRACKED_FAILURES = 64
+
+# The custom event the AG-UI adapter turns into TEXT_MESSAGE_START / CONTENT /
+# END, which is what a Slack or Teams renderer actually posts into a thread.
+#
+# Not `copilotkit.langgraph.copilotkit_emit_message`, which this used to call.
+# That helper dispatches `copilotkit_manually_emit_message`, and nothing between
+# here and a renderer turns that into a message: `ag_ui_langgraph` matches only
+# its own `manually_emit_message`, and `copilotkit`'s
+# `LangGraphAGUIAgent._dispatch_event` builds the three text events for it and
+# then throws them away, returning the CUSTOM event alone. Both production
+# renderers return immediately from `onCustomEvent` for any name that is not
+# `on_interrupt` — so every failure notice this module sent reached nobody, and
+# an approver's last word on a dead write stayed "running".
+#
+# Read off the adapter's own enum rather than spelled here, so a rename that
+# would silently stop rendering fails at import instead.
+_EMIT_MESSAGE_EVENT = CustomEventNames.ManuallyEmitMessage.value
 
 logger = logging.getLogger(__name__)
 
@@ -141,7 +174,14 @@ def _thread_key() -> str | None:
     try:
         configurable = ensure_config().get("configurable") or {}
     except Exception:
-        # Reading the ambient config must never be what stops a write.
+        # Reading the ambient config must never be what stops a write — but
+        # silence here costs the retry memory for every card in the process,
+        # and nothing else would ever say so.
+        logger.warning(
+            "[WRITE] could not read the running thread id; this write's "
+            "failures will not be remembered for the next card",
+            exc_info=True,
+        )
         return None
     thread_id = configurable.get("thread_id")
     return str(thread_id) if thread_id else None
@@ -165,22 +205,91 @@ def parse_confirm_write_response(response) -> bool:
     return response["confirmed"] is True
 
 
+def _card_effect(value) -> str:
+    """One of the three words the card knows, erring towards the dangerous one.
+
+    The card renders destructive styling unless something positively said
+    otherwise, so a value it cannot read is not a neutral card — it is a
+    dangerous-looking one. Saying `destructive` here rather than passing an
+    unreadable value on keeps the payload honest about which of the two it is,
+    and means no caller can quietly widen the vocabulary.
+    """
+    # `isinstance` first because an unhashable value must answer `destructive`
+    # rather than raise: a malformed classification cannot be what stops a
+    # confirmation from being asked for.
+    if isinstance(value, str) and value in _CARD_EFFECTS:
+        return value
+    return DESTRUCTIVE
+
+
+def _tool_effect(metadata) -> str | None:
+    """What an MCP tool's annotations say it does, or `None` when they don't.
+
+    `effect_of` answers for the two hints that speak for themselves, reading
+    them by value: `{"readOnlyHint": False}` is a tool asserting it is **not**
+    a read, and the key being present claims nothing on its own.
+
+    The third reading is this caller's alone, and it is the one `classify.WRITE`
+    exists for. Tags cannot express a write that is not destructive, but MCP
+    annotations can: a tool that denied being read-only has said more than
+    "unclassified" — it has said it changes something. Anything else is
+    unclassified, and `None` here is not a safe answer, it is no answer.
+    """
+    metadata = metadata or {}
+    claimed = effect_of(metadata)
+    if claimed is not None:
+        return claimed
+    try:
+        denied_read_only = metadata.get(READ_ONLY_HINT) is False
+    except AttributeError:
+        # Not a mapping. Same answer as no annotations: nothing was claimed.
+        return None
+    return WRITE if denied_read_only else None
+
+
 def require_write_confirmation(
     *,
     action: str,
     fields: list[dict],
+    effect: str = DESTRUCTIVE,
     extra_args: dict | None = None,
 ) -> bool:
-    """Pause on the existing confirm_write card. Return True if approved."""
+    """Pause on the existing confirm_write card. Return True if approved.
+
+    `effect` is what the caller classified the action as, and it is the card's
+    only defence against styling a delete like a rename. It defaults to
+    `destructive` rather than to nothing: a caller that did not classify has
+    not established that the action is safe, and the card would fail safe
+    anyway — saying so here makes every card this module produces carry the
+    answer instead of relying on the reader to fail safe.
+    """
+    extra = dict(extra_args or {})
+    # The Composio path spells its classification as an `extra_args` entry.
+    # Popping it means the two spellings land in one slot rather than side by
+    # side, where whichever the dict merged last would silently win.
+    classified = extra.pop("effect", effect)
     _answer, response = copilotkit_interrupt(
         action="confirm_write",
         args={
             "action": action,
             "fields": fields,
-            **(extra_args or {}),
+            "effect": _card_effect(classified),
+            **extra,
         },
     )
     return parse_confirm_write_response(response)
+
+
+def _failure_notice(action: str, error: str) -> dict:
+    """One failed write, as the message payload the adapter renders."""
+    text = _flatten_text(error) or error
+    return {
+        # Markdown bold, matching the cards — the platform renderers
+        # convert `**x**` to each surface's own bold.
+        "message": f"⚠️ **{action}** failed — {text}",
+        "message_id": str(uuid.uuid4()),
+        "role": "assistant",
+    }
 
 
 async def report_write_failure(action: str, error: str) -> None:
@@ -189,47 +298,46 @@ async def report_write_failure(action: str, error: str) -> None:
     Without this the approval card is the last word the user sees, and a
     rejected write is indistinguishable from a completed one.
     """
-    text = _flatten_text(error) or error
     try:
-        # Markdown bold, matching the cards — the platform renderers
-        # convert `**x**` to each surface's own bold.
-        await copilotkit_emit_message(
-            ensure_config(),
-            f"⚠️ **{action}** failed — {text}",
+        await adispatch_custom_event(
+            _EMIT_MESSAGE_EVENT,
+            _failure_notice(action, error),
+            config=ensure_config(),
         )
-    except Exception as emit_error:
+    except Exception:
         # The tool result still reaches the agent, which can retry or
-        # explain; a failed report must not also fail the turn.
+        # explain; a failed report must not also fail the turn. Logged with the
+        # exception rather than just its class name, because "RuntimeError" on
+        # its own names neither the cause nor the write it belonged to.
         logger.warning(
-            "[WRITE] could not report a failed write to the thread: %s",
-            type(emit_error).__name__,
+            "[WRITE] could not report a failed %s to the thread",
+            action,
+            exc_info=True,
         )
 
 
 def emit_write_failure(action: str, error: str) -> None:
-    """Synchronous entry point for graph tools that cannot await."""
+    """Synchronous entry point for graph tools that cannot await.
 
-    def _run() -> None:
-        asyncio.run(report_write_failure(action, error))
-
+    Dispatched from this thread, not handed to another one. LangGraph runs a
+    sync tool in a worker seeded with a copy of the calling context, so the
+    ambient config — and the callback manager the dispatch has to attach to —
+    is already here. The previous version hopped to a second thread and ran
+    `asyncio.run` inside it, which left `ensure_config()` empty because
+    contextvars do not cross a bare `ThreadPoolExecutor`, and blocked the
+    calling event loop on `.result()` whenever there was one.
+    """
     try:
-        asyncio.get_running_loop()
-    except RuntimeError:
-        try:
-            _run()
-        except Exception as emit_error:
-            logger.warning(
-                "[WRITE] could not report a failed write to the thread: %s",
-                type(emit_error).__name__,
-            )
-        return
-    try:
-        with ThreadPoolExecutor(max_workers=1) as pool:
-            pool.submit(_run).result()
-    except Exception as emit_error:
+        dispatch_custom_event(
+            _EMIT_MESSAGE_EVENT,
+            _failure_notice(action, error),
+            config=ensure_config(),
+        )
+    except Exception:
         logger.warning(
-            "[WRITE] could not report a failed write to the thread: %s",
-            type(emit_error).__name__,
+            "[WRITE] could not report a failed %s to the thread",
+            action,
+            exc_info=True,
         )
 
 
@@ -243,7 +351,13 @@ class WriteConfirmationInterceptor:
     }
 
     def __init__(self):
-        self._read_only_tools = set(self._KNOWN_READ_ONLY_TOOLS)
+        # Tool name -> what it does, in the card's vocabulary. A name missing
+        # from here is one this interceptor could not classify, which is not
+        # the same as a harmless one: `_effect_for` answers `destructive`, so
+        # an unannotated tool is both gated and shown as dangerous.
+        self._effects: dict[str, str] = dict.fromkeys(
+            self._KNOWN_READ_ONLY_TOOLS, READ
+        )
         # (thread id, tool name) -> (attempts so far, last failure text).
         self._failures: OrderedDict[tuple[str, str], tuple[int, str]] = (
             OrderedDict()
@@ -251,9 +365,23 @@ class WriteConfirmationInterceptor:
 
     def register_tools(self, tools: list[BaseTool]) -> None:
         for source_tool in tools:
-            metadata = source_tool.metadata or {}
-            if metadata.get("readOnlyHint") is True:
-                self._read_only_tools.add(source_tool.name)
+            if self._effects.get(source_tool.name) == READ:
+                # Already established as a read, and it stays one. The seeded
+                # Notion searches are here precisely because their own
+                # annotations are not what got them classified.
+                continue
+            effect = _tool_effect(source_tool.metadata)
+            if effect is not None:
+                self._effects[source_tool.name] = effect
+
+    def _effect_for(self, name: str) -> str:
+        """What the card should say this tool does.
+
+        Unclassified is `destructive`, never neutral. A tool nobody annotated
+        is exactly the case that must not look calm, and it is also the case
+        the gate below refuses to let through unasked.
+        """
+        return self._effects.get(name, DESTRUCTIVE)
 
     def _remember_failure(self, key, error: str) -> None:
         if key is None:
@@ -282,7 +410,11 @@ class WriteConfirmationInterceptor:
         request: MCPToolCallRequest,
         handler,
     ) -> MCPToolCallResult:
-        if request.name in self._read_only_tools:
+        effect = self._effect_for(request.name)
+        if effect == READ:
+            # The only effect that never reaches a card: a read is not gated,
+            # so `read` is the reason there is no card rather than a value one
+            # ever renders.
             return await handler(request)
 
         action = request.name.replace("_", " ").replace("-", " ").strip()
@@ -292,6 +424,7 @@ class WriteConfirmationInterceptor:
         confirmed = require_write_confirmation(
             action=action,
             fields=summarize_args(request.args),
+            effect=effect,
             extra_args=self._retry_args(key),
         )
 

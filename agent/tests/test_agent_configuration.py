@@ -34,7 +34,7 @@ class FakeGraph:
         return self
 
 
-def build_with_captured_configuration(monkeypatch):
+def build_with_captured_configuration(monkeypatch, source_toolsets=None):
     captured = {}
 
     monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
@@ -48,7 +48,9 @@ def build_with_captured_configuration(monkeypatch):
     monkeypatch.delenv("GITHUB_APP_ID", raising=False)
     monkeypatch.delenv("GITHUB_APP_INSTALLATION_ID", raising=False)
     monkeypatch.delenv("GITHUB_APP_PRIVATE_KEY_BASE64", raising=False)
-    monkeypatch.setattr(agent_mod, "internal_source_toolsets", lambda _provider: {})
+    monkeypatch.setattr(
+        agent_mod, "internal_source_toolsets", lambda _provider: source_toolsets or {}
+    )
 
     def fake_chat_openai(**kwargs):
         captured["model"] = kwargs
@@ -63,6 +65,31 @@ def build_with_captured_configuration(monkeypatch):
 
     graph = agent_mod.build_agent()
     return graph, captured
+
+
+@pytest.mark.parametrize(
+    "source,label",
+    [("linear", "Linear"), ("notion", "Notion"), ("github", "GitHub"), ("posthog", "PostHog")],
+)
+def test_prompt_describes_only_loaded_integrations_without_composio(
+    monkeypatch, source, label
+):
+    from types import SimpleNamespace
+
+    loaded_tool = SimpleNamespace(name=f"{source}_test_tool")
+    _, captured = build_with_captured_configuration(
+        monkeypatch, {source: [loaded_tool], "unavailable": []}
+    )
+    prompt = captured["agent"]["system_prompt"]
+
+    assert loaded_tool in captured["agent"]["tools"]
+    assert label in prompt
+    assert "no connected apps" not in prompt.lower()
+    assert "search_my_tools" not in prompt
+    assert f"prefer the team's {label} sources first" in prompt
+    for other in {"Linear", "Notion", "GitHub", "PostHog"} - {label}:
+        assert f"{other} tools" not in prompt
+        assert f"{other} mutation tool" not in prompt
 
 
 def test_build_agent_defaults_to_low_reasoning_and_verbosity(monkeypatch):

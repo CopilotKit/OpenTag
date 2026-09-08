@@ -1,11 +1,16 @@
 import asyncio
+import logging
 
 import copilotkit.langgraph
 import pytest
 import write_confirmation
+from ag_ui.core import EventType, RunAgentInput
+from agui import build_agui_agent
 from langchain_core.messages import ToolMessage
 from langchain_core.tools import StructuredTool
 from langchain_mcp_adapters.interceptors import MCPToolCallRequest
+from langgraph.checkpoint.memory import MemorySaver
+from langgraph.graph import END, START, MessagesState, StateGraph
 from mcp.types import CallToolResult, TextContent
 from write_confirmation import failure_text, summarize_args
 
@@ -24,13 +29,21 @@ def approve_and_track(monkeypatch, thread="thread-1"):
 
 
 def capture_reports(monkeypatch):
-    """Record what the interceptor reports back to the thread."""
+    """Record what the interceptor reports back to the thread.
+
+    Taken at the dispatch, and only for the event name the AG-UI adapter
+    renders. The name is the whole of the bug this fake stands in for: the
+    notice was dispatched under one nothing translates, so recording the text
+    alone would go on passing while the thread heard nothing.
+    """
     reported = []
 
-    async def emit(_config, message):
-        reported.append(message)
+    async def dispatch(name, data, *, config=None):
+        del config
+        if name == write_confirmation._EMIT_MESSAGE_EVENT:
+            reported.append(data["message"])
 
-    monkeypatch.setattr(write_confirmation, "copilotkit_emit_message", emit)
+    monkeypatch.setattr(write_confirmation, "adispatch_custom_event", dispatch)
     monkeypatch.setattr(write_confirmation, "ensure_config", lambda: {})
     return reported
 
@@ -146,6 +159,9 @@ def test_write_confirmation_emits_the_copilotkit_interrupt_envelope(monkeypatch)
         "args": {
             "action": "Create issue",
             "fields": [{"label": "Title", "value": "Checkout 500s"}],
+            # Nobody annotated `create_issue`, so the card is told to render it
+            # as dangerous rather than left to guess from the verb.
+            "effect": "destructive",
         },
     }
 
@@ -167,11 +183,18 @@ def test_write_confirmation_interceptor_leaves_annotated_reads_unguarded(
     )
     interceptor = write_confirmation.WriteConfirmationInterceptor()
     interceptor.register_tools([read_tool])
-    monkeypatch.setattr(
-        write_confirmation,
-        "copilotkit_interrupt",
-        lambda **kwargs: interrupt_calls.append(kwargs),
-    )
+    def refuse(**kwargs):
+        """A card nobody should be shown — and a well-formed one all the same.
+
+        Returning `None` here (what `list.append` answers) makes a regression
+        that gates this read blow up unpacking the resume, so the test dies of
+        a `TypeError` in the source instead of failing `interrupt_calls == []`,
+        which is the thing it was written to say.
+        """
+        interrupt_calls.append(kwargs)
+        return '{"confirmed": false}', {"confirmed": False}
+
+    monkeypatch.setattr(write_confirmation, "copilotkit_interrupt", refuse)
 
     async def handler(request):
         handler_calls.append(request)
@@ -226,6 +249,7 @@ def test_write_confirmation_interceptor_blocks_a_declined_mutation(monkeypatch):
             "args": {
                 "action": "Create issue",
                 "fields": [{"label": "Title", "value": "Checkout 500s"}],
+                "effect": "destructive",
             },
         }
     ]
@@ -477,10 +501,10 @@ def test_tracked_failures_stay_bounded(monkeypatch):
 def test_a_broken_failure_report_does_not_break_the_write(monkeypatch):
     approve_and_track(monkeypatch)
 
-    async def emit(_config, _message):
+    async def dispatch(_name, _data, *, config=None):
         raise RuntimeError("no stream")
 
-    monkeypatch.setattr(write_confirmation, "copilotkit_emit_message", emit)
+    monkeypatch.setattr(write_confirmation, "adispatch_custom_event", dispatch)
     monkeypatch.setattr(write_confirmation, "ensure_config", lambda: {})
 
     failed = error_result("nope")
@@ -569,3 +593,355 @@ def test_require_write_confirmation_rejects_a_bad_resume(monkeypatch):
             action="Open draft pull request",
             fields=[],
         )
+
+
+def read_tool(name, **metadata):
+    """An MCP-shaped tool carrying exactly the annotations a server sent."""
+
+    async def run(**kwargs):
+        return kwargs
+
+    return StructuredTool.from_function(
+        coroutine=run,
+        name=name,
+        description=name,
+        metadata=dict(metadata),
+    )
+
+
+def card_for(monkeypatch, request, tools=()):
+    """The interrupt args of the card the interceptor raises for `request`."""
+    cards = approve_and_track(monkeypatch)
+    interceptor = write_confirmation.WriteConfirmationInterceptor()
+    if tools:
+        interceptor.register_tools(list(tools))
+
+    async def handler(_request):
+        return "write-result"
+
+    asyncio.run(interceptor(request, handler))
+    return cards
+
+
+def capture_card(monkeypatch):
+    """Record the args of every card `require_write_confirmation` raises."""
+    cards = []
+
+    def approve(**kwargs):
+        cards.append(kwargs["args"])
+        return '{"confirmed": true}', {"confirmed": True}
+
+    monkeypatch.setattr(write_confirmation, "copilotkit_interrupt", approve)
+    return cards
+
+
+def test_a_card_for_an_unregistered_tool_says_destructive(monkeypatch):
+    cards = card_for(monkeypatch, save_project(name="OpenTag"))
+
+    assert cards[0]["effect"] == "destructive"
+
+
+def test_a_tool_that_declares_it_is_not_read_only_gets_a_write_card(monkeypatch):
+    # `readOnlyHint: False` is a tool asserting it is *not* a read. Reading the
+    # key's presence instead of its value would call this unclassified.
+    cards = card_for(
+        monkeypatch,
+        save_project(name="OpenTag"),
+        tools=[read_tool("save_project", readOnlyHint=False)],
+    )
+
+    assert cards[0]["effect"] == "write"
+
+
+def test_a_tool_that_declares_itself_destructive_gets_a_destructive_card(
+    monkeypatch,
+):
+    cards = card_for(
+        monkeypatch,
+        save_project(name="OpenTag"),
+        tools=[
+            read_tool("save_project", readOnlyHint=False, destructiveHint=True)
+        ],
+    )
+
+    assert cards[0]["effect"] == "destructive"
+
+
+def test_a_tool_whose_annotations_say_nothing_gets_a_destructive_card(
+    monkeypatch,
+):
+    cards = card_for(
+        monkeypatch,
+        save_project(name="OpenTag"),
+        tools=[read_tool("save_project", title="Save project")],
+    )
+
+    assert cards[0]["effect"] == "destructive"
+
+
+def test_a_non_boolean_read_only_hint_is_not_an_assertion(monkeypatch):
+    # MCP hints are booleans. A string is a shape nobody meant to send, and it
+    # must not be able to talk the card down to a calmer styling.
+    cards = card_for(
+        monkeypatch,
+        save_project(name="OpenTag"),
+        tools=[read_tool("save_project", readOnlyHint="false")],
+    )
+
+    assert cards[0]["effect"] == "destructive"
+
+
+def test_a_read_only_tool_produces_no_card_at_all(monkeypatch):
+    cards = approve_and_track(monkeypatch)
+    interceptor = write_confirmation.WriteConfirmationInterceptor()
+    interceptor.register_tools([read_tool("get_issue", readOnlyHint=True)])
+    handled = []
+
+    async def handler(request):
+        handled.append(request)
+        return "read-result"
+
+    request = MCPToolCallRequest(
+        name="get_issue", args={"issue_id": "CPK-9"}, server_name="linear"
+    )
+    result = asyncio.run(interceptor(request, handler))
+
+    # The gate returns before any card exists, so `read` is never a value the
+    # card has to render — it is the reason there is no card.
+    assert result == "read-result"
+    assert handled == [request]
+    assert cards == []
+
+
+def test_a_known_read_only_notion_search_stays_a_read(monkeypatch):
+    # These POST endpoints are read-only despite what their own annotations
+    # look like, so a later registration must not gate them.
+    cards = approve_and_track(monkeypatch)
+    interceptor = write_confirmation.WriteConfirmationInterceptor()
+    interceptor.register_tools([read_tool("API-post-search", readOnlyHint=False)])
+
+    async def handler(_request):
+        return "read-result"
+
+    result = asyncio.run(
+        interceptor(
+            MCPToolCallRequest(
+                name="API-post-search", args={"query": "x"}, server_name="notion"
+            ),
+            handler,
+        )
+    )
+
+    assert result == "read-result"
+    assert cards == []
+
+
+def test_require_write_confirmation_defaults_to_a_destructive_card(monkeypatch):
+    cards = capture_card(monkeypatch)
+
+    write_confirmation.require_write_confirmation(
+        action="Open draft pull request", fields=[]
+    )
+
+    assert cards[0]["effect"] == "destructive"
+
+
+def test_require_write_confirmation_carries_a_classified_effect(monkeypatch):
+    cards = capture_card(monkeypatch)
+
+    write_confirmation.require_write_confirmation(
+        action="Save project", fields=[], effect="write"
+    )
+
+    assert cards[0]["effect"] == "write"
+
+
+@pytest.mark.parametrize("effect", ["mostly harmless", "", None, "READ", 1])
+def test_require_write_confirmation_fails_safe_on_an_unknown_effect(
+    monkeypatch, effect
+):
+    cards = capture_card(monkeypatch)
+
+    write_confirmation.require_write_confirmation(
+        action="Save project", fields=[], effect=effect
+    )
+
+    assert cards[0]["effect"] == "destructive"
+
+
+def test_an_effect_from_extra_args_lands_in_the_card_once(monkeypatch):
+    # How the Composio path spells it. It must land in the same slot rather
+    # than beside a default that contradicts it.
+    cards = capture_card(monkeypatch)
+
+    write_confirmation.require_write_confirmation(
+        action="Gmail send email",
+        fields=[],
+        extra_args={"approver": "U1", "effect": "read"},
+    )
+
+    assert cards[0]["effect"] == "read"
+    assert cards[0]["approver"] == "U1"
+
+
+def test_an_unclassified_effect_from_extra_args_is_destructive(monkeypatch):
+    cards = capture_card(monkeypatch)
+
+    write_confirmation.require_write_confirmation(
+        action="Gmail send email", fields=[], extra_args={"effect": None}
+    )
+
+    assert cards[0]["effect"] == "destructive"
+
+
+# --- The failure notice, measured on the wire rather than at the call site ---
+#
+# A test that asserts "we called emit" is exactly what was green while nothing
+# was delivered: the old path put the notice on the wire as a single CUSTOM
+# `copilotkit_manually_emit_message` event, and both production renderers
+# (`@copilotkit/channels-slack`, `-teams`) return immediately from
+# `onCustomEvent` for any name that is not `on_interrupt`. TEXT_MESSAGE_* is
+# what those renderers post into a thread, so that is what these tests assert on.
+
+
+def wire_events(node):
+    """Every AG-UI event one graph node puts on the wire.
+
+    Real graph, real `OpenTagAGUIAgent`, real adapter — the three layers between
+    a tool and a Slack or Teams renderer, none of them stubbed.
+    """
+    builder = StateGraph(MessagesState)
+    builder.add_node("emit", node)
+    builder.add_edge(START, "emit")
+    builder.add_edge("emit", END)
+    agent = build_agui_agent(
+        builder.compile(checkpointer=MemorySaver()), recursion_limit=10
+    )
+
+    async def collect():
+        return [
+            event
+            async for event in agent.run(
+                RunAgentInput(
+                    runId="run-1",
+                    threadId=f"wire-{id(node)}",
+                    state={},
+                    messages=[{"id": "u1", "role": "user", "content": "go"}],
+                    tools=[],
+                    context=[],
+                    forwardedProps={},
+                )
+            )
+        ]
+
+    return asyncio.run(collect())
+
+
+def rendered_messages(events):
+    """The assistant messages a renderer would post, as `(id, text)` pairs.
+
+    Only a START/CONTENT/END triple counts: the Slack renderer opens a message
+    on START, streams into it on CONTENT and closes it on END, so content
+    without the bracketing events is not something anybody reads.
+    """
+    started = {
+        event.message_id
+        for event in events
+        if event.type == EventType.TEXT_MESSAGE_START
+    }
+    ended = {
+        event.message_id
+        for event in events
+        if event.type == EventType.TEXT_MESSAGE_END
+    }
+    return [
+        (event.message_id, event.delta)
+        for event in events
+        if event.type == EventType.TEXT_MESSAGE_CONTENT
+        and event.message_id in started
+        and event.message_id in ended
+    ]
+
+
+def test_an_async_failure_report_is_rendered_as_a_message(caplog):
+    async def node(_state):
+        await write_confirmation.report_write_failure(
+            "Send email (Gmail)", "Gmail said no"
+        )
+        return {}
+
+    with caplog.at_level(logging.WARNING):
+        messages = rendered_messages(wire_events(node))
+
+    assert [text for _id, text in messages] == [
+        "⚠️ **Send email (Gmail)** failed — Gmail said no"
+    ]
+    assert "could not report" not in caplog.text
+
+
+def test_a_sync_failure_report_is_rendered_as_a_message(caplog):
+    # The entry point `run_my_tool` uses. LangGraph runs a sync tool in a worker
+    # thread, so this is also the path where a lost context would leave the
+    # dispatch with no run to attach to and the notice would go nowhere.
+    def node(_state):
+        write_confirmation.emit_write_failure("Delete issue (Linear)", "nope")
+        return {}
+
+    with caplog.at_level(logging.WARNING):
+        messages = rendered_messages(wire_events(node))
+
+    assert [text for _id, text in messages] == [
+        "⚠️ **Delete issue (Linear)** failed — nope"
+    ]
+    assert "could not report" not in caplog.text
+
+
+def test_an_unreadable_config_says_the_retry_memory_was_lost(monkeypatch, caplog):
+    # Swallowed silently, this costs every card in the process its retry banner
+    # and nothing anywhere would ever mention it.
+    def boom():
+        raise RuntimeError("no ambient config")
+
+    monkeypatch.setattr(write_confirmation, "ensure_config", boom)
+
+    with caplog.at_level(logging.WARNING):
+        assert write_confirmation._thread_key() is None
+
+    assert "no ambient config" in caplog.text
+
+
+def test_a_broken_failure_report_names_the_write_and_the_cause(
+    monkeypatch, caplog
+):
+    # "RuntimeError" on its own names neither the cause nor the write it
+    # belonged to, which is everything somebody reading this line needs.
+    approve_and_track(monkeypatch)
+
+    async def dispatch(_name, _data, *, config=None):
+        raise RuntimeError("no stream")
+
+    monkeypatch.setattr(write_confirmation, "adispatch_custom_event", dispatch)
+    monkeypatch.setattr(write_confirmation, "ensure_config", lambda: {})
+
+    async def failing(_request):
+        return error_result("nope")
+
+    with caplog.at_level(logging.WARNING):
+        asyncio.run(
+            write_confirmation.WriteConfirmationInterceptor()(
+                save_project(name="x"), failing
+            )
+        )
+
+    assert "Save project" in caplog.text
+    assert "no stream" in caplog.text
+
+
+def test_a_broken_sync_failure_report_names_the_write_and_the_cause(caplog):
+    # No graph here, so the dispatch has no run to attach to and raises. That is
+    # the shape of the real failure, and it must arrive named.
+    with caplog.at_level(logging.WARNING):
+        write_confirmation.emit_write_failure("Send email (Gmail)", "nope")
+
+    assert "Send email (Gmail)" in caplog.text
+    assert "RuntimeError" in caplog.text
