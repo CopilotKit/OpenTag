@@ -22,3 +22,9 @@ state.db-wal
 # AWS CDK synthesis artifacts
 deployment/aws/cdk.out
 deployment/aws/cdk.context.json
+
+# Composio working documents — design, plan, and the agent-port plan. Kept
+# local for the same reason 0577c63 removed docs/superpowers specs and plans.
+docs/composio-tools-design.md
+docs/composio-tools-plan.md
+docs/composio-agent-port-plan.md

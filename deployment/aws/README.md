@@ -72,13 +72,49 @@ Create one JSON secret with these fields:
   "GITHUB_CODER_TOKEN": "",
   "POSTHOG_PERSONAL_API_KEY": "",
   "LINEAR_API_KEY": "",
-  "NOTION_MCP_AUTH_TOKEN": ""
+  "NOTION_MCP_AUTH_TOKEN": "",
+  "COMPOSIO_API_KEY": ""
 }
 ```
 
 Only `INTELLIGENCE_API_KEY` and `OPENAI_API_KEY` are required by the standard
 deployment. Every JSON field must exist because ECS resolves each one when the
 task starts; use an empty string for an unused integration.
+
+**`AGENT_AUTH_HEADER` is the exception to "empty is fine."** The template above
+ships it empty on purpose — that is the correct value when you are not connecting
+personal Composio accounts, and it leaves ordinary agent traffic unauthenticated
+exactly as before. But `agent/agent_auth.py` strips the value and treats `""` as
+unconfigured, and a connect link is refused whenever the secret is unconfigured.
+So a deployment that turns on `composioUserToolkits` and leaves this field empty
+gets the Connect card and never a link. Put one long random string here, the same
+one for both containers — the stack already maps this single field onto both, so
+there is nothing to keep in sync by hand.
+
+**Upgrading an existing deployment: nothing to add unless you are turning
+Composio on.** `COMPOSIO_API_KEY` is new in this release, and the stack declares
+it only when the context that gives it a purpose is set — that is, when either
+toolkit list is non-empty. A deployment that does not set those contexts never
+asks ECS for the field, so an existing secret still starts.
+
+Add them **when you enable the feature**, in the same change that sets the
+context. ECS resolves every declared field at task start, so a secret missing a
+field the stack now declares fails with `does not contain the specified JSON
+key` and the deployment rolls back.
+
+### Composio context keys
+
+Set these with `-c` at deploy time, or in `cdk.json`:
+
+| Key | Effect |
+|---|---|
+| `composioToolkits` | Toolkit slugs everyone shares one connection for. Setting either list makes the stack declare `COMPOSIO_API_KEY`. |
+| `composioUserToolkits` | Toolkit slugs scoped to whoever sent the message. Setting either list makes the stack declare `COMPOSIO_API_KEY`. Two prerequisites: a **non-empty `AGENT_AUTH_HEADER`** in the JSON secret, without which no connect link is ever minted, and a **Slack-backed Channel** — Teams has no private message, so the link cannot be delivered there. No platform credential is needed either way; the managed adapter delivers privately. |
+| `composioApprovals` | `on` (default) or `off`. `destructive` and `writes` are the old spellings and still parse as `on`. |
+| `composioWorkspaceUserId` | The Composio user id shared toolkits act as. Set it explicitly: it otherwise defaults to the Channel name, and renaming the Channel would move every shared connection. |
+
+`COMPOSIO_AUTH_CONFIGS` has no context key yet, so an AWS deployment cannot pin
+which auth config a shared toolkit connects against. Railway can.
 
 Create a second Secrets Manager secret for Datadog. Its entire plaintext value
 must be the raw Datadog API key, not JSON.
@@ -98,7 +134,7 @@ These CDK context values become container environment variables:
 | CDK context | Container variable | Default |
 | --- | --- | --- |
 | `agentDisplayName` | `AGENT_DISPLAY_NAME` on both containers | `OpenTag` |
-| `channelName` | `INTELLIGENCE_CHANNEL_NAME` | `open-tag` |
+| `channelName` | `INTELLIGENCE_CHANNEL_NAME` on both containers | `open-tag` |
 | `intelligenceApiUrl` | `INTELLIGENCE_API_URL` | CopilotKit hosted API |
 | `intelligenceGatewayWsUrl` | `INTELLIGENCE_GATEWAY_WS_URL` | CopilotKit hosted realtime gateway |
 | `logLevel` | `LOG_LEVEL` | `warn` |
@@ -115,9 +151,22 @@ These CDK context values become container environment variables:
 | `posthogMcpUrl` | `POSTHOG_MCP_URL` | Hosted read-only PostHog MCP |
 | `linearMcpUrl` | `LINEAR_MCP_URL` | Hosted Linear MCP |
 | `notionMcpUrl` | `NOTION_MCP_URL` | Unset |
+| `composioToolkits` | `COMPOSIO_TOOLKITS` | Unset |
+| `composioUserToolkits` | `COMPOSIO_USER_TOOLKITS` | Unset |
+| `composioApprovals` | `COMPOSIO_APPROVALS` | Unset, so the agent's own default `on` applies |
+| `composioWorkspaceUserId` | `COMPOSIO_WORKSPACE_USER_ID` | Unset |
 
 `githubAppPrivateKeySecretArn` optionally maps a separate raw Secrets Manager
 secret to `GITHUB_APP_PRIVATE_KEY_BASE64` on the agent container.
+
+Set `composioWorkspaceUserId` explicitly whenever you use `composioToolkits`.
+Left unset, shared toolkits use `channelName`, which the stack forwards to the
+agent as `INTELLIGENCE_CHANNEL_NAME`. The connect script an operator runs locally
+reads the same variables from their local environment, so it must use the same
+identity. If the two disagree, the link connects an account no deployed turn
+ever looks up. Set `COMPOSIO_WORKSPACE_USER_ID` locally to the deployed
+`composioWorkspaceUserId` to keep them aligned. See
+[`../../setup.md`](../../setup.md#composio).
 
 The AWS task fixes `AGENT_URL` to `http://127.0.0.1:8123/`, the runtime port to
 `3000`, and the agent port to `8123` because both containers share one task.
@@ -145,8 +194,8 @@ Deploy a versioned public GHCR release:
 ```bash
 pnpm exec cdk deploy opentag-production \
   -c vpcId=vpc-... \
-  -c agentImage=ghcr.io/copilotkit/opentag-agent:v0.2.0 \
-  -c runtimeImage=ghcr.io/copilotkit/opentag-runtime:v0.2.0 \
+  -c agentImage=ghcr.io/copilotkit/opentag-agent:v0.4.1 \
+  -c runtimeImage=ghcr.io/copilotkit/opentag-runtime:v0.4.1 \
   --parameters opentag-production:OpenTagSecretArn=COMPLETE_OPENTAG_SECRET_ARN \
   --parameters opentag-production:DatadogApiKeySecretArn=COMPLETE_DATADOG_SECRET_ARN
 ```
@@ -201,7 +250,7 @@ pnpm exec cdk deploy opentag-production \
 
 ## Public images
 
-CopilotKit's maintainer-only Kite release automation publishes:
+CopilotKit's maintainer-only release automation publishes:
 
 - `ghcr.io/copilotkit/opentag-agent`
 - `ghcr.io/copilotkit/opentag-runtime`
@@ -212,11 +261,14 @@ merges do not publish images. New GHCR packages start private; after the first
 publication, an organization owner must change both packages to public. No
 registry credentials are needed after that.
 
-Test the same images locally:
+Test the same images locally. The compose file resolves its build context and
+its `env_file` relative to `deployment/`, so the `.env` it wants is the one at
+the repository root — these paths are written from `deployment/aws`, where the
+Deploy section above left you:
 
 ```bash
-cp .env.example .env
-docker compose -f deployment/docker-compose.yml up --build
+cp ../../.env.example ../../.env
+docker compose -f ../docker-compose.yml up --build
 ```
 
 ## Verify
@@ -238,7 +290,7 @@ Check runtime logs for `setup_required`, then test a real Channel mention.
 
 The service maintains one task during normal operation. During deployments, ECS
 briefly starts a second task and waits for it to become healthy before stopping
-the old task. This avoids intentionally taking Kite offline during replacement.
+the old task. This avoids intentionally taking OpenTag offline during replacement.
 Multiple runtimes using the same Channel name can race to claim deliveries, so
 the overlap is limited to the rollout. Agent graph checkpoints remain in memory,
 so verify a real Channel mention after deployment.

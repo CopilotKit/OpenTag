@@ -19,8 +19,27 @@ const repositoryRoot = path.resolve(currentDirectory, "../../..");
 const DATADOG_FORWARDER_TEMPLATE_URL =
   "https://datadog-cloudformation-template.s3.amazonaws.com/aws/forwarder/5.4.11.yaml";
 
+/**
+ * The shared secret the runtime presents and the agent checks.
+ *
+ * Named once and referenced from both lists below, because the two containers
+ * have to read the same field of the same secret: point one of them at a
+ * different name and the runtime authenticates against a value the agent never
+ * sees, which is a 401 on every request and nothing in the template to show
+ * why. See `agent/agent_auth.py` for what the agent does with it.
+ */
+const SHARED_AUTH_SECRET_KEY = "AGENT_AUTH_HEADER";
+
+/**
+ * Fields every documented OpenTag secret already carries.
+ *
+ * Injected unconditionally, which is only safe because
+ * `deployment/aws/README.md` has required each of them since before this
+ * release — an existing secret has them, empty string or not.
+ */
 const AGENT_SECRET_KEYS = [
   "OPENAI_API_KEY",
+  SHARED_AUTH_SECRET_KEY,
   "TAVILY_API_KEY",
   "DAYTONA_API_KEY",
   "GITHUB_PERSONAL_ACCESS_TOKEN",
@@ -32,8 +51,25 @@ const AGENT_SECRET_KEYS = [
 
 const RUNTIME_SECRET_KEYS = [
   "INTELLIGENCE_API_KEY",
-  "AGENT_AUTH_HEADER",
+  SHARED_AUTH_SECRET_KEY,
 ] as const;
+
+/**
+ * Fields this release introduces, declared only when they have a job to do.
+ *
+ * ECS resolves every declared secret field when the task starts and fails the
+ * task when one is missing. A new field added to the lists above is therefore
+ * not a deploy-time error an operator can read and correct — it is an existing
+ * deployment that stops starting tasks the moment it takes the upgrade, before
+ * anybody had the chance to add the field. So an upgrade asks for nothing new,
+ * and turning the feature on is one deliberate step that adds the field and
+ * sets the context together.
+ *
+ * The agent treats a Composio key with no toolkits as unconfigured
+ * (`agent/composio_tools/config.py`), so the toolkit lists are exactly the
+ * signal for whether the key has anything to do.
+ */
+const COMPOSIO_AGENT_SECRET_KEYS = ["COMPOSIO_API_KEY"] as const;
 
 function contextString(
   scope: Construct,
@@ -138,6 +174,15 @@ export class OpenTagStack extends cdk.Stack {
       "daytonaTtlMinutes",
       60,
     );
+    const composioToolkits = contextString(this, "composioToolkits", "");
+    const composioUserToolkits = contextString(
+      this,
+      "composioUserToolkits",
+      "",
+    );
+    // Either list on its own turns the integration on, and one key serves both.
+    const composioConfigured =
+      composioToolkits.length > 0 || composioUserToolkits.length > 0;
     const githubAppId = contextString(this, "githubAppId", "");
     const githubAppInstallationId = contextString(
       this,
@@ -252,6 +297,11 @@ export class OpenTagStack extends cdk.Stack {
           "githubMcpUrl",
           "https://api.githubcopilot.com/mcp/readonly",
         ),
+        // The agent derives the default Composio workspace user id from this.
+        // Without it the team's shared connections resolve under the literal
+        // `open-tag` whatever the channel is really called, so a deployment
+        // that renamed its channel silently connects the wrong identity.
+        INTELLIGENCE_CHANNEL_NAME: channelName,
         LINEAR_MCP_URL: contextString(
           this,
           "linearMcpUrl",
@@ -260,6 +310,19 @@ export class OpenTagStack extends cdk.Stack {
         ...optionalEnvironment(
           "NOTION_MCP_URL",
           contextString(this, "notionMcpUrl", ""),
+        ),
+        ...optionalEnvironment("COMPOSIO_TOOLKITS", composioToolkits),
+        ...optionalEnvironment(
+          "COMPOSIO_USER_TOOLKITS",
+          composioUserToolkits,
+        ),
+        ...optionalEnvironment(
+          "COMPOSIO_APPROVALS",
+          contextString(this, "composioApprovals", ""),
+        ),
+        ...optionalEnvironment(
+          "COMPOSIO_WORKSPACE_USER_ID",
+          contextString(this, "composioWorkspaceUserId", ""),
         ),
         OPENAI_MODEL: openAiModel,
         OPENAI_REASONING_EFFORT: openAiReasoningEffort,
@@ -294,6 +357,9 @@ export class OpenTagStack extends cdk.Stack {
       memoryReservationMiB: 1792,
       secrets: {
         ...secretFields(applicationSecret, AGENT_SECRET_KEYS),
+        ...(composioConfigured
+          ? secretFields(applicationSecret, COMPOSIO_AGENT_SECRET_KEYS)
+          : {}),
         ...(githubAppPrivateKeySecret
           ? {
               GITHUB_APP_PRIVATE_KEY_BASE64:
