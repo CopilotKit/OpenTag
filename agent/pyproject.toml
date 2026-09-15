@@ -38,6 +38,7 @@ py-modules = [
   "agent",
   "agent_auth",
   "agui",
+  "connected_app_provider",
   "internal_sources",
   "main",
   "tools",
