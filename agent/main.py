@@ -14,6 +14,7 @@ from pydantic import BaseModel
 from agent import build_agent
 from agent_auth import authorizes_capability, configured_secret, is_authorized
 from agui import AGENT_DESCRIPTION, AGENT_NAME, build_agui_agent
+from connected_app_provider import PROVIDER_COMPOSIO, selected_provider
 from composio_tools.config import DEFAULT_WORKSPACE_USER_ID
 from composio_tools.connect import ConnectRefused, connect_link
 from composio_tools.runtime import composio_runtime
@@ -132,6 +133,17 @@ def composio_connect(body: ConnectRequest, request: Request):
         )
     if not authorizes_capability(request.headers.get("authorization")):
         return JSONResponse({"error": "unauthorized"}, status_code=401)
+
+    # This route only ever serves Composio. Asked explicitly rather than left to
+    # fall out of an absent key, because the case it guards is a card that
+    # outlived a provider change: a button minted under Composio, clicked after
+    # the deployment switched to Arcade, must be refused rather than answered by
+    # whichever runtime still happens to build.
+    if selected_provider() != PROVIDER_COMPOSIO:
+        return JSONResponse(
+            {"error": "Composio is not configured on this deployment."},
+            status_code=503,
+        )
 
     runtime = composio_runtime(
         # The default spelled once, in the module that resolves it. A present
