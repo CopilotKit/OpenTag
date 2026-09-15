@@ -5,6 +5,12 @@ description = "OpenTag general-purpose team knowledge-work agent — CopilotKit 
 requires-python = ">=3.12"
 dependencies = [
   "ag-ui-langgraph>=0.0.23",
+  # Effect classification reads `metadata.behavior`, which no generated type
+  # declares — it survives because the SDK's base model keeps unknown fields.
+  # 1.10.0 is the release that was verified to do so against the live API; a
+  # lower resolution has not been checked and could drop the block silently,
+  # which would gate every read behind an approval card.
+  "arcadepy>=1.10.0",
   # 0.17.0 is the first release whose client exposes `.sessions`, and everything
   # in `composio_tools/sessions.py` goes through it. Below that the SDK offers
   # `tool_router` and no alias, so a lower resolution installs, imports, and
@@ -32,7 +38,7 @@ dependencies = [
 dev = ["pytest>=8.0.0"]
 
 [tool.setuptools]
-packages = ["prompts", "coding", "composio_tools"]
+packages = ["prompts", "coding", "composio_tools", "arcade_tools"]
 py-modules = [
   "agent",
   "agent_auth",
