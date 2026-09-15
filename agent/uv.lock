@@ -243,6 +243,23 @@ wheels = [
 ]
 
 [[package]]
+name = "arcadepy"
+version = "1.10.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "anyio" },
+    { name = "distro" },
+    { name = "httpx" },
+    { name = "pydantic" },
+    { name = "sniffio" },
+    { name = "typing-extensions" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/73/e0/f78e6e41f69a232ef71cc14c4ef177d9a1ac575bac834ee1ce4b9494e252/arcadepy-1.10.0.tar.gz", hash = "sha256:8dc3e44f19bc4d1cca43ae977b9a4decfac4ad6639af84be489b311d0efc8381", size = 127394, upload-time = "2025-11-06T23:59:07.955Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/fd/6a/9fb347181090878484d8889b8271f7c9b7cb57864548704d85c077c2b270/arcadepy-1.10.0-py3-none-any.whl", hash = "sha256:8e596edb27c84a4c58200c58a2e89446969916e7653c7ac6789ab4da1e152924", size = 118651, upload-time = "2025-11-06T23:59:06.499Z" },
+]
+
+[[package]]
 name = "attrs"
 version = "26.1.0"
 source = { registry = "https://pypi.org/simple" }
@@ -1520,6 +1537,7 @@ version = "0.1.0"
 source = { editable = "." }
 dependencies = [
     { name = "ag-ui-langgraph" },
+    { name = "arcadepy" },
     { name = "composio" },
     { name = "copilotkit" },
     { name = "daytona" },
@@ -1545,6 +1563,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "ag-ui-langgraph", specifier = ">=0.0.23" },
+    { name = "arcadepy", specifier = ">=1.10.0" },
     { name = "composio", specifier = ">=0.17.0" },
     { name = "copilotkit", specifier = ">=0.1.76" },
     { name = "daytona", specifier = ">=0.204.0" },
