@@ -98,10 +98,19 @@ including reads.
 
 So this is a configuration concern, not a classification one. **Arcade config
 validation should warn at startup when a configured toolkit publishes no
-behaviour metadata**, naming the curated toolkit to use instead where one exists
-under the same name minus the `Api` suffix. That warning belongs with the other
-startup warnings in Stage 3, and it is cheap: the answer is already in the
-listing the adapter has to fetch anyway.
+behaviour metadata**, and say what follows from that: every call to it will ask
+for approval, including reads.
+
+The condition is measured, never guessed. It is "this toolkit's listing came
+back carrying no behaviour metadata" — the same listing the adapter already
+fetches — so a toolkit that starts publishing metadata stops warning without a
+code change.
+
+Deliberately **not** keyed on the toolkit's name. The `*Api` suffix above
+describes how today's catalogue happens to be split; it is Arcade's naming
+convention, not a contract, and a rule reading it would be a guess wearing a
+measurement's clothes. The warning does not suggest a replacement toolkit for
+the same reason.
 
 ## Production browser verification
 
@@ -120,9 +129,9 @@ expressible here.
 Two additions for Stage 3, both small:
 
 1. **Warn on a toolkit that publishes no behaviour metadata**, at configuration
-   time, naming the curated equivalent where one exists. Without it, a deployer
-   who names a `*Api` toolkit gets an approval card on every read and no
-   explanation.
+   time, saying that every call to it will ask for approval. Measured from the
+   listing, never inferred from the toolkit's name. Without it, a deployer gets
+   an approval card on every read and no explanation.
 2. **Read `metadata.behavior` off the undeclared field rather than a typed
    attribute**, and pin that with a contract test against a recorded payload. It
    is reachable because the SDK's base model allows extra fields, which is a
