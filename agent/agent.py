@@ -29,6 +29,11 @@ from coding.subagent import build_coder_subagent
 from ag_ui_langgraph import CustomEventNames
 from langchain_core.callbacks.manager import adispatch_custom_event
 from langchain_core.runnables.config import ensure_config
+from connected_app_provider import (
+    PROVIDER_ARCADE,
+    PROVIDER_COMPOSIO,
+    selected_provider,
+)
 from composio_tools.config import DEFAULT_WORKSPACE_USER_ID
 from composio_tools.runtime import composio_runtime
 from composio_tools.state import ComposioAgentState
@@ -206,11 +211,29 @@ def build_agent():
     # caches on this id, and `main.py` passes the constant for the connect
     # route: two spellings would build two caches, so the account an operator
     # connected through the route is not the one a turn runs in.
-    composio = composio_runtime(
-        default_user_id=os.environ.get(
-            "INTELLIGENCE_CHANNEL_NAME", DEFAULT_WORKSPACE_USER_ID
-        ),
+    #
+    # Which provider runs is decided from the keys before any of this is built,
+    # so two keys fail the boot rather than resolving to whichever SDK happened
+    # to construct first.
+    provider = selected_provider()
+    composio = (
+        composio_runtime(
+            default_user_id=os.environ.get(
+                "INTELLIGENCE_CHANNEL_NAME", DEFAULT_WORKSPACE_USER_ID
+            ),
+        )
+        if provider == PROVIDER_COMPOSIO
+        else None
     )
+    if provider == PROVIDER_ARCADE:
+        # Said out loud rather than registering nothing in silence. An Arcade
+        # key is a deployer asking for connected apps, and answering that with
+        # the same behaviour as an unconfigured agent would read as "Arcade is
+        # set up and has nothing", which is a different and wrong statement.
+        logger.warning(
+            "[arcade] ARCADE_API_KEY selects Arcade, but the Arcade provider is "
+            "not implemented yet, so no connected-app tools are registered."
+        )
     composio_tools: list = (
         []
         if composio is None
