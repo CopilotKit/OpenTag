@@ -502,3 +502,90 @@ def test_connecting_an_account_is_not_approval_to_write(monkeypatch):
            state=state(actor_id="U1"))
 
     assert len(asked) == 1
+
+
+# --- telling the model an app needs connecting ---
+
+
+def test_search_names_apps_this_person_has_not_connected():
+    # Without this the model has no reason to offer the Connect button, so the
+    # first sign an app needs connecting is an action that refuses to run.
+    built, _tools = build(
+        {"Gmail": [definition("Gmail.ListMail", description="mail")]},
+        requirements_met=False,
+    )
+
+    found = invoke(built["search_my_tools"], query="mail", state=state())
+
+    assert found["needsConnection"] == ["Gmail"]
+
+
+def test_search_says_nothing_about_apps_that_are_connected():
+    built, _tools = build(
+        {"Gmail": [definition("Gmail.ListMail", description="mail")]},
+        requirements_met=True,
+    )
+
+    found = invoke(built["search_my_tools"], query="mail", state=state())
+
+    assert "needsConnection" not in found
+
+
+def test_a_shared_app_is_never_offered_for_personal_connecting():
+    # Nobody presses Connect for a shared app. Offering it would send somebody
+    # to bind their own account where every call runs as the team.
+    built, _tools = build(
+        {"Github": [definition("Github.ListIssues", description="issues")]},
+        requirements_met=False,
+    )
+
+    found = invoke(built["search_my_tools"], query="issues", state=state())
+
+    assert "needsConnection" not in found
+
+
+def test_one_app_is_probed_once_however_many_actions_it_returns():
+    # A search returning twenty actions must not cost twenty round trips.
+    built, tools = build(
+        {
+            "Gmail": [
+                definition(f"Gmail.Thing{index}", description="mail")
+                for index in range(8)
+            ]
+        },
+        requirements_met=False,
+    )
+
+    invoke(built["search_my_tools"], query="mail", state=state())
+
+    assert len(tools.get_calls) == 1
+
+
+def test_a_failed_check_does_not_claim_the_app_is_unconnected():
+    # Not knowing is not the same as not connected. Telling somebody to connect
+    # an account they already connected sends them round a flow twice.
+    built, tools = build(
+        {"Gmail": [definition("Gmail.ListMail", description="mail")]}
+    )
+
+    def failing(name, **kwargs):
+        raise RuntimeError("provider is down")
+
+    tools.get = failing
+    found = invoke(built["search_my_tools"], query="mail", state=state())
+
+    assert "needsConnection" not in found
+
+
+def test_an_anonymous_turn_is_never_told_to_connect_anything():
+    # It has no personal apps at all, so there is nothing to connect.
+    built, _tools = build(
+        {"Gmail": [definition("Gmail.ListMail", description="mail")]},
+        requirements_met=False,
+    )
+
+    found = invoke(
+        built["search_my_tools"], query="mail", state=state(actor_id=None)
+    )
+
+    assert "needsConnection" not in str(found)

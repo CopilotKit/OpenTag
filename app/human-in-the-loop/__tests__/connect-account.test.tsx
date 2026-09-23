@@ -99,7 +99,7 @@ describe("ConnectAccount", () => {
     // incomplete deployment throws out of the click. Unguarded, that throw is
     // the dead button this card's whole design exists to prevent.
     vi.stubEnv("AGENT_URL", "");
-    const press = connectButton(ConnectAccount({ toolkit: "gmail" }));
+    const press = connectButton(ConnectAccount({ request: { toolkit: "gmail", provider: "composio" } }));
     const { ctx, postEphemeral } = interaction({ id: "U1", kind: "human" });
 
     await press(ctx);
@@ -135,7 +135,7 @@ describe("the notice shown when the click could not even be handed over", () => 
     const consoleError = vi
       .spyOn(console, "error")
       .mockImplementation(() => undefined);
-    const press = connectButton(ConnectAccount({ toolkit: "gmail" }));
+    const press = connectButton(ConnectAccount({ request: { toolkit: "gmail", provider: "composio" } }));
     const surface = interaction(actor, ephemeral);
     try {
       await press(surface.ctx);
