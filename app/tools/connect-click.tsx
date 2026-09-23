@@ -18,6 +18,11 @@ import {
   type ConnectRequest,
 } from "../human-in-the-loop/connect-account.js";
 import {
+  appNameOf,
+  normalizeAction,
+  requestArcadeConnectLink,
+} from "./arcade-connect.js";
+import {
   normalizeToolkit,
   requestConnectLink,
   safeRefusalMessage,
@@ -50,16 +55,17 @@ type Interaction = InteractionContext<ConnectRequest>;
  * clicker is told — which is the whole point of checking the result.
  */
 export async function handleConnectClick(
-  toolkit: string,
+  request: ConnectRequest,
   interaction: Interaction,
   deps: {
     environment?: ReturnType<typeof readEnvironment>;
     readEnvironment?: typeof readEnvironment;
     request?: typeof requestConnectLink;
+    requestArcade?: typeof requestArcadeConnectLink;
   } = {},
 ): Promise<void> {
   try {
-    await runConnectClick(toolkit, interaction, deps);
+    await runConnectClick(request, interaction, deps);
   } catch (error) {
     // The last resort. Everything below is already guarded, so reaching here
     // means something threw that was not expected to — and the person is still
@@ -76,21 +82,32 @@ export async function handleConnectClick(
 }
 
 async function runConnectClick(
-  toolkit: string,
+  card: ConnectRequest,
   interaction: Interaction,
   deps: {
     environment?: ReturnType<typeof readEnvironment>;
     readEnvironment?: typeof readEnvironment;
     request?: typeof requestConnectLink;
+    requestArcade?: typeof requestArcadeConnectLink;
   },
 ): Promise<void> {
   const request = deps.request ?? requestConnectLink;
+  const requestArcade = deps.requestArcade ?? requestArcadeConnectLink;
+
+  // Which provider minted this card, taken from the card itself. A card posted
+  // before this field existed has none and is Composio's, which is what every
+  // one of them was.
+  const arcade = card.provider === "arcade";
 
   // The value travels on the card, and the card was posted from a name the
   // model chose. A click after a restart re-derives that card from its stored
   // props, so this is the last place the value is checked before it is rendered
-  // again.
-  const slug = normalizeToolkit(toolkit);
+  // again — and each provider's unit has its own rule, because Arcade's names
+  // are case-sensitive and dotted while Composio's are lowercase identifiers.
+  const action = arcade ? normalizeAction(card.target ?? "") : null;
+  const slug = arcade
+    ? (action === null ? null : appNameOf(action))
+    : normalizeToolkit(card.toolkit ?? "");
   if (slug === null) {
     reportRecoverableError(
       "[opentag] a connect click carried something that is not an app name; nothing was minted",
@@ -144,14 +161,26 @@ async function runConnectClick(
     return;
   }
 
-  const result = await request({
-    agentUrl: environment.agentUrl,
-    agentAuthHeader: environment.agentAuthHeader,
-    actorId: actor.id,
-    actorKind: actor.kind,
-    platform: interaction.platform,
-    toolkit: slug,
-  });
+  const result = arcade
+    ? await requestArcade({
+        agentUrl: environment.agentUrl,
+        // Only Arcade needs this: the agent hands back a ticket and this side
+        // builds the link, because it is the half that knows its own address.
+        publicUrl: environment.publicUrl ?? "",
+        agentAuthHeader: environment.agentAuthHeader,
+        actorId: actor.id,
+        actorKind: actor.kind,
+        platform: interaction.platform,
+        target: action as string,
+      })
+    : await request({
+        agentUrl: environment.agentUrl,
+        agentAuthHeader: environment.agentAuthHeader,
+        actorId: actor.id,
+        actorKind: actor.kind,
+        platform: interaction.platform,
+        toolkit: slug,
+      });
 
   if (!result.ok) {
     // A refusal carries no capability, so the thread is a safe second home for
@@ -181,6 +210,19 @@ async function runConnectClick(
       actor,
       <ConnectFailed
         message={safe ?? `Could not start the ${slug} connection.`}
+      />,
+    );
+    return;
+  }
+
+  if ("alreadyConnected" in result) {
+    // Nothing to deliver. Sending them round the provider again would work and
+    // asks somebody to do something they have already done.
+    await deliver(
+      interaction,
+      actor,
+      <ConnectFailed
+        message={`Your ${slug} account is already connected. Ask me again.`}
       />,
     );
     return;

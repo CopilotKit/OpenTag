@@ -35,6 +35,11 @@ from hmac import compare_digest
 #: as a secret was configured. Listed rather than reached by collapsing
 #: repeated slashes in `_public_path`, because that would quietly make every
 #: path with a doubled slash a different path from the one written here.
+#:
+#: Still only the health probe. The Arcade connect flow needs two routes a
+#: browser can reach, and they live on the surface rather than here — so this
+#: service keeps no public entry point, and the process holding the provider
+#: keys is not the one exposed to the internet.
 PUBLIC_PATHS = frozenset({"/health", "//health"})
 
 

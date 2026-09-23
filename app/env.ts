@@ -15,6 +15,35 @@ export interface AppEnvironment {
   learningContainerId?: string;
   channelName: string;
   port: number;
+  /**
+   * Where a browser can reach this service, without a trailing slash.
+   *
+   * Needed only for per-person Arcade connections, which is why it is optional:
+   * a deployment using Composio, or Arcade with shared apps only, never grows a
+   * public address and must keep starting without one. Railway supplies its own
+   * as `RAILWAY_PUBLIC_DOMAIN`, so that is read as a fallback rather than made
+   * a second thing to configure.
+   */
+  publicUrl?: string;
+}
+
+/**
+ * The address a browser can reach this service on, if there is one.
+ *
+ * An explicit setting wins, because a deployment may sit behind a domain the
+ * platform does not know about. Railway's own variable is a bare hostname with
+ * no scheme, so it is given one; without that the link built from it is not a
+ * URL a browser will open.
+ */
+function readPublicUrl(env: NodeJS.ProcessEnv): string | undefined {
+  const configured = env.PUBLIC_URL?.trim();
+  if (configured) return configured.replace(/\/+$/, "");
+  const railway = env.RAILWAY_PUBLIC_DOMAIN?.trim();
+  if (!railway) return undefined;
+  const withScheme = /^https?:\/\//.test(railway)
+    ? railway
+    : `https://${railway}`;
+  return withScheme.replace(/\/+$/, "");
 }
 
 /** Trimmed, and blank counts as missing — a deploy UI's "unset" is an empty string. */
@@ -73,5 +102,6 @@ export function readEnvironment(
     // left empty in a deploy UI aborted boot rather than falling back to the
     // default every other variable here falls back to.
     port: parsePort(env.PORT?.trim() || undefined),
+    publicUrl: readPublicUrl(env),
   };
 }
