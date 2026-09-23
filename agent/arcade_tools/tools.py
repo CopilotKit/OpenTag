@@ -98,6 +98,10 @@ def build_arcade_tools(
     ) -> dict[str, Any] | str:
         """Find actions available in the connected apps. Call this before run_my_tool.
 
+        If the result has `needsConnection`, those apps are not connected for
+        this person yet. Call `connect_app` naming one action from that app, and
+        do not call `run_my_tool` for it until they say they have connected.
+
         Args:
             query: What you want to do, in plain words, e.g. 'create an issue'.
         """
@@ -116,22 +120,71 @@ def build_arcade_tools(
             logger.warning("[arcade] search failed: %s", error)
             return "The connected apps could not be reached just now."
 
-        payload: dict[str, Any] = {
-            "actions": [
-                {
-                    "qualifiedName": item.get("qualified_name"),
-                    "description": item.get("description") or "",
-                    "arguments": _argument_schema(item),
-                    # So the model can tell the person what will happen before
-                    # it calls, rather than the card being the first they hear.
-                    "effect": effect_of_definition(item),
-                }
-                for item in found
-            ]
-        }
+        actions = [
+            {
+                "qualifiedName": item.get("qualified_name"),
+                "description": item.get("description") or "",
+                "arguments": _argument_schema(item),
+                # So the model can tell the person what will happen before it
+                # calls, rather than the card being the first they hear.
+                "effect": effect_of_definition(item),
+            }
+            for item in found
+        ]
+        payload: dict[str, Any] = {"actions": actions}
+
+        # Which of these the person has not connected yet, named here rather
+        # than discovered by running one and failing. Without it the model has
+        # no reason to offer the Connect button, so somebody's first sign that
+        # an app needs connecting is an action that refuses to run.
+        needs_connection = _unconnected_toolkits(identities, actions)
+        if needs_connection:
+            payload["needsConnection"] = needs_connection
+
         if key is None and config.user_toolkits:
             payload["personalAppsUnavailable"] = anonymous_note()
         return payload
+
+    def _unconnected_toolkits(identities, actions: list[dict]) -> list[str]:
+        """Personal apps among these results that this person has not connected.
+
+        Asked once per app rather than once per action. Authorization itself is
+        per action, but "has never begun connecting" is a fact about a person
+        and a provider, so one probe answers for every action in the app — and
+        a search returning twenty actions must not cost twenty round trips.
+
+        Shared apps are never reported: nobody presses Connect for those, and
+        offering the button would send somebody to bind their own account where
+        every call runs as the team.
+        """
+        personal = identities.personal
+        if not personal:
+            return []
+
+        seen: dict[str, str] = {}
+        for action in actions:
+            name = action.get("qualifiedName")
+            toolkit = _toolkit_of_optional(name, tuple(personal))
+            if toolkit is not None and toolkit not in seen and name:
+                seen[toolkit] = name
+
+        unconnected: list[str] = []
+        for toolkit, probe in seen.items():
+            try:
+                state = catalog.authorization_for(probe, personal[toolkit])
+            except Exception as error:  # noqa: BLE001 - provider errors vary
+                # Not knowing is not the same as not connected. Saying "connect
+                # this" to somebody who already has would send them round a
+                # flow they have already completed.
+                logger.warning(
+                    "[arcade] could not check whether %s is connected: %s",
+                    toolkit,
+                    error,
+                )
+                continue
+            if not state.connected:
+                unconnected.append(toolkit)
+        return unconnected
 
     @tool
     def run_my_tool(
@@ -244,6 +297,18 @@ def build_arcade_tools(
         return sentence
 
     return [search_my_tools, run_my_tool]
+
+
+def _toolkit_of_optional(
+    qualified_name: Any, candidates: tuple[str, ...]
+) -> str | None:
+    """`_toolkit_of` for callers filtering rather than routing."""
+    if not isinstance(qualified_name, str):
+        return None
+    try:
+        return _toolkit_of(qualified_name, candidates)
+    except LookupError:
+        return None
 
 
 def _toolkit_of(qualified_name: str, candidates: tuple[str, ...]) -> str:

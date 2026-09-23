@@ -14,11 +14,12 @@ from __future__ import annotations
 import logging
 import threading
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 from arcade_tools.catalog import Catalog
 from arcade_tools.config import ArcadeConfig, read_arcade_config, startup_warnings
+from arcade_tools.verify import PendingFlows
 
 logger = logging.getLogger(__name__)
 
@@ -39,6 +40,11 @@ class ArcadeRuntime:
     config: ArcadeConfig
     catalog: Catalog
     client_factory: Any
+    #: Flows started but not yet finished at the provider. Lives on the runtime
+    #: for the same reason the runtime exists: the connect route records a flow
+    #: and the verifier route resolves it, and they must be looking at one set.
+    #: Two would mean every connection failing verification.
+    pending_flows: PendingFlows = field(default_factory=PendingFlows)
 
 
 def _build_client(api_key: str):
