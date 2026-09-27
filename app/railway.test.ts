@@ -145,12 +145,18 @@ describe("Railway deployment graph", () => {
       PORT: { type: "literal", value: "8123" },
     });
 
-    // The agent holds the Composio key and every source credential; the
-    // runtime must not. Named exhaustively so a credential added to the wrong
-    // service is a failure rather than an unread key.
+    // The agent holds the Composio and Arcade keys and every source
+    // credential; the runtime must not. Named exhaustively so a credential added
+    // to the wrong service is a failure rather than an unread key.
     expect(variableNames(agent)).toEqual([
       "AGENT_AUTH_HEADER",
       "AGENT_DISPLAY_NAME",
+      "ARCADE_API_KEY",
+      "ARCADE_APPROVALS",
+      "ARCADE_IDENTITY_NAMESPACE",
+      "ARCADE_TOOLKITS",
+      "ARCADE_USER_TOOLKITS",
+      "ARCADE_WORKSPACE_USER_ID",
       "COMPOSIO_API_KEY",
       "COMPOSIO_APPROVALS",
       "COMPOSIO_AUTH_CONFIGS",
@@ -221,6 +227,7 @@ describe("Railway deployment graph", () => {
           value: "open-tag",
         },
         AGENT_AUTH_HEADER: { type: "preserve" },
+        PUBLIC_URL: { type: "preserve" },
         PLAYWRIGHT_BROWSERS_PATH: {
           type: "literal",
           value: "0",
@@ -232,10 +239,11 @@ describe("Railway deployment graph", () => {
       },
     });
 
-    // The runtime carries the shared secret it presents to the agent, and no
-    // platform or Composio credential: Intelligence owns the Slack and Teams
-    // edges, and the toolkits live on the agent. Asserted as the complete set
-    // so a token added back here fails rather than passes unnoticed.
+    // The runtime carries the shared secret it presents to the agent, its own
+    // public address for per-person Arcade, and no platform, Composio or Arcade
+    // credential: Intelligence owns the Slack and Teams edges, and the toolkits
+    // live on the agent. Asserted as the complete set so a token added back here
+    // fails rather than passes unnoticed.
     expect(variableNames(runtime)).toEqual([
       "AGENT_AUTH_HEADER",
       "AGENT_DISPLAY_NAME",
@@ -247,8 +255,15 @@ describe("Railway deployment graph", () => {
       "INTELLIGENCE_LEARNING_CONTAINER_ID",
       "PLAYWRIGHT_BROWSERS_PATH",
       "PORT",
+      "PUBLIC_URL",
       "RAILPACK_DEPLOY_APT_PACKAGES",
     ]);
+
+    // No public domain is declared. A Composio deployment, or Arcade with
+    // shared toolkits only, must not grow one just because the config supports
+    // per-person Arcade — the operator opts in by generating a domain.
+    expect(runtime.networking?.serviceDomains ?? {}).toEqual({});
+    expect(runtime.networking?.customDomains ?? {}).toEqual({});
   });
 
   it("starts each service with an entry point this repository actually has", async () => {

@@ -42,8 +42,11 @@ files.
 | Agent | `agent/agent.py` | LangGraph deep agent served over AG-UI |
 | AG-UI adapter | `agent/agui.py` | Slack recursion limit and user-facing graph-stop handling |
 | Persona | `agent/prompts/` | `system.py` is the base system prompt |
-| Approval gate | `agent/write_confirmation.py` | Emits `confirm_write` before a Linear, Notion, or Composio write |
-| Composio | `agent/composio_tools/` | Toolkit sessions, per-person identity, effect classification, connect links |
+| Approval gate | `agent/write_confirmation.py` | Emits `confirm_write` before a Linear, Notion, Composio, or Arcade write |
+| Provider selection | `agent/connected_app_provider.py` | Picks Composio or Arcade from which API key is set; both set fails startup |
+| Composio | `agent/composio_tools/` | Toolkit sessions, per-person identity, effect classification, connect links. `state.py` also owns the trusted-actor rules for **both** providers |
+| Arcade | `agent/arcade_tools/` | Catalogue, per-action authorization, effect classification, outcome handling, connect tickets and browser verification |
+| Arcade connect pages | `app/arcade-browser-routes.ts` | The two public pages of the Arcade connect flow. They live on the runtime so the agent keeps no public entry point |
 | Coder | `agent/coding/` | GitHub credentials, Daytona sandbox, repository publish tools, coder prompt |
 | Coder skills | `agent/coding/skills/` | Committed skills. Do not put them in `agent/skills/` |
 | Deployment | `.railway/railway.ts` | Two services, declared as code |
@@ -92,6 +95,13 @@ you actually ran; do not claim a check that did not run.
   place that decides what counts as an identity — `agent/agui.py` applies it to
   every run. `agent/agent_auth.py` treats an empty secret as unconfigured and
   refuses to mint a connect link on that basis.
+- **Composio and Arcade are exclusive, and personal Arcade needs a public
+  address.** Both API keys set stops the agent at boot by design. Personal Arcade
+  toolkits additionally need `ARCADE_IDENTITY_NAMESPACE`, the provider's own
+  OAuth app registered in Arcade, and a public address for the runtime — Arcade
+  sends the person's browser back to `/arcade/verify` to learn who they are.
+  Arcade's preconfigured providers only work for members of the Arcade project,
+  so testing the flow as yourself proves nothing; use a logged-out browser.
 - **Slash commands and modals are registered but unverified on the managed
   path.** Delivery depends on the generated Slack manifest, which Intelligence
   produces server-side — nothing in this repository decides it. Do not describe
