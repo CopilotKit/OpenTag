@@ -595,3 +595,131 @@ test("grants pull access when using existing private ECR repositories", () => {
   assert.match(json, /ecr:BatchGetImage/);
   assert.match(json, /v1\.2\.3/);
 });
+
+
+// --- Arcade -----------------------------------------------------------------
+
+const PERSONAL_ARCADE: Record<string, string> = {
+  arcadeUserToolkits: "Gmail",
+  arcadeIdentityNamespace: "acme-production",
+  publicUrl: "https://opentag.example.com",
+};
+
+test("asks for the Arcade key only once an Arcade toolkit is configured", () => {
+  // Same terms as Composio: an upgrade must not ask an existing secret for a
+  // field it lacks, so the toolkit lists are the only signal.
+  // Annotated: an inferred union of differently-shaped literals is not a
+  // `Record<string, string>`, and `pnpm test` strips types so only `pnpm build`
+  // would notice.
+  const unconfigured: Record<string, string>[] = [
+    { arcadeApprovals: "on" },
+    { arcadeToolkits: "" },
+  ];
+  for (const context of unconfigured) {
+    assert.deepEqual(
+      secretsByName(Template.fromStack(stackWithContext(context)), "agent"),
+      expectedSecrets(ESTABLISHED_AGENT_SECRETS),
+      `agent secrets with ${JSON.stringify(context)}`,
+    );
+  }
+
+  const contexts: Record<string, string>[] = [
+    { arcadeToolkits: "Github" },
+    PERSONAL_ARCADE,
+  ];
+  for (const context of contexts) {
+    assert.deepEqual(
+      secretsByName(Template.fromStack(stackWithContext(context)), "agent"),
+      expectedSecrets([...ESTABLISHED_AGENT_SECRETS, "ARCADE_API_KEY"]),
+      `agent secrets with ${JSON.stringify(context)}`,
+    );
+  }
+});
+
+test("refuses to synthesize Composio and Arcade together", () => {
+  // The agent refuses to start with both keys. Failing here instead means the
+  // mistake is caught before anything rolls out, not by a task that restarts.
+  assert.throws(
+    () =>
+      stackWithContext({ composioToolkits: "linear", arcadeToolkits: "Github" }),
+    /not both/,
+  );
+});
+
+test("refuses personal Arcade toolkits without an identity namespace", () => {
+  assert.throws(
+    () =>
+      stackWithContext({
+        arcadeUserToolkits: "Gmail",
+        publicUrl: "https://opentag.example.com",
+      }),
+    /arcadeIdentityNamespace/,
+  );
+});
+
+test("refuses personal Arcade toolkits without a public address", () => {
+  // Arcade sends each browser back to the runtime to learn who it is. Without
+  // an address the deployment boots, posts Connect buttons, and fails every
+  // person who presses one.
+  assert.throws(
+    () =>
+      stackWithContext({
+        arcadeUserToolkits: "Gmail",
+        arcadeIdentityNamespace: "acme-production",
+      }),
+    /publicUrl/,
+  );
+});
+
+test("shared Arcade toolkits alone need no public address", () => {
+  assert.doesNotThrow(() => stackWithContext({ arcadeToolkits: "Github" }));
+});
+
+test("keeps Arcade credentials and settings off the runtime", () => {
+  // The runtime is the container a browser reaches in the personal flow. The
+  // agent keeps the key and every Arcade setting; the runtime gets only the
+  // address it builds links from.
+  const template = Template.fromStack(stackWithContext(PERSONAL_ARCADE));
+  const runtimeEnvironment = environmentValues(template, "runtime");
+  const runtimeSecrets = secretsByName(template, "runtime");
+
+  assert.deepEqual(
+    Object.keys(runtimeEnvironment).filter((key) => key.startsWith("ARCADE_")),
+    [],
+  );
+  assert.deepEqual(
+    Object.keys(runtimeSecrets).filter((key) => key.startsWith("ARCADE_")),
+    [],
+  );
+  assert.equal(runtimeEnvironment.PUBLIC_URL, "https://opentag.example.com");
+
+  const agentEnvironment = environmentValues(template, "agent");
+  assert.equal(agentEnvironment.ARCADE_USER_TOOLKITS, "Gmail");
+  assert.equal(agentEnvironment.ARCADE_IDENTITY_NAMESPACE, "acme-production");
+  assert.equal(agentEnvironment.PUBLIC_URL, undefined);
+});
+
+test("creates no public ingress, even with personal Arcade configured", () => {
+  // The stack deliberately leaves ingress to the operator — a certificate, a
+  // domain and an internet-facing load balancer are theirs to decide. This
+  // pins that it does not quietly create one.
+  const template = Template.fromStack(stackWithContext(PERSONAL_ARCADE));
+
+  template.resourceCountIs("AWS::ElasticLoadBalancingV2::LoadBalancer", 0);
+  const services = Object.values(
+    template.findResources("AWS::ECS::Service"),
+  ) as {
+    Properties: {
+      NetworkConfiguration?: {
+        AwsvpcConfiguration?: { AssignPublicIp?: string };
+      };
+    };
+  }[];
+  for (const service of services) {
+    assert.equal(
+      service.Properties.NetworkConfiguration?.AwsvpcConfiguration
+        ?.AssignPublicIp,
+      "DISABLED",
+    );
+  }
+});
