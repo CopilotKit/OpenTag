@@ -9,6 +9,17 @@
 import { describe, expect, it, vi } from "vitest";
 import { connectAppTool } from "../connect-app.js";
 
+// The button asks the agent which provider it runs. A unit test has no agent,
+// so the answer is stubbed; each test that cares sets `provider.current`.
+const provider = vi.hoisted(() => ({
+  current: "composio" as "composio" | "arcade" | null | undefined,
+}));
+vi.mock("../arcade-connect.js", async (original) => ({
+  ...(await original<typeof import("../arcade-connect.js")>()),
+  lookupConnectedAppProvider: vi.fn(async () => provider.current),
+}));
+
+
 function context() {
   const post = vi.fn(async (_ui: unknown) => ({ id: "m1" }));
   return { ctx: { thread: { post }, platform: "slack" } as never, post };

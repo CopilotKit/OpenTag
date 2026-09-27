@@ -19,6 +19,7 @@ Two things differ from the Composio path, both because Arcade does:
 from __future__ import annotations
 
 import logging
+from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
 
@@ -62,8 +63,15 @@ def start_connection(
     *,
     identity: Any,
     target: Any,
+    resolve_action: Callable[[str], str | None] | None = None,
 ) -> ConnectStarted | ConnectRefused:
-    """Begin connecting `identity`'s own account for the action `target`.
+    """Begin connecting `identity`'s own account for `target`.
+
+    `target` is an action (`Github.CreateIssue`) or an app (`Github`). An app is
+    what the search reports as needing connection, so it is what the model
+    naturally names; a live run passed exactly that and the card went nowhere.
+    For an app, `resolve_action` picks one of its actions to authorize against,
+    because Arcade authorizes per action and has no "connect this app" call.
 
     `identity` is the platform-namespaced actor key of whoever clicked — the
     same value a turn uses to pick that person's account. A link minted against
@@ -75,9 +83,37 @@ def start_connection(
         # blank id minted a real link bound to an identity nothing resolves to.
         return ConnectRefused(reason="No person was named.")
 
-    action = target.strip() if isinstance(target, str) else ""
-    if not action or "." not in action:
-        return ConnectRefused(reason="No action was named.")
+    named = target.strip() if isinstance(target, str) else ""
+    if not named:
+        return ConnectRefused(reason="No app was named.")
+
+    if "." in named:
+        action = named
+    else:
+        # An app. It has to be one people connect for themselves before an
+        # action is looked up for it, so a shared or unconfigured name is
+        # refused on the same terms as an action from it would be.
+        toolkit = next(
+            (name for name in config.user_toolkits if name.lower() == named.lower()),
+            None,
+        )
+        if toolkit is None:
+            shared = any(name.lower() == named.lower() for name in config.workspace_toolkits)
+            return ConnectRefused(
+                reason=(
+                    "That app is shared by the whole workspace, so it is "
+                    "connected once by whoever runs this deployment — not from "
+                    "here."
+                    if shared
+                    else "That is not one of the apps people connect for themselves."
+                )
+            )
+        resolved = resolve_action(toolkit) if resolve_action is not None else None
+        if not resolved:
+            return ConnectRefused(
+                reason=f"Could not start the {toolkit} connection. Try again shortly."
+            )
+        action = resolved
 
     if not owns(config.user_toolkits, action):
         if owns(config.workspace_toolkits, action):

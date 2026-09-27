@@ -11,6 +11,17 @@
 import { describe, expect, it, vi } from "vitest";
 
 import { connectAppTool } from "../connect-app.js";
+
+// The button asks the agent which provider it runs. A unit test has no agent,
+// so the answer is stubbed; each test that cares sets `provider.current`.
+const provider = vi.hoisted(() => ({
+  current: "composio" as "composio" | "arcade" | null | undefined,
+}));
+vi.mock("../arcade-connect.js", async (original) => ({
+  ...(await original<typeof import("../arcade-connect.js")>()),
+  lookupConnectedAppProvider: vi.fn(async () => provider.current),
+}));
+
 import { handleConnectClick } from "../connect-click.js";
 import { requestLabel } from "../../human-in-the-loop/connect-account.js";
 
@@ -36,6 +47,7 @@ function interaction(actor: { id: string; kind: string } | undefined) {
 
 describe("posting the card", () => {
   it("records Arcade and the action when given a qualified name", async () => {
+    provider.current = "arcade";
     const post = vi.fn(async () => undefined);
 
     const result = await connectAppTool.handler(
@@ -53,7 +65,8 @@ describe("posting the card", () => {
     expect(String(result)).toContain("Gmail");
   });
 
-  it("still records Composio for a bare app name", async () => {
+  it("records Composio when the agent runs Composio", async () => {
+    provider.current = "composio";
     const post = vi.fn(async () => undefined);
 
     await connectAppTool.handler(
@@ -71,6 +84,7 @@ describe("posting the card", () => {
   });
 
   it("posts nothing for an action name that could change how a card renders", async () => {
+    provider.current = "arcade";
     const post = vi.fn(async () => undefined);
 
     for (const hostile of [
@@ -88,11 +102,59 @@ describe("posting the card", () => {
     expect(post).not.toHaveBeenCalled();
   });
 
+  it("records Arcade for a bare app name when the agent runs Arcade", async () => {
+    // The live-run bug: the search reports apps, so the model names one. This
+    // used to be read as Composio because it had no dot.
+    provider.current = "arcade";
+    const post = vi.fn(async () => undefined);
+
+    await connectAppTool.handler(
+      { toolkit: "Github" },
+      { thread: { post } } as never,
+    );
+
+    const posted = (post.mock.calls as unknown as unknown[][])[0]?.[0] as {
+      props: { request: unknown };
+    };
+    expect(posted.props.request).toEqual({
+      target: "Github",
+      provider: "arcade",
+    });
+  });
+
+  it("posts nothing when it cannot ask the agent which provider runs", async () => {
+    provider.current = undefined;
+    const post = vi.fn(async () => undefined);
+
+    const result = await connectAppTool.handler(
+      { toolkit: "Github" },
+      { thread: { post } } as never,
+    );
+
+    expect(post).not.toHaveBeenCalled();
+    expect(String(result)).toContain("could not check");
+  });
+
+  it("posts nothing when no provider is configured", async () => {
+    provider.current = null;
+    const post = vi.fn(async () => undefined);
+
+    await connectAppTool.handler(
+      { toolkit: "gmail" },
+      { thread: { post } } as never,
+    );
+
+    expect(post).not.toHaveBeenCalled();
+  });
+
   it("names the app half of an action for a person to read", () => {
     expect(requestLabel({ target: "GoogleCalendar.CreateEvent" })).toBe(
       "GoogleCalendar",
     );
     expect(requestLabel({ toolkit: "gmail" })).toBe("Gmail");
+    // A bare app keeps every letter. `indexOf(".")` is -1 without a dot, and
+    // slicing to it used to cut the last character off.
+    expect(requestLabel({ target: "Github" })).toBe("Github");
   });
 });
 

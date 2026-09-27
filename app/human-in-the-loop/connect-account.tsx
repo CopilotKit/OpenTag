@@ -15,7 +15,7 @@ import {
 } from "@copilotkit/channels";
 import type { InteractionContext, Renderable } from "@copilotkit/channels";
 import { reportRecoverableError } from "../channel-helpers.js";
-import { normalizeAction } from "../tools/arcade-connect.js";
+import { appNameOf, normalizeArcadeTarget } from "../tools/arcade-connect.js";
 import { normalizeToolkit } from "../tools/composio-connect.js";
 
 /**
@@ -108,7 +108,7 @@ async function tellTheClicker(
   // third route in, and this is the one place on it that renders the value.
   const named =
     request.provider === "arcade"
-      ? normalizeAction(request.target ?? "") !== null
+      ? normalizeArcadeTarget(request.target ?? "") !== null
       : normalizeToolkit(request.toolkit ?? "") !== null;
   const label = requestLabel(request);
   const notice: Renderable = (
@@ -165,7 +165,7 @@ async function tellTheClicker(
  */
 export function requestLabel(request: ConnectRequest): string {
   const name = request.target
-    ? request.target.slice(0, request.target.indexOf("."))
+    ? appNameOf(request.target)
     : (request.toolkit ?? "");
   return name.charAt(0).toUpperCase() + name.slice(1);
 }

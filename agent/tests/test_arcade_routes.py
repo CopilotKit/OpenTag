@@ -413,3 +413,63 @@ def test_an_arcade_route_refuses_when_composio_is_selected(
 def test_health_stays_reachable(client, monkeypatch):
     monkeypatch.setenv("AGENT_AUTH_HEADER", SECRET)
     assert client.get("/health").status_code == 200
+
+
+# --- which provider runs ------------------------------------------------------
+
+
+def test_the_provider_route_reports_arcade_on_an_arcade_deployment(
+    client, monkeypatch
+):
+    # The Connect button asks this instead of guessing from the shape of a
+    # name, which the first live run showed it got wrong.
+    monkeypatch.setenv("AGENT_AUTH_HEADER", SECRET)
+    install(monkeypatch)
+
+    response = client.get(
+        "/connected-apps/provider", headers={"Authorization": SECRET}
+    )
+
+    assert response.json() == {"provider": "arcade"}
+
+
+def test_the_provider_route_reports_composio_on_a_composio_deployment(
+    client, monkeypatch
+):
+    monkeypatch.setenv("AGENT_AUTH_HEADER", SECRET)
+    monkeypatch.delenv("ARCADE_API_KEY", raising=False)
+    monkeypatch.setenv("COMPOSIO_API_KEY", "ak_test")
+
+    response = client.get(
+        "/connected-apps/provider", headers={"Authorization": SECRET}
+    )
+
+    assert response.json() == {"provider": "composio"}
+
+
+def test_the_provider_route_needs_the_secret_when_one_is_set(client, monkeypatch):
+    monkeypatch.setenv("AGENT_AUTH_HEADER", SECRET)
+    install(monkeypatch)
+
+    assert client.get("/connected-apps/provider").status_code == 401
+
+
+def test_connecting_an_app_by_name_mints_a_ticket(client, monkeypatch):
+    # End to end through the route: an app name, resolved to an action from the
+    # catalogue, authorized for the person who clicked.
+    monkeypatch.setenv("AGENT_AUTH_HEADER", SECRET)
+    runtime, fake = install(monkeypatch)
+    fake.tools.list = lambda **kwargs: {
+        "items": [{"qualified_name": "Gmail.ListMail"}],
+        "total_count": 1,
+    }
+
+    response = client.post(
+        "/arcade/connect",
+        json={**CONNECT_BODY, "target": "Gmail"},
+        headers={"Authorization": SECRET},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["ticket"]
+    assert fake.tools.authorized[0]["tool_name"] == "Gmail.ListMail"
