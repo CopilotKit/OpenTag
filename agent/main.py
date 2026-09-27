@@ -262,23 +262,6 @@ def arcade_connect(body: ArcadeConnectRequest, request: Request):
     return {"ticket": result.ticket}
 
 
-@app.get("/connected-apps/provider")
-def connected_app_provider_route(request: Request):
-    """Which connected-app provider this deployment runs, if any.
-
-    The surface asks so a Connect card can record which provider minted it, and
-    refuse itself later if the deployment has since switched. Selection stays
-    here — this reports the answer, it does not take one.
-
-    Behind the shared secret like everything else, though it is not a
-    capability: the name is not a secret, but an unauthenticated endpoint that
-    describes a deployment is a free reconnaissance answer.
-    """
-    if not is_authorized(request.url.path, request.headers.get("authorization")):
-        return JSONResponse({"error": "unauthorized"}, status_code=401)
-    return {"provider": selected_provider()}
-
-
 class ArcadeClaimRequest(BaseModel):
     """One ticket, handed back by the browser that was given the link."""
 
