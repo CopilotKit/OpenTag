@@ -296,3 +296,96 @@ def test_the_real_catalogue_shapes_survive_the_reader():
     found = catalog.definitions("Apollo")
 
     assert found[0]["qualified_name"] == tools["read"]["qualified_name"]
+
+
+# --- searching in words, not phrases -----------------------------------------
+#
+# Found by the first live Slack run: the model asked for "GitHub list pull
+# requests repository", the old search looked for that exact phrase, found
+# nothing, and the model rephrased until the graph hit its step limit.
+
+
+def _pull_request_catalogue():
+    return {
+        "Github": [
+            definition("Github.CreateIssue", description="Open a new issue"),
+            definition(
+                "Github.ListPullRequests",
+                description="List pull requests in a repository",
+            ),
+            definition("Github.GetPullRequest", description="Get one pull request"),
+            definition("Github.ListCommits", description="Recent commits"),
+        ]
+    }
+
+
+def test_a_natural_language_query_finds_actions_by_their_words():
+    catalog, _tools = catalog_for(pages=_pull_request_catalogue())
+
+    found = catalog.search("GitHub list pull requests repository", ("Github",))
+
+    assert found[0]["qualified_name"] == "Github.ListPullRequests"
+
+
+def test_the_query_that_failed_live_now_finds_something():
+    # Verbatim from the replayed run.
+    catalog, _tools = catalog_for(pages=_pull_request_catalogue())
+
+    found = catalog.search(
+        "search GitHub pull requests in a repository assigned to me or authored "
+        "by me pending review",
+        ("Github",),
+    )
+
+    names = [item["qualified_name"] for item in found]
+    assert "Github.ListPullRequests" in names
+
+
+def test_words_inside_a_tool_name_count():
+    # `GetPullRequest` has no description mentioning "fetch", but its name
+    # carries "pull" and "request".
+    catalog, _tools = catalog_for(
+        pages={"Github": [definition("Github.GetPullRequest")]}
+    )
+
+    assert catalog.search("pull request", ("Github",))
+
+
+def test_plurals_match_singulars():
+    catalog, _tools = catalog_for(
+        pages={"Github": [definition("Github.GetPullRequest")]}
+    )
+
+    assert catalog.search("requests", ("Github",))
+
+
+def test_better_matches_come_first():
+    catalog, _tools = catalog_for(pages=_pull_request_catalogue())
+
+    found = catalog.search("list pull requests", ("Github",))
+
+    # Three shared words beats two, whatever the catalogue order.
+    assert found[0]["qualified_name"] == "Github.ListPullRequests"
+
+
+def test_filler_words_alone_match_nothing():
+    # "show me my" is in nearly every query. Matching on it would return the
+    # whole catalogue ranked by nothing.
+    catalog, _tools = catalog_for(pages=_pull_request_catalogue())
+
+    assert catalog.search("show me my", ("Github",)) == []
+
+
+def test_an_unrelated_query_still_finds_nothing():
+    catalog, _tools = catalog_for(pages=_pull_request_catalogue())
+
+    assert catalog.search("calendar meeting tomorrow", ("Github",)) == []
+
+
+def test_ranking_is_stable_between_turns():
+    catalog, _tools = catalog_for(pages=_pull_request_catalogue())
+
+    first = [i["qualified_name"] for i in catalog.search("pull request", ("Github",))]
+    second = [i["qualified_name"] for i in catalog.search("pull request", ("Github",))]
+
+    assert first == second
