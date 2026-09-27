@@ -11,7 +11,9 @@ stdout/stderr → CloudWatch Logs → Datadog Forwarder
 ```
 
 There is no load balancer or public ingress. The runtime connects outbound to
-CopilotKit Intelligence. The task runs in private subnets and needs outbound
+CopilotKit Intelligence. The one configuration that needs inbound access is
+personal Arcade toolkits, and even then this stack creates none — see
+[Arcade context keys](#arcade-context-keys). The task runs in private subnets and needs outbound
 internet access for Intelligence, OpenAI, GHCR, and any configured MCP service.
 
 Set `sharedCluster=true` only when multiple environments should use one cluster.
@@ -116,6 +118,40 @@ Set these with `-c` at deploy time, or in `cdk.json`:
 `COMPOSIO_AUTH_CONFIGS` has no context key yet, so an AWS deployment cannot pin
 which auth config a shared toolkit connects against. Railway can.
 
+### Arcade context keys
+
+Arcade is the alternative to Composio. Configure one or the other: setting a
+toolkit list for both makes `cdk synth` refuse, because the agent would refuse
+to start anyway and switching providers strands every personal account
+connected to the old one.
+
+Add `"ARCADE_API_KEY": "arc_..."` to the JSON secret **in the same change that
+sets an Arcade toolkit list** — the stack declares that field only once a list
+is set, on the same terms as `COMPOSIO_API_KEY`.
+
+| Key | Effect |
+|---|---|
+| `arcadeToolkits` | Arcade toolkit names everyone shares one connection for. Names keep their case (`Github`). Setting either list makes the stack declare `ARCADE_API_KEY`. |
+| `arcadeUserToolkits` | Toolkit names scoped to whoever sent the message. Needs `arcadeIdentityNamespace`, `publicUrl`, and a non-empty `AGENT_AUTH_HEADER` in the JSON secret — `cdk synth` refuses without the first two. |
+| `arcadeIdentityNamespace` | Prefixes every personal Arcade identity so two deployments sharing an Arcade project cannot share each other's connected accounts. Must not contain `/`. |
+| `arcadeApprovals` | `on` (default) or `off`. |
+| `arcadeWorkspaceUserId` | The Arcade user id shared toolkits act as. Defaults to the Channel name. |
+| `publicUrl` | Where a browser reaches the **runtime**, for personal Arcade toolkits only. Becomes `PUBLIC_URL` on the runtime container; the agent never receives it. |
+
+**Personal Arcade toolkits need public ingress, and this stack does not create
+it.** Arcade sends each person's browser back to the runtime's `/arcade/start`
+and `/arcade/verify` pages to learn who they are, so something on the internet
+has to forward HTTPS to the runtime container on port 3000. The stack stays
+private deliberately — a certificate, a domain, and whether to put an
+internet-facing load balancer in front of this service are decisions for the
+account that owns them, and a test pins that the stack does not quietly create
+one. Provide that ingress yourself and pass its address as `publicUrl`. Only the
+runtime needs to be reachable; the agent, which holds the provider keys, stays
+private.
+
+Shared Arcade toolkits (`arcadeToolkits` alone) need no ingress and no
+`publicUrl`, and deploy exactly as privately as a Composio deployment.
+
 Create a second Secrets Manager secret for Datadog. Its entire plaintext value
 must be the raw Datadog API key, not JSON.
 
@@ -155,6 +191,12 @@ These CDK context values become container environment variables:
 | `composioUserToolkits` | `COMPOSIO_USER_TOOLKITS` | Unset |
 | `composioApprovals` | `COMPOSIO_APPROVALS` | Unset, so the agent's own default `on` applies |
 | `composioWorkspaceUserId` | `COMPOSIO_WORKSPACE_USER_ID` | Unset |
+| `arcadeToolkits` | `ARCADE_TOOLKITS` | Unset |
+| `arcadeUserToolkits` | `ARCADE_USER_TOOLKITS` | Unset |
+| `arcadeIdentityNamespace` | `ARCADE_IDENTITY_NAMESPACE` | Unset |
+| `arcadeApprovals` | `ARCADE_APPROVALS` | Unset, so the agent's own default `on` applies |
+| `arcadeWorkspaceUserId` | `ARCADE_WORKSPACE_USER_ID` | Unset |
+| `publicUrl` | `PUBLIC_URL` on the runtime container only | Unset |
 
 `githubAppPrivateKeySecretArn` optionally maps a separate raw Secrets Manager
 secret to `GITHUB_APP_PRIVATE_KEY_BASE64` on the agent container.
