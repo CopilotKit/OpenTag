@@ -251,6 +251,7 @@ def arcade_connect(body: ArcadeConnectRequest, request: Request):
         runtime.pending_flows,
         identity=identity,
         target=body.target,
+        resolve_action=lambda toolkit: _first_action(runtime.catalog, toolkit),
     )
     if isinstance(result, ArcadeConnectRefused):
         return JSONResponse({"error": result.reason}, status_code=400)
@@ -260,6 +261,45 @@ def arcade_connect(body: ArcadeConnectRequest, request: Request):
     # knows its own public address — this service does not have one, and should
     # not need to learn one to hand out a ticket.
     return {"ticket": result.ticket}
+
+
+def _first_action(catalog, toolkit: str) -> str | None:
+    """One action from `toolkit`, to authorize against when an app was named.
+
+    Arcade authorizes per action and has no call for "connect this app", so
+    connecting an app means authorizing one of its actions. Which one does not
+    change who ends up connected; it changes only the scopes asked for up
+    front, and any action that later needs more will ask again.
+    """
+    try:
+        for definition in catalog.definitions(toolkit):
+            name = definition.get("qualified_name")
+            if isinstance(name, str) and name:
+                return name
+    except Exception as error:  # noqa: BLE001 - provider errors vary
+        print(
+            f"[arcade] could not list {toolkit} to pick an action to connect: {error}",
+            file=sys.stderr,
+        )
+    return None
+
+
+@app.get("/connected-apps/provider")
+def connected_app_provider_route(request: Request):
+    """Which connected-app provider this deployment runs, if any.
+
+    The Connect button asks, so the card it posts is minted for the provider
+    that is actually running. It used to infer the provider from the shape of
+    the name the model passed — a dotted action meant Arcade, a bare app name
+    meant Composio — and the first live run named an app on an Arcade
+    deployment, so the card went to a provider that was not configured.
+
+    Selection stays here; this reports the answer and takes none. Behind the
+    shared secret when one is set, like the rest of this service.
+    """
+    if not is_authorized(request.url.path, request.headers.get("authorization")):
+        return JSONResponse({"error": "unauthorized"}, status_code=401)
+    return {"provider": selected_provider()}
 
 
 class ArcadeClaimRequest(BaseModel):

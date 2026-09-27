@@ -99,8 +99,8 @@ def build_arcade_tools(
         """Find actions available in the connected apps. Call this before run_my_tool.
 
         If the result has `needsConnection`, those apps are not connected for
-        this person yet. Call `connect_app` naming one action from that app, and
-        do not call `run_my_tool` for it until they say they have connected.
+        this person yet. Call `connect_app` naming the app exactly as listed,
+        and do not call `run_my_tool` for it until they say they have connected.
 
         Args:
             query: What you want to do, in plain words, e.g. 'create an issue'.

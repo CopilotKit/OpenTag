@@ -19,7 +19,7 @@ import {
 } from "../human-in-the-loop/connect-account.js";
 import {
   appNameOf,
-  normalizeAction,
+  normalizeArcadeTarget,
   requestArcadeConnectLink,
 } from "./arcade-connect.js";
 import {
@@ -104,7 +104,7 @@ async function runConnectClick(
   // props, so this is the last place the value is checked before it is rendered
   // again — and each provider's unit has its own rule, because Arcade's names
   // are case-sensitive and dotted while Composio's are lowercase identifiers.
-  const action = arcade ? normalizeAction(card.target ?? "") : null;
+  const action = arcade ? normalizeArcadeTarget(card.target ?? "") : null;
   const slug = arcade
     ? (action === null ? null : appNameOf(action))
     : normalizeToolkit(card.toolkit ?? "");

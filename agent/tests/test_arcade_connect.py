@@ -253,3 +253,94 @@ def test_an_already_connected_person_is_told_so_rather_than_sent_round_again():
     assert isinstance(result, ConnectStarted)
     assert result.already_connected is True
     assert result.ticket is None
+
+
+# --- naming an app rather than an action -------------------------------------
+#
+# Found by the first live run: the search reports apps as needing connection,
+# so the model named "Github", and the card went nowhere.
+
+
+def test_an_app_name_is_resolved_to_one_of_its_actions():
+    config, tools, pending = setup()
+
+    result = start_connection(
+        config,
+        lambda: FakeClient(tools),
+        pending,
+        identity="slack:U1",
+        target="Gmail",
+        resolve_action=lambda toolkit: f"{toolkit}.ListMail",
+    )
+
+    assert isinstance(result, ConnectStarted)
+    assert tools.authorized[0]["tool_name"] == "Gmail.ListMail"
+
+
+def test_an_app_name_is_matched_whatever_case_the_model_used():
+    config, tools, pending = setup()
+    asked = []
+
+    start_connection(
+        config,
+        lambda: FakeClient(tools),
+        pending,
+        identity="slack:U1",
+        target="gmail",
+        resolve_action=lambda toolkit: asked.append(toolkit) or f"{toolkit}.ListMail",
+    )
+
+    # Resolved under the operator's own spelling, which is what the catalogue
+    # is keyed by.
+    assert asked == ["Gmail"]
+
+
+def test_a_shared_app_name_is_refused_before_anything_is_looked_up():
+    config, tools, pending = setup()
+    asked = []
+
+    result = start_connection(
+        config,
+        lambda: FakeClient(tools),
+        pending,
+        identity="slack:U1",
+        target="Github",
+        resolve_action=lambda toolkit: asked.append(toolkit) or "Github.X",
+    )
+
+    assert isinstance(result, ConnectRefused)
+    assert "shared" in result.reason
+    assert asked == []
+    assert tools.authorized == []
+
+
+def test_an_unconfigured_app_name_is_refused():
+    config, tools, pending = setup()
+
+    result = start_connection(
+        config,
+        lambda: FakeClient(tools),
+        pending,
+        identity="slack:U1",
+        target="Asana",
+        resolve_action=lambda toolkit: "Asana.X",
+    )
+
+    assert isinstance(result, ConnectRefused)
+    assert tools.authorized == []
+
+
+def test_an_app_with_no_action_to_authorize_against_is_refused():
+    config, tools, pending = setup()
+
+    result = start_connection(
+        config,
+        lambda: FakeClient(tools),
+        pending,
+        identity="slack:U1",
+        target="Gmail",
+        resolve_action=lambda toolkit: None,
+    )
+
+    assert isinstance(result, ConnectRefused)
+    assert tools.authorized == []
