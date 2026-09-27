@@ -133,6 +133,58 @@ def test_search_returns_actions_from_configured_apps():
     assert "Github.ListIssues" in str(found)
 
 
+def test_search_tells_the_model_which_values_an_argument_accepts():
+    # Arcade declares the allowed values; a bare "string" makes the model guess
+    # them. It guessed `direction` for Github.ListPullRequests, Arcade refused
+    # the call, and the retry cost a turn a simple lookup did not have to spare.
+    built, _tools = build(
+        {
+            "Github": [
+                definition(
+                    "Github.ListPullRequests",
+                    parameters=[
+                        {
+                            "name": "direction",
+                            "required": False,
+                            "description": "The direction of the sort.",
+                            "value_schema": {
+                                "val_type": "string",
+                                "enum": ["asc", "desc"],
+                                "inner_val_type": None,
+                            },
+                        },
+                        {
+                            "name": "labels",
+                            "required": False,
+                            "description": "Labels to filter by.",
+                            "value_schema": {
+                                "val_type": "array",
+                                "enum": None,
+                                "inner_val_type": "string",
+                            },
+                        },
+                        {
+                            "name": "repo",
+                            "required": True,
+                            "description": "The repository.",
+                            "value_schema": {"val_type": "string", "enum": None},
+                        },
+                    ],
+                )
+            ]
+        }
+    )
+
+    found = invoke(built["search_my_tools"], query="pull requests", state=state())
+
+    arguments = {item["name"]: item for item in found["actions"][0]["arguments"]}
+    assert arguments["direction"]["enum"] == ["asc", "desc"]
+    assert arguments["labels"]["type"] == "array"
+    assert arguments["labels"]["items"] == "string"
+    assert "enum" not in arguments["repo"], "no empty enum to misread as 'nothing allowed'"
+    assert "items" not in arguments["repo"]
+
+
 def test_search_never_offers_an_unconfigured_app():
     built, _tools = build(
         {
@@ -589,3 +641,28 @@ def test_an_anonymous_turn_is_never_told_to_connect_anything():
     )
 
     assert "needsConnection" not in str(found)
+
+
+
+def test_a_refused_action_tells_the_model_to_connect_that_action():
+    # Naming the action, not the app: connecting the app already happened and
+    # did not grant this action's permissions.
+    built, tools = build(
+        {"Github": [definition("Github.WhoAmI", behavior=READ_BEHAVIOR)]}
+    )
+
+    def refused(**kwargs):
+        tools.executed.append(kwargs)
+        return {
+            "success": False,
+            "output": {
+                "error": {"kind": "UPSTREAM_RUNTIME_AUTH_ERROR", "message": "403"}
+            },
+        }
+
+    tools.execute = refused
+    result = invoke(
+        built["run_my_tool"], qualified_name="Github.WhoAmI", arguments={}, state=state()
+    )
+
+    assert "connect_app naming Github.WhoAmI" in result
