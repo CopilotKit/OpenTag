@@ -328,7 +328,8 @@ agent (Python + LangGraph deepagents)
           ├── PostHog MCP (optional, read-only)
           ├── Linear MCP (optional)
           ├── Notion MCP (optional remote server)
-          └── Composio toolkits (optional; shared or per-person accounts)
+          └── Composio or Arcade toolkits (optional, one or the other;
+              shared or per-person accounts)
 ```
 
 | You run                                                | CopilotKit Intelligence manages                |
@@ -341,6 +342,12 @@ Neither of those legs is Socket Mode, and neither needs a tunnel or a public URL
 of your own. Slack reaches Intelligence over HTTPS, authenticated by the signing
 secret Intelligence holds. Intelligence reaches your runtime over a websocket
 your process opens outbound, authenticated by `INTELLIGENCE_API_KEY`.
+
+There is exactly one exception, and you opt into it: **per-person Arcade
+toolkits.** Arcade sends each person's browser back through your own service to
+learn who they are, so that one configuration needs a public address for the
+runtime. The agent, which holds the provider keys, stays private even then.
+Composio, and Arcade with shared toolkits only, need nothing public.
 
 There is one canonical runtime host: [`server.ts`](./server.ts).
 [`app/index.ts`](./app/index.ts) composes one `CopilotKitIntelligence`, one
@@ -383,6 +390,7 @@ knowledge work, and renders UI from model knowledge.
 | `POSTHOG_PERSONAL_API_KEY`                 | PostHog analytics, read-only (use the **MCP Server** key preset) |
 | `LINEAR_API_KEY`                           | Hosted Linear MCP                                                |
 | `COMPOSIO_API_KEY`                         | Composio toolkits, under one shared team account or under each person's own (per-person accounts are Slack-only and need `AGENT_AUTH_HEADER`; see setup.md) |
+| `ARCADE_API_KEY`                           | Arcade toolkits instead of Composio — never both, or the agent will not start. Per-action authorization; per-person accounts additionally need a public address for the runtime (see setup.md) |
 | `NOTION_MCP_URL` + `NOTION_MCP_AUTH_TOKEN` | Remote Notion MCP; setting only one disables it                  |
 | `DAYTONA_API_KEY` + a PAT or GitHub App    | Coding subagent: edit in Daytona, then push and publish a draft PR after `confirm_write` |
 
