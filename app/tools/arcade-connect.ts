@@ -61,9 +61,98 @@ export function normalizeAction(raw: string): string | null {
     : null;
 }
 
-/** The app half of a qualified action, for showing a person what they connect. */
-export function appNameOf(action: string): string {
-  return action.slice(0, action.indexOf("."));
+/**
+ * What an Arcade Connect card may carry: an app, or an action within one.
+ *
+ * An app is what the search reports as needing connection, so it is what the
+ * model naturally names — and a live run did exactly that, which is why this
+ * accepts both rather than insisting on an action. Same charset rule as
+ * `normalizeAction` and for the same reason: the string came from the model and
+ * is rendered into a public post. Case is preserved.
+ *
+ * Returns the target unchanged, or `null` when it was never one.
+ */
+export function normalizeArcadeTarget(raw: string): string | null {
+  const target = raw.trim();
+  return /^[A-Za-z][A-Za-z0-9_-]{0,63}(?:\.[A-Za-z][A-Za-z0-9_-]{0,63})?$/.test(
+    target,
+  )
+    ? target
+    : null;
+}
+
+/**
+ * The app half of a target, for showing a person what they connect.
+ *
+ * A target with no dot is already an app. Slicing to `indexOf(".")` without
+ * that check cut the last character off it, because `indexOf` answers `-1`.
+ */
+export function appNameOf(target: string): string {
+  const dot = target.indexOf(".");
+  return dot === -1 ? target : target.slice(0, dot);
+}
+
+import { readEnvironment } from "../env.js";
+
+export type ConnectedAppProvider = "composio" | "arcade" | null;
+
+/**
+ * Ask the agent which connected-app provider it runs.
+ *
+ * The Connect button used to infer this from the shape of the name the model
+ * passed, and the first live run named an app on an Arcade deployment — so the
+ * card went to Composio, which was not configured. Selection lives on the
+ * agent; this only reads the answer.
+ *
+ * `undefined` means the agent could not be asked, which is different from
+ * `null` (asked, and no provider is configured). Nothing here throws.
+ */
+export async function fetchConnectedAppProvider(input: {
+  agentUrl: string;
+  agentAuthHeader?: string;
+  fetchImpl?: typeof fetch;
+  timeoutMs?: number;
+}): Promise<ConnectedAppProvider | undefined> {
+  const fetchImpl = input.fetchImpl ?? fetch;
+  let url: string;
+  try {
+    url = endpoint(input.agentUrl, "connected-apps/provider");
+  } catch {
+    console.error(
+      "[opentag] could not build the provider request; check AGENT_URL",
+    );
+    return undefined;
+  }
+
+  const controller = new AbortController();
+  const timer = setTimeout(
+    () => controller.abort(),
+    input.timeoutMs ?? DEFAULT_CONNECT_TIMEOUT_MS,
+  );
+  try {
+    const response = await fetchImpl(url, {
+      headers: input.agentAuthHeader
+        ? { Authorization: input.agentAuthHeader }
+        : {},
+      signal: controller.signal,
+    });
+    if (!response.ok) {
+      console.warn(
+        `[opentag] the agent answered ${response.status} when asked its provider`,
+      );
+      return undefined;
+    }
+    const body = (await response.json()) as { provider?: unknown };
+    if (body.provider === "composio" || body.provider === "arcade") {
+      return body.provider;
+    }
+    return body.provider === null ? null : undefined;
+  } catch (error) {
+    console.warn("[opentag] could not ask the agent its provider:", error);
+    return undefined;
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 /** Said when the two services do not share a secret. Names no variable. */
@@ -198,4 +287,29 @@ async function safeRefusal(response: Response): Promise<string | null> {
   } catch {
     return null;
   }
+}
+
+
+/**
+ * Which provider this deployment runs, read from this process's environment.
+ *
+ * The one call the Connect button makes, and the one seam a test stubs. A
+ * deployment missing `AGENT_URL` makes `readEnvironment` throw; that is
+ * reported as "could not ask" rather than escaping into a tool handler nothing
+ * awaits.
+ */
+export async function lookupConnectedAppProvider(): Promise<
+  ConnectedAppProvider | undefined
+> {
+  let environment: ReturnType<typeof readEnvironment>;
+  try {
+    environment = readEnvironment();
+  } catch (error) {
+    console.error("[opentag] could not read the environment to ask the agent its provider:", error);
+    return undefined;
+  }
+  return fetchConnectedAppProvider({
+    agentUrl: environment.agentUrl,
+    agentAuthHeader: environment.agentAuthHeader,
+  });
 }

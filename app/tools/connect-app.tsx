@@ -18,7 +18,10 @@ import {
   ConnectAccount,
   requestLabel,
 } from "../human-in-the-loop/connect-account.js";
-import { normalizeAction } from "./arcade-connect.js";
+import {
+  lookupConnectedAppProvider,
+  normalizeArcadeTarget,
+} from "./arcade-connect.js";
 import { normalizeToolkit } from "./composio-connect.js";
 
 export const connectAppTool = defineChannelTool({
@@ -45,25 +48,39 @@ export const connectAppTool = defineChannelTool({
     // charset is not a toolkit name and no card is posted for it. The rejected
     // value is not quoted back: the model repeats tool results to people, which
     // would put it on a rendered surface by a second route.
-    // Which provider this deployment runs is decided by the agent, and the
-    // shape of what it wants says which one answered: Arcade authorizes per
-    // action and names one, Composio authorizes per app. Read from the value
-    // rather than from configuration on this side, because a card records the
-    // provider that minted it and must not be able to disagree with itself.
-    const action = normalizeAction(toolkit);
-    const slug = action === null ? normalizeToolkit(toolkit) : null;
-    if (action === null && slug === null) {
+    // Which provider runs is decided by the agent, so it is asked rather than
+    // guessed. This used to infer it from the shape of the name — a dotted
+    // action meant Arcade, a bare app meant Composio — and the first live run
+    // named an app on an Arcade deployment, so the card went to Composio,
+    // which was not configured, and the click said so.
+    const provider = await lookupConnectedAppProvider();
+    if (provider === undefined) {
+      return (
+        "I could not check which connected-app service this deployment uses, " +
+        "so no button was posted. Try again in a moment."
+      );
+    }
+    if (provider === null) {
+      return "No connected-app service is configured here, so there is nothing to connect.";
+    }
+
+    // Each provider has its own unit and its own rule for what is safe to
+    // render in a public card. Composio connects an app, lowercase; Arcade
+    // accepts an app or an action, case preserved.
+    const arcadeTarget =
+      provider === "arcade" ? normalizeArcadeTarget(toolkit) : null;
+    const slug = provider === "composio" ? normalizeToolkit(toolkit) : null;
+    if (arcadeTarget === null && slug === null) {
       return (
         "That is not something I can connect, so no button was posted. Use the " +
-        "name exactly as the search reported it — an app like 'gmail', or a " +
-        "qualified action like 'Gmail.SendMail'."
+        "name exactly as the search reported it."
       );
     }
 
     const request =
-      action === null
-        ? { toolkit: slug as string, provider: "composio" as const }
-        : { target: action, provider: "arcade" as const };
+      provider === "arcade"
+        ? { target: arcadeTarget as string, provider: "arcade" as const }
+        : { toolkit: slug as string, provider: "composio" as const };
     const label = requestLabel(request);
 
     await thread.post(<ConnectAccount request={request} />);
