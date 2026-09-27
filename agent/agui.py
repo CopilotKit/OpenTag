@@ -8,9 +8,11 @@ import uuid
 from ag_ui.core import (
     EventType,
     RunFinishedEvent,
+    StepFinishedEvent,
     TextMessageContentEvent,
     TextMessageEndEvent,
     TextMessageStartEvent,
+    ToolCallEndEvent,
 )
 from copilotkit import LangGraphAGUIAgent
 from langgraph.errors import GraphRecursionError
@@ -226,6 +228,49 @@ def build_agui_agent(graph, *, recursion_limit: int | None = None):
     )
 
 
+class OpenEvents:
+    """The steps, text messages, and tool calls a stream has opened but not closed."""
+
+    def __init__(self):
+        self.steps = []
+        self.messages = []
+        self.tool_calls = []
+
+    def track(self, event):
+        kind = getattr(event, "type", None)
+        if kind == EventType.STEP_STARTED:
+            self.steps.append(event.step_name)
+        elif kind == EventType.STEP_FINISHED:
+            _discard(self.steps, event.step_name)
+        elif kind == EventType.TEXT_MESSAGE_START:
+            self.messages.append(event.message_id)
+        elif kind == EventType.TEXT_MESSAGE_END:
+            _discard(self.messages, event.message_id)
+        elif kind == EventType.TOOL_CALL_START:
+            self.tool_calls.append(event.tool_call_id)
+        elif kind == EventType.TOOL_CALL_END:
+            _discard(self.tool_calls, event.tool_call_id)
+
+    def close(self):
+        """End events for everything still open, innermost first."""
+        for tool_call_id in reversed(self.tool_calls):
+            yield ToolCallEndEvent(
+                type=EventType.TOOL_CALL_END, tool_call_id=tool_call_id
+            )
+        for message_id in reversed(self.messages):
+            yield TextMessageEndEvent(
+                type=EventType.TEXT_MESSAGE_END, message_id=message_id
+            )
+        for step_name in reversed(self.steps):
+            yield StepFinishedEvent(type=EventType.STEP_FINISHED, step_name=step_name)
+        self.steps, self.messages, self.tool_calls = [], [], []
+
+
+def _discard(items, value):
+    if value in items:
+        items.remove(value)
+
+
 async def iter_agent_events(run, input_data, *, recovery=None):
     """Yield AG-UI events. A graph step-limit becomes a user message.
 
@@ -239,17 +284,26 @@ async def iter_agent_events(run, input_data, *, recovery=None):
     request arrives without one and opens the run under that, so echoing the
     request's own value closes a run nobody opened and leaves the open one
     hanging.
+
+    Whatever the stream left open is closed first. The adapter starts a step
+    per node and forgets it when the graph raises, and the client refuses
+    RUN_FINISHED while a step, text message, or tool call is still active —
+    the Channel then shows that refusal in Slack where the reply should be.
     """
     started = None
+    open_events = OpenEvents()
     try:
         async for event in run(input_data):
             if getattr(event, "type", None) == EventType.RUN_STARTED:
                 started = event
+            open_events.track(event)
             yield event
     except GraphRecursionError as error:
         logger.warning("[agent] the graph hit its step limit: %s", error)
         thread_id = started.thread_id if started else input_data.thread_id
         run_id = started.run_id if started else input_data.run_id
+        for event in open_events.close():
+            yield event
         if recovery is not None:
             async for event in recovery(thread_id, run_id):
                 yield event

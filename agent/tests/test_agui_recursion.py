@@ -4,7 +4,14 @@ import uuid
 from types import SimpleNamespace
 
 import pytest
-from ag_ui.core import EventType, RunAgentInput, RunStartedEvent
+from ag_ui.core import (
+    EventType,
+    RunAgentInput,
+    RunStartedEvent,
+    StepStartedEvent,
+    TextMessageStartEvent,
+    ToolCallStartEvent,
+)
 from langchain_core.messages import AIMessage
 from langgraph.checkpoint.memory import MemorySaver
 from langgraph.errors import GraphRecursionError
@@ -170,3 +177,76 @@ def test_the_recursion_snapshot_keeps_the_messages_the_run_committed():
     )
 
     assert [message.content for message in snapshot.messages].count("thinking") >= 1
+
+
+def still_open_at_run_finished(events):
+    """What `@ag-ui/client`'s verifier would still see open at RUN_FINISHED.
+
+    The client refuses RUN_FINISHED while any step, text message, or tool call
+    is active, and the Channel shows that refusal to the person in Slack in
+    place of the reply. A raw SSE read of the stream looks fine, because
+    nothing on that side checks the order.
+    """
+    steps, messages, tool_calls = set(), set(), set()
+    for event in events:
+        if event.type == EventType.STEP_STARTED:
+            steps.add(event.step_name)
+        elif event.type == EventType.STEP_FINISHED:
+            steps.discard(event.step_name)
+        elif event.type == EventType.TEXT_MESSAGE_START:
+            messages.add(event.message_id)
+        elif event.type == EventType.TEXT_MESSAGE_END:
+            messages.discard(event.message_id)
+        elif event.type == EventType.TOOL_CALL_START:
+            tool_calls.add(event.tool_call_id)
+        elif event.type == EventType.TOOL_CALL_END:
+            tool_calls.discard(event.tool_call_id)
+        elif event.type == EventType.RUN_FINISHED:
+            return {"steps": steps, "messages": messages, "tool_calls": tool_calls}
+    raise AssertionError("the run never finished")
+
+
+def test_the_recursion_exit_closes_the_step_the_graph_was_in():
+    # The adapter opens a step per node and forgets it when the graph raises,
+    # so the step the limit interrupted is still open when the reply finishes
+    # the run. The client rejects that RUN_FINISHED, and Slack shows the
+    # rejection instead of the reply.
+    events = recursion_run(looping_agent())
+
+    assert still_open_at_run_finished(events) == {
+        "steps": set(),
+        "messages": set(),
+        "tool_calls": set(),
+    }
+
+
+def test_the_recursion_exit_closes_everything_the_stream_left_open():
+    async def interrupted(_input):
+        yield RunStartedEvent(type=EventType.RUN_STARTED, thread_id="t", run_id="r")
+        yield StepStartedEvent(type=EventType.STEP_STARTED, step_name="model")
+        yield TextMessageStartEvent(
+            type=EventType.TEXT_MESSAGE_START, role="assistant", message_id="m1"
+        )
+        yield ToolCallStartEvent(
+            type=EventType.TOOL_CALL_START,
+            tool_call_id="c1",
+            tool_call_name="search",
+            parent_message_id="m1",
+        )
+        raise GraphRecursionError("Recursion limit of 25 reached")
+
+    events = asyncio.run(
+        _collect(iter_agent_events(interrupted, SimpleNamespace(thread_id="t", run_id="r")))
+    )
+
+    assert still_open_at_run_finished(events) == {
+        "steps": set(),
+        "messages": set(),
+        "tool_calls": set(),
+    }
+    closing = [event.type for event in events[4:7]]
+    assert closing == [
+        EventType.TOOL_CALL_END,
+        EventType.TEXT_MESSAGE_END,
+        EventType.STEP_FINISHED,
+    ], "close innermost first, before the reply opens its own message"
