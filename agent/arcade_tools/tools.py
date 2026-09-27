@@ -294,6 +294,18 @@ def build_arcade_tools(
         logger.warning("[arcade] %s: %s", qualified_name, sentence)
         if gated:
             emit_write_failure(label, sentence)
+        if result.outcome in (
+            Outcome.NEEDS_AUTHORIZATION,
+            Outcome.AUTHORIZATION_EXPIRED,
+        ):
+            # The model's next step, named exactly. Naming the action rather
+            # than the app matters here: connecting the action asks the
+            # provider for that action's permissions, which connecting the app
+            # already granted and which did not cover this one.
+            sentence += (
+                f" Call connect_app naming {qualified_name} so the person can "
+                "grant it, and do not retry until they say they have."
+            )
         return sentence
 
     return [search_my_tools, run_my_tool]
@@ -325,7 +337,12 @@ def _toolkit_of(qualified_name: str, candidates: tuple[str, ...]) -> str:
 
 
 def _argument_schema(definition: Any) -> list[dict[str, Any]]:
-    """The action's declared inputs, flattened for the model to read."""
+    """The action's declared inputs, flattened for the model to read.
+
+    The allowed values and an array's element type are kept. Without them the
+    model sees a bare "string" and guesses, Arcade refuses the call, and the
+    retry spends a step the turn may not have.
+    """
     node = definition.get("input") if isinstance(definition, dict) else None
     parameters = (node or {}).get("parameters") if isinstance(node, dict) else None
     if not isinstance(parameters, list):
@@ -335,14 +352,16 @@ def _argument_schema(definition: Any) -> list[dict[str, Any]]:
         if not isinstance(parameter, dict):
             continue
         schema = parameter.get("value_schema")
-        flattened.append(
-            {
-                "name": parameter.get("name"),
-                "required": parameter.get("required") is True,
-                "description": parameter.get("description") or "",
-                "type": (schema or {}).get("val_type")
-                if isinstance(schema, dict)
-                else None,
-            }
-        )
+        schema = schema if isinstance(schema, dict) else {}
+        argument = {
+            "name": parameter.get("name"),
+            "required": parameter.get("required") is True,
+            "description": parameter.get("description") or "",
+            "type": schema.get("val_type"),
+        }
+        if schema.get("enum"):
+            argument["enum"] = list(schema["enum"])
+        if schema.get("inner_val_type"):
+            argument["items"] = schema["inner_val_type"]
+        flattened.append(argument)
     return flattened

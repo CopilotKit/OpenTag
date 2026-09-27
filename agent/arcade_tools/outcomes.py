@@ -165,9 +165,16 @@ _SENTENCES = {
         "{action} needs that account connected first. Ask the person to connect "
         "it, then try again."
     ),
+    # Deliberately not "revoked or expired". Arcade authorizes per action, so an
+    # account connected for one action can be refused by the provider for
+    # another that needs broader access. A live run hit exactly that: one call
+    # succeeded and the next, on the same account, came back with this error.
+    # Calling the account dead sent the model looking for a different tool
+    # instead of asking for the access this one needs.
     Outcome.AUTHORIZATION_EXPIRED: (
-        "{action} could not run because the connected account is no longer "
-        "valid — it may have been revoked or expired. It needs connecting again."
+        "{action} was refused by the provider with the access currently "
+        "granted. It most likely needs additional permission for this action; "
+        "less often, the connection has been revoked or has expired."
     ),
     Outcome.INVALID_ARGUMENTS: "{action} was rejected as invalid: {message}",
     Outcome.RATE_LIMITED: (

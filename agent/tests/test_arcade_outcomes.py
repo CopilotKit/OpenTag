@@ -181,3 +181,16 @@ def test_a_definite_failure_does_not_cast_doubt_on_a_write_that_never_ran():
     )
 
     assert "may already" not in rendered.lower()
+
+
+
+def test_an_upstream_auth_error_does_not_declare_the_account_dead():
+    # Found live: `ListPullRequests` succeeded and `WhoAmI`, on the same
+    # account seconds later, came back with this error. Arcade authorizes per
+    # action, so the likelier reading is missing permission for this action,
+    # and saying "revoked" sent the model to look for a different tool.
+    rendered = describe_outcome(
+        outcome_of_response(error("UPSTREAM_RUNTIME_AUTH_ERROR")), action="Who am i"
+    )
+
+    assert "additional permission" in rendered

@@ -22,6 +22,7 @@ identity, and the authorization check refuses to run without one.
 from __future__ import annotations
 
 import logging
+import re
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any
@@ -141,25 +142,42 @@ class Catalog:
         *,
         limit: int = DEFAULT_SEARCH_LIMIT,
     ) -> list[dict[str, Any]]:
-        """Actions in `toolkits` whose name or description match `query`.
+        """Actions in `toolkits` ranked by how many of the query's words they match.
 
-        A plain substring index rather than a semantic one. The plan allows it
-        for a first version, and the allowlist keeps the haystack small enough
-        that it is a reasonable answer rather than a placeholder.
+        Words, not the phrase. The first version matched the whole query as one
+        substring, so "list pull requests in a repository" found nothing unless
+        a description contained exactly those words in that order — which none
+        did. The model then rephrased and searched again, and in the first live
+        Slack run did so until it hit the graph's step limit.
+
+        Tool names are split on their case, so `ListPullRequests` matches
+        "pull" and "requests". A trailing plural `s` is ignored on both sides.
+        Not semantic, and not meant to be: the allowlist keeps the haystack to
+        the configured apps, where counting shared words ranks well enough.
+
+        An empty query returns the first `limit` actions in catalogue order.
         """
-        needle = query.strip().lower()
-        matches: list[dict[str, Any]] = []
+        terms = _terms(query)
+        if query.strip() and not terms:
+            # Asked, but only in words that match everything ("show me my").
+            # That is not the same as asking for the whole catalogue.
+            return []
+        scored: list[tuple[int, int, dict[str, Any]]] = []
+        position = 0
         for toolkit in toolkits:
             for item in self.definitions(toolkit):
-                if len(matches) >= limit:
-                    return matches
-                haystack = " ".join(
-                    str(item.get(field) or "")
-                    for field in ("qualified_name", "name", "description")
-                ).lower()
-                if not needle or needle in haystack:
-                    matches.append(item)
-        return matches
+                position += 1
+                if not terms:
+                    scored.append((0, position, item))
+                    continue
+                score = len(terms & _item_terms(item))
+                if score:
+                    scored.append((score, position, item))
+
+        # Highest score first; catalogue order breaks ties, so results are
+        # stable from one turn to the next.
+        scored.sort(key=lambda entry: (-entry[0], entry[1]))
+        return [item for _score, _position, item in scored[:limit]]
 
     def lookup(self, qualified_name: str) -> dict[str, Any] | None:
         """One action's definition, or `None` when this deployment has no such action."""
@@ -209,6 +227,46 @@ class Catalog:
             connected=requirements.get("met") is True,
             never_started=authorization.get("token_status") == "not_started",
         )
+
+
+#: Words that appear in almost every query and almost every description, so
+#: matching them ranks nothing. Deliberately short — anything that might name
+#: an action ("list", "get", "create") stays.
+_STOPWORDS = frozenset(
+    {
+        "a", "an", "and", "any", "are", "by", "can", "do", "for", "from", "i",
+        "in", "is", "it", "me", "my", "of", "on", "or", "please", "show", "the",
+        "to", "use", "with", "you", "your",
+    }
+)
+
+
+def _normalise(word: str) -> str:
+    """Lowercase, and drop one trailing plural `s` from anything long enough."""
+    word = word.lower()
+    return word[:-1] if len(word) > 3 and word.endswith("s") else word
+
+
+def _words(text: str) -> list[str]:
+    """Split on non-letters and on case changes, so `ListPullRequests` is three words."""
+    spaced = re.sub(r"(?<=[a-z0-9])(?=[A-Z])", " ", text)
+    return re.findall(r"[A-Za-z0-9]+", spaced)
+
+
+def _terms(query: str) -> frozenset[str]:
+    return frozenset(
+        _normalise(word)
+        for word in _words(query)
+        if word.lower() not in _STOPWORDS and len(word) > 1
+    )
+
+
+def _item_terms(item: Mapping[str, Any]) -> frozenset[str]:
+    text = " ".join(
+        str(item.get(field) or "")
+        for field in ("qualified_name", "name", "description")
+    )
+    return frozenset(_normalise(word) for word in _words(text))
 
 
 def _get(node: Any, key: str) -> Any:
