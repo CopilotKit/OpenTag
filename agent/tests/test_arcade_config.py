@@ -83,6 +83,26 @@ def test_an_app_listed_in_both_scopes_is_personal_only():
     assert config.user_toolkits == ("Asana",)
 
 
+def test_the_both_scopes_check_ignores_case_like_everything_else():
+    # App names are compared case-insensitively everywhere else, so `Github`
+    # shared and `github` personal is one app in both lists. Left in both, an
+    # anonymous turn could run it through the shared account and search would
+    # return every action twice.
+    config = read_arcade_config(
+        {
+            "ARCADE_API_KEY": "arc_test",
+            "ARCADE_TOOLKITS": "Github,Asana",
+            "ARCADE_USER_TOOLKITS": "github",
+            "ARCADE_IDENTITY_NAMESPACE": "acme",
+        },
+        default_user_id="open-tag",
+    )
+    assert config is not None
+    assert config.workspace_toolkits == ("Asana",)
+    assert config.user_toolkits == ("github",)
+    assert config.shared_overridden_by_personal == ("Github",)
+
+
 def test_personal_apps_require_an_identity_namespace():
     # Arcade user ids are global within a project. Two deployments sharing a
     # project and both calling somebody `slack:U1` would share that person's
