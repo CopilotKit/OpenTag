@@ -173,6 +173,26 @@ describe("when it cannot", () => {
     expect((result as { message: string }).message).toContain("shared secret");
   });
 
+  it("shows the agent's own reason for a 503, which is not always the secret", async () => {
+    // The agent also answers 503 when Arcade is not configured, e.g. an old
+    // card after a provider switch. Blaming the secret there sends the operator
+    // to debug a variable that is set correctly.
+    const result = await requestArcadeConnectLink({
+      ...BASE,
+      fetchImpl: vi.fn(async () =>
+        Response.json(
+          { error: "Arcade is not configured on this deployment." },
+          { status: 503 },
+        ),
+      ) as unknown as typeof fetch,
+    });
+
+    expect(result).toEqual({
+      ok: false,
+      message: "Arcade is not configured on this deployment.",
+    });
+  });
+
   it("never shows a variable name to whoever clicked", async () => {
     const error = vi.spyOn(console, "error").mockImplementation(() => {});
     const result = await requestArcadeConnectLink({
