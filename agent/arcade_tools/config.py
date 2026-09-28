@@ -118,10 +118,14 @@ def read_arcade_config(
 
     # Unconditional, and before the namespace check: a name in both lists is the
     # operator saying it must run as the person, so the shared entry is dropped
-    # rather than left to be picked by iteration order.
-    overridden = tuple(name for name in workspace_toolkits if name in user_toolkits)
+    # rather than left to be picked by iteration order. Case-insensitive, like
+    # every other app-name comparison: `Github` and `github` are one app.
+    personal = {name.lower() for name in user_toolkits}
+    overridden = tuple(
+        name for name in workspace_toolkits if name.lower() in personal
+    )
     workspace_toolkits = tuple(
-        name for name in workspace_toolkits if name not in user_toolkits
+        name for name in workspace_toolkits if name.lower() not in personal
     )
 
     identity_namespace = _value(source, "ARCADE_IDENTITY_NAMESPACE")
