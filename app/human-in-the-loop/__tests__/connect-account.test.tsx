@@ -123,6 +123,32 @@ describe("ConnectAccount", () => {
     vi.unstubAllEnvs();
     consoleError.mockRestore();
   });
+
+  it("still answers a card posted before cards carried a request", async () => {
+    // A click re-renders the card from its stored props, and every card posted
+    // before this shape existed stored `{ toolkit }`. Reading only `request`
+    // threw on those, the Channel swallowed it, and the button did nothing.
+    const consoleError = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => undefined);
+    vi.stubEnv("AGENT_URL", "");
+    const legacyProps = { toolkit: "gmail" } as unknown as Parameters<
+      typeof ConnectAccount
+    >[0];
+
+    const card = ConnectAccount(legacyProps);
+    expect(JSON.stringify(renderToIR(card))).toContain("Connect Gmail");
+
+    const { ctx, postEphemeral } = interaction({ id: "U1", kind: "human" });
+    await connectButton(card)(ctx);
+
+    // Answered by the Composio path, which is what every such card was.
+    expect(JSON.stringify(postEphemeral.mock.calls[0])).toMatch(
+      /not configured to connect accounts/i,
+    );
+    vi.unstubAllEnvs();
+    consoleError.mockRestore();
+  });
 });
 
 describe("the notice shown when the click could not even be handed over", () => {
