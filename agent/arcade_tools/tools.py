@@ -245,9 +245,13 @@ def build_arcade_tools(
                 "be checked just now."
             )
         if not authorization.connected:
+            # Named exactly, as after a run: Arcade authorizes per action, so
+            # connecting the app may authorize an action already granted and
+            # leave this one without the access it needs.
             return (
                 f"{qualified_name} needs that account connected first. "
-                "Ask to connect it, then try again."
+                f"Call connect_app naming {qualified_name} so the person can "
+                "grant it, and do not retry until they say they have."
             )
 
         effect = effect_of_definition(definition)
