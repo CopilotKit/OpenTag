@@ -170,7 +170,16 @@ export function requestLabel(request: ConnectRequest): string {
   return name.charAt(0).toUpperCase() + name.slice(1);
 }
 
-export function ConnectAccount({ request }: { request: ConnectRequest }) {
+/**
+ * `toolkit` is how every card posted before `request` existed stored its props,
+ * and a click re-renders the card from those. Reading only `request` threw on
+ * them, and the Channel swallows that, so the button did nothing.
+ */
+export function ConnectAccount(props: {
+  request?: ConnectRequest;
+  toolkit?: string;
+}) {
+  const request: ConnectRequest = props.request ?? { toolkit: props.toolkit };
   const label = requestLabel(request);
   return (
     <Message accent="#010507">
