@@ -233,6 +233,15 @@ export async function handleArcadeBrowserRequest(
     sendText(response, 405, "Method not allowed.");
     return true;
   }
+  if (request.method === "HEAD") {
+    // Both pages spend a single-use value. A person's browser only ever sends
+    // GET; HEAD comes from link scanners and prefetchers, and answering it with
+    // the real work would use up the link before the person clicks it.
+    response.statusCode = 200;
+    response.setHeader("Cache-Control", "no-store");
+    response.end();
+    return true;
+  }
 
   if (path === START_PATH) {
     const claimed = await client.claimTicket(url.searchParams.get("t") ?? "");
