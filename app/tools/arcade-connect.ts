@@ -232,9 +232,12 @@ export async function requestArcadeConnectLink(
   }
 
   if (response.status === 503) {
-    // The agent says it has no secret to check, which is an operator problem
-    // and has its own sentence.
-    return { ok: false, message: NO_SHARED_SECRET };
+    // The agent is not configured for this: no shared secret, or no Arcade at
+    // all. Its own sentence names which, so it is shown. A 503 that is not the
+    // agent's JSON — a proxy's HTML page — carries no sentence for anyone.
+    const isJson = (response.headers.get("content-type") ?? "").includes("json");
+    const reason = isJson ? await safeRefusal(response) : null;
+    return { ok: false, message: reason ?? NO_SHARED_SECRET };
   }
   if (response.status === 400) {
     // A refusal the agent wrote for a person to read — a shared app, an
