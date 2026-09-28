@@ -87,6 +87,25 @@ describe("routing", () => {
 
     expect(sink.response.statusCode).toBe(405);
   });
+
+  it("spends nothing on a HEAD, which a link scanner sends and a person never does", async () => {
+    // Both pages spend a single-use value. A scanner or prefetcher probing the
+    // link with HEAD would use it up, and the person clicking afterwards would
+    // be told their link was already used.
+    for (const path of ["/arcade/start?t=ticket-1", "/arcade/verify?flow_id=f1"]) {
+      const client = clientWith();
+      const request = requestFor(path, { cookie: `${COOKIE_NAME}=handle-1` }, "HEAD");
+      const sink = responseFor(request);
+
+      expect(await handleArcadeBrowserRequest(request, sink.response, client)).toBe(true);
+
+      expect(client.claimTicket).not.toHaveBeenCalled();
+      expect(client.confirmFlow).not.toHaveBeenCalled();
+      expect(sink.response.statusCode).toBe(200);
+      expect(sink.response.getHeader("Set-Cookie")).toBeUndefined();
+      expect(sink.response.getHeader("Cache-Control")).toBe("no-store");
+    }
+  });
 });
 
 describe("the outbound hop", () => {
