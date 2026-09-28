@@ -235,6 +235,25 @@ def test_discovery_never_starts_an_account_connection():
     assert tools.executed == []
 
 
+def test_an_unauthorized_action_names_itself_for_connect_app():
+    # Arcade authorizes per action, and search only probes one action per app.
+    # Told just "connect it", the model names the app, the agent authorizes an
+    # action already granted, and the person hears "already connected" with no
+    # way to grant what this action needs.
+    built, tools = build(
+        {"Gmail": [definition("Gmail.SendMail", description="send")]},
+        requirements_met=False,
+    )
+
+    result = invoke(
+        built["run_my_tool"], qualified_name="Gmail.SendMail", arguments={},
+        state=state(),
+    )
+
+    assert "Call connect_app naming Gmail.SendMail" in result
+    assert tools.executed == []
+
+
 # --- execution: the allowlist ---
 
 
