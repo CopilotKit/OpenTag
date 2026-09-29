@@ -64,6 +64,7 @@ def start_connection(
     identity: Any,
     target: Any,
     resolve_action: Callable[[str], str | None] | None = None,
+    display_name: str | None = None,
 ) -> ConnectStarted | ConnectRefused:
     """Begin connecting `identity`'s own account for `target`.
 
@@ -163,7 +164,9 @@ def start_connection(
     # It is not the id the verifier is later given — that was established
     # against the live API — so a record keyed on it would never be found.
     try:
-        ticket = pending.issue_ticket(identity=user_id, provider_url=url)
+        ticket = pending.issue_ticket(
+            identity=user_id, provider_url=url, display_name=display_name
+        )
     except ValueError as error:
         return ConnectRefused(reason=str(error))
 

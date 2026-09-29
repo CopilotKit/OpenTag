@@ -15,11 +15,17 @@
  * the answer comes from a logged-in session. Nobody logs into OpenTag.
  *
  * So the outbound hop gives the browser a session. A person is handed a link to
- * `/arcade/start`; passing through, their browser collects an opaque cookie and
- * is sent on to the provider. When Arcade returns them to `/arcade/verify`,
- * that cookie is what answers the question.
+ * `/arcade/start`; there their browser collects an opaque cookie and is shown
+ * who the link was made for, with a button on to the provider. When Arcade
+ * returns them to `/arcade/verify`, that cookie is what answers the question.
  *
- * Nothing identifying travels in either direction. The link carries a ticket
+ * The cookie proves the same browser came back, not who is using it. A link
+ * forwarded to somebody else would bind their account to the sender, so the
+ * start page names the person it was minted for before anything is signed
+ * into. That makes a forwarded link visibly someone else's; it is not proof of
+ * identity, which would need a sign-in this deployment does not have.
+ *
+ * Nothing that decides identity travels in either direction. The link carries a ticket
  * that means nothing without the agent; the cookie carries a handle that means
  * nothing without the agent; and the identity is resolved only there.
  */
@@ -47,6 +53,8 @@ export const DEFAULT_TIMEOUT_MS = 10_000;
 export interface ClaimedTicket {
   providerUrl: string;
   browserHandle: string;
+  /** Who the link was minted for, as their chat surface names them. Display only. */
+  displayName?: string | null;
 }
 
 export interface ConfirmedFlow {
@@ -207,6 +215,70 @@ function sendText(
   response.end(body);
 }
 
+function escapeHtml(value: string): string {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
+function isWebUrl(value: string): boolean {
+  try {
+    const { protocol } = new URL(value);
+    return protocol === "https:" || protocol === "http:";
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * The page between the link and the provider.
+ *
+ * The link binds whatever account is signed into to the person it was minted
+ * for, and nothing here can prove the browser belongs to that person. So a
+ * forwarded link is stopped by saying, before anybody signs in, whose it is and
+ * what continuing would do. It does not prove identity; it makes a forwarded
+ * link visibly somebody else's.
+ */
+function continuePage(providerUrl: string, displayName: string | null): string {
+  const name = displayName ? escapeHtml(displayName) : null;
+  const whose = name
+    ? `This link was made for <strong>${name}</strong> in the chat.`
+    : "This link was made for the person who clicked Connect in the chat.";
+  const warning = name
+    ? `If you are not ${name}, close this tab. Continuing connects the account you sign in with to ${name}, who could then use it through OpenTag.`
+    : "If that was not you, close this tab. Continuing connects the account you sign in with to them, and they could then use it through OpenTag.";
+  return [
+    "<!doctype html>",
+    '<html lang="en"><head><meta charset="utf-8">',
+    '<meta name="viewport" content="width=device-width, initial-scale=1">',
+    "<title>Connect your account</title>",
+    "<style>body{font:16px/1.5 system-ui,sans-serif;max-width:32rem;margin:3rem auto;padding:0 1rem;color:#111}",
+    "a.button{display:inline-block;margin-top:1rem;padding:.6rem 1.2rem;background:#111;color:#fff;border-radius:6px;text-decoration:none}</style>",
+    "</head><body>",
+    "<h1>Connect your account</h1>",
+    `<p>${whose}</p>`,
+    `<p>${warning}</p>`,
+    `<a class="button" href="${escapeHtml(providerUrl)}" rel="noreferrer">Continue</a>`,
+    "</body></html>",
+  ].join("\n");
+}
+
+function sendHtml(response: ServerResponse, body: string): void {
+  response.statusCode = 200;
+  response.setHeader("Content-Type", "text/html; charset=utf-8");
+  response.setHeader("Cache-Control", "no-store");
+  response.setHeader("Referrer-Policy", "no-referrer");
+  // Nothing on this page loads anything or runs anything.
+  response.setHeader(
+    "Content-Security-Policy",
+    "default-src 'none'; style-src 'unsafe-inline'; frame-ancestors 'none'",
+  );
+  response.end(body);
+}
+
 function redirect(response: ServerResponse, location: string): void {
   response.statusCode = 303;
   response.setHeader("Location", location);
@@ -249,8 +321,13 @@ export async function handleArcadeBrowserRequest(
       sendText(response, 200, ALREADY_SPENT);
       return true;
     }
+    if (!isWebUrl(claimed.providerUrl)) {
+      console.warn("[opentag] the agent returned a provider link that is not a web address");
+      sendText(response, 200, UNAVAILABLE);
+      return true;
+    }
     setSessionCookie(response, claimed.browserHandle);
-    redirect(response, claimed.providerUrl);
+    sendHtml(response, continuePage(claimed.providerUrl, claimed.displayName ?? null));
     return true;
   }
 
