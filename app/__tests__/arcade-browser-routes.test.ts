@@ -109,18 +109,83 @@ describe("routing", () => {
 });
 
 describe("the outbound hop", () => {
-  it("spends the ticket and sends the browser to the provider", async () => {
-    const client = clientWith();
+  it("spends the ticket and offers the provider behind a warning, not a redirect", async () => {
+    // A forwarded link must not carry somebody straight to a sign-in that binds
+    // their account to the sender. The page says who the link was made for
+    // before anything is signed into.
+    const client = clientWith({
+      claimTicket: vi.fn(async () => ({
+        providerUrl: "https://provider.example/oauth?state=abc&x=1",
+        browserHandle: "handle-1",
+        displayName: "Ada Lovelace",
+      })),
+    });
     const request = requestFor("/arcade/start?t=ticket-1");
     const sink = responseFor(request);
 
     await handleArcadeBrowserRequest(request, sink.response, client);
 
     expect(client.claimTicket).toHaveBeenCalledWith("ticket-1");
-    expect(sink.response.statusCode).toBe(303);
-    expect(sink.response.getHeader("Location")).toBe(
-      "https://provider.example/oauth?state=abc",
+    expect(sink.response.statusCode).toBe(200);
+    expect(sink.response.getHeader("Location")).toBeUndefined();
+    expect(sink.response.getHeader("Content-Type")).toMatch(/text\/html/);
+    expect(sink.response.getHeader("Cache-Control")).toBe("no-store");
+    expect(sink.body).toContain("made for <strong>Ada Lovelace</strong>");
+    expect(sink.body).toMatch(/If you are not Ada Lovelace, close this tab/);
+    expect(sink.body).toContain(
+      'href="https://provider.example/oauth?state=abc&amp;x=1"',
     );
+  });
+
+  it("escapes the name, which a person chose and anyone can set", async () => {
+    const request = requestFor("/arcade/start?t=ticket-1");
+    const sink = responseFor(request);
+
+    await handleArcadeBrowserRequest(
+      request,
+      sink.response,
+      clientWith({
+        claimTicket: vi.fn(async () => ({
+          providerUrl: "https://provider.example/oauth",
+          browserHandle: "handle-1",
+          displayName: '<img src=x onerror="alert(1)">',
+        })),
+      }),
+    );
+
+    expect(sink.body).not.toContain("<img");
+    expect(sink.body).toContain("&lt;img src=x onerror=&quot;alert(1)&quot;&gt;");
+  });
+
+  it("still warns when no name is known", async () => {
+    const request = requestFor("/arcade/start?t=ticket-1");
+    const sink = responseFor(request);
+
+    await handleArcadeBrowserRequest(request, sink.response, clientWith());
+
+    expect(sink.body).toMatch(/made for the person who clicked Connect/);
+    expect(sink.body).toMatch(/If that was not you, close this tab/);
+    expect(sink.body).toContain('href="https://provider.example/oauth?state=abc"');
+  });
+
+  it("never offers a link that is not http(s)", async () => {
+    const request = requestFor("/arcade/start?t=ticket-1");
+    const sink = responseFor(request);
+
+    await handleArcadeBrowserRequest(
+      request,
+      sink.response,
+      clientWith({
+        claimTicket: vi.fn(async () => ({
+          providerUrl: "javascript:alert(1)",
+          browserHandle: "handle-1",
+          displayName: null,
+        })),
+      }),
+    );
+
+    expect(sink.body).not.toContain("javascript:");
+    expect(sink.response.getHeader("Set-Cookie")).toBeUndefined();
   });
 
   it("gives the browser a cookie no script can read", async () => {

@@ -203,6 +203,9 @@ class ArcadeConnectRequest(BaseModel):
     #: whether a person clicked, and "I could not tell" is not a reason to mint
     #: a bearer capability.
     kind: str | None = None
+    #: The clicker's display name, for the start page's "this link is for"
+    #: line. Display only.
+    display_name: str | None = None
 
 
 @app.post("/arcade/connect")
@@ -252,6 +255,7 @@ def arcade_connect(body: ArcadeConnectRequest, request: Request):
         identity=identity,
         target=body.target,
         resolve_action=lambda toolkit: _first_action(runtime.catalog, toolkit),
+        display_name=body.display_name,
     )
     if isinstance(result, ArcadeConnectRefused):
         return JSONResponse({"error": result.reason}, status_code=400)
@@ -337,6 +341,9 @@ def arcade_claim(body: ArcadeClaimRequest, request: Request):
     return {
         "providerUrl": claimed.provider_url,
         "browserHandle": runtime.pending_flows.remember_browser(claimed.identity),
+        # Shown on the start page so a forwarded link says who it was made for.
+        # The name the clicker's own surface sent; the identity key stays here.
+        "displayName": claimed.display_name,
     }
 
 

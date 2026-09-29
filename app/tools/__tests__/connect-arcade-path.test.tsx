@@ -185,6 +185,32 @@ describe("pressing it", () => {
     expect(postEphemeral).toHaveBeenCalled();
   });
 
+  it("passes the clicker's display name, falling back to their handle", async () => {
+    for (const [actor, expected] of [
+      [{ id: "U1", kind: "human", name: "Ada Lovelace", handle: "ada" }, "Ada Lovelace"],
+      [{ id: "U1", kind: "human", handle: "ada" }, "ada"],
+      [{ id: "U1", kind: "human" }, undefined],
+    ] as const) {
+      const requestArcade = vi.fn(async () => ({
+        ok: true as const,
+        url: "https://opentag.example/arcade/start?t=tkt",
+      }));
+      const { ctx } = interaction(actor as never);
+
+      await handleConnectClick(
+        { target: "Gmail.SendMail", provider: "arcade" },
+        ctx,
+        { environment, request: vi.fn() as never, requestArcade },
+      );
+
+      expect(
+        ((requestArcade.mock.calls as unknown as unknown[][])[0]?.[0] as {
+          actorName?: string;
+        }).actorName,
+      ).toBe(expected);
+    }
+  });
+
   it("asks Composio when the card says nothing about a provider", async () => {
     // Every card posted before the field existed is one of these.
     const requestArcade = vi.fn();
