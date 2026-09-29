@@ -99,6 +99,16 @@ describe("asking for a link", () => {
     );
   });
 
+  it("sends the clicker's display name for the start page's warning", async () => {
+    const fetchImpl = respondWith({ ticket: "tkt" });
+
+    await requestArcadeConnectLink({ ...BASE, actorName: "Ada Lovelace", fetchImpl });
+
+    const [, init] = (fetchImpl as unknown as { mock: { calls: unknown[][] } })
+      .mock.calls[0] as [string, RequestInit];
+    expect(JSON.parse(init.body as string).display_name).toBe("Ada Lovelace");
+  });
+
   it("builds the link from this side's own address", async () => {
     // The agent has no public address and should not learn one.
     const result = await requestArcadeConnectLink({

@@ -25,6 +25,11 @@ export interface ArcadeConnectInput {
    * for anything but a person, and only this side knows what clicked.
    */
   actorKind: string;
+  /**
+   * The clicker's display name, shown on the start page so a forwarded link
+   * says who it was made for. Display only; the agent decides nothing by it.
+   */
+  actorName?: string;
   platform: string;
   /** A qualified action, e.g. `Gmail.SendMail`. */
   target: string;
@@ -221,6 +226,7 @@ export async function requestArcadeConnectLink(
         kind: input.actorKind,
         platform: input.platform,
         target: input.target,
+        ...(input.actorName ? { display_name: input.actorName } : {}),
       }),
       signal: controller.signal,
     });

@@ -170,6 +170,7 @@ async function runConnectClick(
         agentAuthHeader: environment.agentAuthHeader,
         actorId: actor.id,
         actorKind: actor.kind,
+        actorName: actor.name ?? actor.handle,
         platform: interaction.platform,
         target: action as string,
       })

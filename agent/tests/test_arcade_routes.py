@@ -255,6 +255,40 @@ def test_claiming_a_ticket_says_where_to_go_and_names_nobody(client, monkeypatch
     assert "acme" not in str(body)
 
 
+def test_claiming_a_ticket_returns_the_name_it_was_minted_for(client, monkeypatch):
+    # The start page names who the link is for, so somebody who was forwarded
+    # it can see it is not theirs before they sign in and bind their account
+    # to that person. The name is the clicker's own display name, sent by the
+    # surface when it asked; the identity key still stays here.
+    monkeypatch.setenv("AGENT_AUTH_HEADER", SECRET)
+    install(monkeypatch)
+
+    minted = client.post(
+        "/arcade/connect",
+        json={**CONNECT_BODY, "display_name": "  Ada Lovelace  "},
+        headers={"Authorization": SECRET},
+    )
+    body = client.post(
+        "/arcade/claim",
+        json={"ticket": minted.json()["ticket"]},
+        headers={"Authorization": SECRET},
+    ).json()
+
+    assert body["displayName"] == "Ada Lovelace"
+    assert "slack:U1" not in str(body)
+
+
+def test_a_ticket_minted_without_a_name_claims_with_none(client, monkeypatch):
+    monkeypatch.setenv("AGENT_AUTH_HEADER", SECRET)
+    install(monkeypatch)
+
+    body = client.post(
+        "/arcade/claim", json={"ticket": mint(client)}, headers={"Authorization": SECRET}
+    ).json()
+
+    assert body["displayName"] is None
+
+
 def test_a_ticket_cannot_be_spent_twice(client, monkeypatch):
     # A forwarded link finds nothing, and a double-click starts one session.
     monkeypatch.setenv("AGENT_AUTH_HEADER", SECRET)

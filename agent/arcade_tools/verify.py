@@ -73,6 +73,22 @@ class PendingConnection:
     #: Where to send them next. Held here rather than in the link so the link
     #: carries nothing but an opaque ticket.
     provider_url: str
+    #: The clicker's display name, shown on the start page so somebody who was
+    #: forwarded the link can see it was made for someone else. Display only:
+    #: nothing is decided by it.
+    display_name: str | None = None
+
+
+#: Long enough for any real name, short enough that a page cannot be filled.
+MAX_DISPLAY_NAME = 80
+
+
+def clean_display_name(value: Any) -> str | None:
+    """A display name fit to show, or `None`."""
+    if not isinstance(value, str):
+        return None
+    cleaned = " ".join(value.split())[:MAX_DISPLAY_NAME].strip()
+    return cleaned or None
 
 
 class _Expiring:
@@ -144,11 +160,18 @@ class PendingFlows:
 
     # --- the link handed to one person ---
 
-    def issue_ticket(self, *, identity: str, provider_url: str) -> str:
+    def issue_ticket(
+        self, *, identity: str, provider_url: str, display_name: str | None = None
+    ) -> str:
         """Mint the opaque value that goes in the link."""
         ticket = _token()
         self._tickets.put(
-            ticket, PendingConnection(identity=identity, provider_url=provider_url)
+            ticket,
+            PendingConnection(
+                identity=identity,
+                provider_url=provider_url,
+                display_name=clean_display_name(display_name),
+            ),
         )
         return ticket
 
