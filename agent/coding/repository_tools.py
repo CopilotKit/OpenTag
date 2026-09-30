@@ -71,8 +71,8 @@ def _generated_branch() -> str:
     return f"opentag/{suffix or 'change'}"
 
 
-def _run_git(backend: PerJobDaytonaBackend, path: str, args: str):
-    return backend.execute(f"git -C {shlex.quote(path)} {args}")
+def _run_git(backend: PerJobDaytonaBackend, path: str, *args: str):
+    return backend.execute(shlex.join(["git", "-C", path, *args]))
 
 
 def _prepared_result(prepared: PreparedRepository, *, replayed: bool = False) -> str:
@@ -256,14 +256,12 @@ def build_repository_tools(
         )
 
         if existing_pr is None:
-            result = _run_git(
-                backend, path, f"switch -c {shlex.quote(head_branch)}"
-            )
+            result = _run_git(backend, path, "switch", "-c", head_branch)
             if result.exit_code != 0:
                 raise RuntimeError(f"failed to create working branch: {result.output}")
 
         if sync_base:
-            pull_mode = _run_git(backend, path, "config pull.rebase false")
+            pull_mode = _run_git(backend, path, "config", "pull.rebase", "false")
             if pull_mode.exit_code != 0:
                 raise RuntimeError(
                     f"failed to configure merge-based synchronization: {pull_mode.output}"
@@ -335,17 +333,17 @@ def build_repository_tools(
                 "existing_pr_number was not verified by prepare_repository"
             )
 
-        branch = _run_git(backend, prepared.path, "branch --show-current")
+        branch = _run_git(backend, prepared.path, "branch", "--show-current")
         if branch.exit_code != 0 or branch.output.strip() != head_branch:
             raise RuntimeError(
                 f"working branch is {branch.output.strip()!r}, expected {head_branch!r}"
             )
-        dirty = _run_git(backend, prepared.path, "status --porcelain")
+        dirty = _run_git(backend, prepared.path, "status", "--porcelain")
         if dirty.exit_code != 0:
             raise RuntimeError(f"failed to inspect worktree: {dirty.output}")
         if dirty.output.strip():
             raise RuntimeError("worktree has uncommitted changes; commit before publishing")
-        revision = _run_git(backend, prepared.path, "rev-parse HEAD")
+        revision = _run_git(backend, prepared.path, "rev-parse", "HEAD")
         if revision.exit_code != 0:
             raise RuntimeError(f"failed to resolve commit: {revision.output}")
         commit = revision.output.strip()
