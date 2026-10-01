@@ -379,6 +379,7 @@ test("leaves optional settings out of the container until context supplies them"
     // Wide open by default because the agent sits on a private subnet with no
     // ingress; narrowing it is the operator's call, not a silent edit here.
     CORS_ALLOW_ORIGINS: "*",
+    WEB_SEARCH_PROVIDER: "parallel",
     DAYTONA_TTL_MINUTES: "60",
     GITHUB_MCP_URL: "https://api.githubcopilot.com/mcp/readonly",
     // The agent derives the default Composio workspace user id from this, so
@@ -594,4 +595,17 @@ test("grants pull access when using existing private ECR repositories", () => {
   assert.match(json, /opentag-runtime/);
   assert.match(json, /ecr:BatchGetImage/);
   assert.match(json, /v1\.2\.3/);
+});
+
+test("Parallel is default and authenticated secrets are opt-in", () => {
+  const defaults = Template.fromStack(stackWithContext());
+  assert.equal(environmentValues(defaults, "agent").WEB_SEARCH_PROVIDER, "parallel");
+  assert.ok(!("PARALLEL_API_KEY" in secretsByName(defaults, "agent")));
+  const authenticated = Template.fromStack(stackWithContext({ parallelAuthenticated: "true" }));
+  assert.deepEqual(secretsByName(authenticated, "agent").PARALLEL_API_KEY, secretsManagerField("PARALLEL_API_KEY"));
+  for (const provider of ["none", "tavily"]) {
+    const template = Template.fromStack(stackWithContext({ webSearchProvider: provider }));
+    assert.equal(environmentValues(template, "agent").WEB_SEARCH_PROVIDER, provider);
+  }
+  assert.throws(() => stackWithContext({ webSearchProvider: "unknown" }), /webSearchProvider/);
 });

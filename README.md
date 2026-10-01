@@ -188,7 +188,7 @@ AGENT_DISPLAY_NAME=OpenTag
 ```
 
 Both the Node runtime and the Python agent load this one root `.env`; Railway
-supplies the same values as service variables. Tavily, GitHub, PostHog, Linear,
+supplies the same values as service variables. Parallel search works without a key by default. GitHub, PostHog, Linear,
 and Notion are optional — see [Optional research
 sources](#optional-research-sources).
 
@@ -323,7 +323,7 @@ runtime (Node + CopilotRuntime with embedded Channels)
           ▼
 agent (Python + LangGraph deepagents)
           ├── OpenAI
-          ├── Tavily (optional)
+          ├── Parallel web research (default; configurable)
           ├── GitHub MCP (optional, read-only)
           ├── PostHog MCP (optional, read-only)
           ├── Linear MCP (optional)
@@ -376,7 +376,9 @@ knowledge work, and renders UI from model knowledge.
 
 | Variable                                   | Enables                                                          |
 | ------------------------------------------ | ---------------------------------------------------------------- |
-| `TAVILY_API_KEY`                           | Live web research                                                |
+| `WEB_SEARCH_PROVIDER` | `parallel` (default), `tavily`, or `none` |
+| `PARALLEL_API_KEY` | Optional authenticated Parallel usage |
+| `TAVILY_API_KEY` | Required only with explicit `WEB_SEARCH_PROVIDER=tavily` |
 | `GITHUB_PERSONAL_ACCESS_TOKEN`             | Read-only repository, code, PR, and CI search                    |
 | `POSTHOG_PERSONAL_API_KEY`                 | PostHog analytics, read-only (use the **MCP Server** key preset) |
 | `LINEAR_API_KEY`                           | Hosted Linear MCP                                                |
@@ -473,3 +475,7 @@ Questions, forks worth showing off, and bug reports are all welcome:
 ## License
 
 [MIT](./LICENSE) © CopilotKit
+
+### Public web search
+
+The default agent uses its [Search MCP](https://docs.parallel.ai/integrations/mcp/search-mcp) for source discovery and selected-page reading, with no extra API key for light use. Tool objectives, queries and requested URLs are sent to Parallel; private conversation content should not be included in research inputs. Add `PARALLEL_API_KEY` for authenticated usage and higher limits. Set `WEB_SEARCH_PROVIDER=none` to disable public-web tools, or `tavily` with `TAVILY_API_KEY` to retain Tavily search. A pre-existing Tavily key does not override the new default. Restart the agent after changing configuration. See [setup](setup.md#public-web-research) for details.
