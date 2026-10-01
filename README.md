@@ -2,8 +2,6 @@
 
 # OpenTag
 
-<a href="https://trendshift.io/repositories/65816?utm_source=trendshift-badge&amp;utm_medium=badge&amp;utm_campaign=badge-trendshift-65816" target="_blank" rel="noopener noreferrer"><img src="https://trendshift.io/api/badge/trendshift/repositories/65816/daily?language=TypeScript" alt="CopilotKit%2FOpenTag | Trendshift" width="250" height="55"/></a>
-
 **An open-source, self-hosted knowledge-work agent for Slack and Microsoft Teams — connected tools and generative UI included.**
 
 [**See it work**](#see-it-work) · [**Quick start**](#quick-start) · [**Make it yours**](#make-it-yours) · [**Channels SDK**](https://github.com/CopilotKit/channels-sdk)
@@ -11,6 +9,8 @@
 [![Built with Channels SDK](https://img.shields.io/badge/built%20with-Channels%20SDK-6430AB)](https://github.com/CopilotKit/channels-sdk)
 [![Managed by CopilotKit Intelligence](https://img.shields.io/badge/managed%20by-CopilotKit%20Intelligence-1e293b)](https://docs.copilotkit.ai/channels)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](./LICENSE)
+
+<a href="https://trendshift.io/repositories/65816?utm_source=trendshift-badge&amp;utm_medium=badge&amp;utm_campaign=badge-trendshift-65816" target="_blank" rel="noopener noreferrer"><img src="https://trendshift.io/api/badge/trendshift/repositories/65816/daily?language=TypeScript" alt="CopilotKit%2FOpenTag | Trendshift" width="250" height="55"/></a>
 
 </div>
 
