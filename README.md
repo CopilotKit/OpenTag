@@ -10,6 +10,8 @@
 [![Managed by CopilotKit Intelligence](https://img.shields.io/badge/managed%20by-CopilotKit%20Intelligence-1e293b)](https://docs.copilotkit.ai/channels)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](./LICENSE)
 
+<a href="https://trendshift.io/repositories/65816?utm_source=trendshift-badge&amp;utm_medium=badge&amp;utm_campaign=badge-trendshift-65816" target="_blank" rel="noopener noreferrer"><img src="https://trendshift.io/api/badge/trendshift/repositories/65816/daily?language=TypeScript" alt="CopilotKit%2FOpenTag | Trendshift" width="250" height="55"/></a>
+
 </div>
 
 https://github.com/user-attachments/assets/46fb9854-7540-4756-a33f-fe97810f80d4
