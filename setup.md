@@ -89,7 +89,13 @@ or Channel slug.
 | `COMPOSIO_WORKSPACE_USER_ID` | No | Composio `user_id` the shared toolkits run as. Defaults to this service's `INTELLIGENCE_CHANNEL_NAME`, and to `open-tag` when that variable is not set on the agent |
 | `INTELLIGENCE_CHANNEL_NAME` | No | Also read here, not only by the runtime: it is the default shared-toolkit `user_id` above. The agent's own fallback is `open-tag`, so an overridden Channel name has to be set on **both** services or the shared identity differs between them |
 | `COMPOSIO_AUTH_CONFIGS` | No | `toolkit:auth_config_id` pairs, ids case-sensitive. Pins which auth config a toolkit connects against when it has several. Unset, Composio picks one from the project |
-| `AGENT_AUTH_HEADER` | No | The runtime's shared secret. Checked when set to a non-empty value, and **required** — non-empty — before a Composio connect link is minted; `""` reads as unconfigured |
+| `ARCADE_API_KEY` | No | Selects Arcade instead of Composio. Setting both API keys **fails startup** — see [Arcade](#arcade) |
+| `ARCADE_TOOLKITS` | No | Arcade toolkit names everyone shares one connection for. Names keep their case: `Github`, not `github` |
+| `ARCADE_USER_TOOLKITS` | No | Arcade toolkit names scoped to whoever sent the message. Requires `ARCADE_IDENTITY_NAMESPACE`, a non-empty `AGENT_AUTH_HEADER`, and a public address for the runtime |
+| `ARCADE_IDENTITY_NAMESPACE` | With personal toolkits | Prefixes every personal Arcade identity. Required whenever `ARCADE_USER_TOOLKITS` is set; must not contain `/`. Changing it means everyone connects again |
+| `ARCADE_APPROVALS` | No | `on` (default) or `off`. No legacy spellings |
+| `ARCADE_WORKSPACE_USER_ID` | No | Arcade `user_id` the shared toolkits run as. Defaults to `INTELLIGENCE_CHANNEL_NAME`, then `open-tag`. Never namespaced |
+| `AGENT_AUTH_HEADER` | No | The runtime's shared secret. Checked when set to a non-empty value, and **required** — non-empty — before a Composio or Arcade connect link is minted; `""` reads as unconfigured |
 | `GITHUB_PERSONAL_ACCESS_TOKEN` | No | Enables read-only GitHub repository, code, PR, Actions-run, and job-log search. It remains the legacy coding fallback |
 | `GITHUB_MCP_URL` | No | Overrides the hosted GitHub MCP URL; OpenTag still sends read-only headers |
 | `DAYTONA_API_KEY` | No | Enables the coding subagent (Daytona sandbox) |
@@ -150,7 +156,8 @@ The AG-UI endpoint is `http://localhost:8123/`; `/health` reports the
 | `INTELLIGENCE_LEARNING_CONTAINER_ID` | No | Assigns OpenTag Threads to this existing Learning Container |
 | `INTELLIGENCE_API_URL` | No | Defaults to `https://api.intelligence.copilotkit.ai` |
 | `INTELLIGENCE_GATEWAY_WS_URL` | No | Defaults to `wss://realtime.intelligence.copilotkit.ai` |
-| `AGENT_AUTH_HEADER` | No | Shared secret between runtime and agent. Sent as `Authorization`; the agent checks it when set to a non-empty value, and **requires** a non-empty one before minting a Composio connect link |
+| `AGENT_AUTH_HEADER` | No | Shared secret between runtime and agent. Sent as `Authorization`; the agent checks it when set to a non-empty value, and **requires** a non-empty one before minting a Composio or Arcade connect link |
+| `PUBLIC_URL` | For personal Arcade only | Where a browser can reach this service. Falls back to `RAILWAY_PUBLIC_DOMAIN`. Composio deployments and shared-only Arcade need none |
 | `PORT` | No | Channel HTTP port; defaults to `3000` |
 | `LOG_LEVEL` | No | Defaults to `error`. Channel lifecycle breadcrumbs are emitted at `warn`, so set `warn` or lower to see them |
 | `MERMAID_URL` | No | Overrides the Mermaid browser bundle URL used by diagram rendering |
@@ -533,6 +540,86 @@ Sessions are created with connection management off. The connect flow above is
 the only way an account is linked, because it is the only one that binds the
 connection to an actor the platform verified.
 
+### Arcade
+
+Arcade is the alternative to Composio: a smaller catalogue — roughly a hundred
+integrations against Composio's fifteen hundred — with per-user, per-action
+authorization as the point. A deployment runs one or the other, never both.
+
+**Choosing.** `ARCADE_API_KEY` selects Arcade; `COMPOSIO_API_KEY` selects
+Composio. Set both and the agent refuses to start with
+`Configure only one of COMPOSIO_API_KEY or ARCADE_API_KEY.` That is deliberate:
+switching providers strands every personal account connected to the old one, so
+it is never done by a preference order nobody chose. Switching means changing
+the key, restarting, and everybody connecting again.
+
+What Arcade does that Composio cannot:
+
+- **Authorization is per action.** Connecting so the agent can read somebody's
+  mail does not also grant it permission to send any.
+- **The approval card can tell a write from a deletion.** Arcade tools declare
+  `read_only` and `destructive` separately, so an ordinary write is gated
+  without being styled like a delete. Composio's tags cannot express that.
+
+#### Shared toolkits
+
+Name them in `ARCADE_TOOLKITS`. They run as one Arcade identity,
+`ARCADE_WORKSPACE_USER_ID`, which an operator connects once. A deployment using
+only shared toolkits needs no public address and stays as private as a Composio
+one.
+
+**Prefer curated toolkits over generated wrappers.** Arcade publishes two
+families: curated ones like `Github`, which declare what every tool does, and
+generated `*Api` wrappers like `GithubApi`, which declare nothing. A tool that
+declares nothing is gated as destructive, so every call to a wrapper — reads
+included — waits for approval. Startup names the toolkit when this happens. The
+warning is measured from what Arcade returns, never inferred from the name.
+
+#### Personal toolkits
+
+Name them in `ARCADE_USER_TOOLKITS`. Each person connects their own account from
+a Slack thread, the same way as Composio's — but Arcade needs more from the
+deployment, because it insists on sending the person's browser back through your
+own service to learn who they are.
+
+1. **`ARCADE_IDENTITY_NAMESPACE`.** Arcade identities are global to an Arcade
+   project. Without a namespace, two deployments sharing one project would share
+   each other's connected accounts. It must not contain `/`.
+2. **Your own OAuth app for each provider.** Arcade's preconfigured providers
+   (`arcade-github` and the rest) only work with Arcade's own sign-in, which
+   requires every end user to be a member of your Arcade project. Register an
+   OAuth app with the provider, add it under **Connections → Connected apps →
+   Add OAuth provider**, and copy the Redirect URL that form shows back into the
+   provider's callback field.
+3. **A public address for the runtime.** Generate a domain on the runtime
+   service, or set `PUBLIC_URL`. This is the first public endpoint an OpenTag
+   deployment has — see the note below.
+4. **The custom verifier.** Under **Connections → User verification**, choose
+   the custom user verifier and enter `<your public address>/arcade/verify`.
+   Do not save that choice without a working address: it turns off the path that
+   works for project members and turns on nothing, which looks like a fault in
+   this code.
+5. **One Arcade project per deployment.** The verifier address is set per
+   project, so staging and production cannot share one.
+
+**What the person sees.** They press Connect, pass through a page on your
+runtime without noticing, authorize at the provider, and land back on a page
+saying the connection is complete. Their browser carries a short-lived cookie
+across that round trip, which is how the verifier knows who they are; nothing
+identifying travels in a URL. Starting in one browser and finishing in another
+does not work — they are told to ask again.
+
+**Why it needs a public address.** Composio's connect flow round-trips entirely
+on Composio's infrastructure. Arcade's does not, by design, so per-person Arcade
+is the one configuration in which OpenTag is reachable from the internet. Only
+the runtime is: the two connect pages live there, and the agent — which holds
+the provider keys — keeps no public entry point. If that is not acceptable, use
+shared toolkits only.
+
+**Teams.** Personal toolkits are Slack-only, exactly as with Composio: the
+managed delivery adapter has no private message for Teams, so a connect link has
+nowhere safe to go.
+
 ## Railway
 
 The IaC file declares exactly:
@@ -558,8 +645,15 @@ them is the whole design:
   `COMPOSIO_APPROVALS`, `COMPOSIO_WORKSPACE_USER_ID`, `COMPOSIO_AUTH_CONFIGS`.
   The toolkits live in the agent, so the Composio credential never reaches the
   runtime.
-- On `runtime`: nothing. Delivery is the managed adapter's job, so the runtime
-  carries no platform credential.
+- On `agent`: `ARCADE_API_KEY`, `ARCADE_TOOLKITS`, `ARCADE_USER_TOOLKITS`,
+  `ARCADE_APPROVALS`, `ARCADE_WORKSPACE_USER_ID`, `ARCADE_IDENTITY_NAMESPACE`,
+  for the same reason. Leave them unset on a Composio deployment — both API keys
+  set stops the agent at boot.
+- On `runtime`: `PUBLIC_URL`, used only by per-person Arcade. No public domain
+  is declared in the IaC file on purpose, so a deployment that does not need one
+  never grows one. Generating a domain on the runtime service is enough; the
+  runtime reads `RAILWAY_PUBLIC_DOMAIN` when `PUBLIC_URL` is unset. No platform
+  credential lives here either — delivery is the managed adapter's job.
 - On both: `AGENT_AUTH_HEADER`. It is a shared secret, so the two values have to
   match; they are preserved independently and Railway will not reconcile them
   for you.

@@ -29,6 +29,13 @@ from coding.subagent import build_coder_subagent
 from ag_ui_langgraph import CustomEventNames
 from langchain_core.callbacks.manager import adispatch_custom_event
 from langchain_core.runnables.config import ensure_config
+from arcade_tools.runtime import arcade_runtime
+from arcade_tools.tools import build_arcade_tools
+from connected_app_provider import (
+    PROVIDER_ARCADE,
+    PROVIDER_COMPOSIO,
+    selected_provider,
+)
 from composio_tools.config import DEFAULT_WORKSPACE_USER_ID
 from composio_tools.runtime import composio_runtime
 from composio_tools.state import ComposioAgentState
@@ -43,6 +50,7 @@ from prompts import (
     CODING_ON_ADDENDUM,
     current_date_prompt,
     build_base_system_prompt,
+    arcade_addendum,
     composio_addendum,
 )
 from tools import web_search
@@ -206,21 +214,46 @@ def build_agent():
     # caches on this id, and `main.py` passes the constant for the connect
     # route: two spellings would build two caches, so the account an operator
     # connected through the route is not the one a turn runs in.
-    composio = composio_runtime(
-        default_user_id=os.environ.get(
-            "INTELLIGENCE_CHANNEL_NAME", DEFAULT_WORKSPACE_USER_ID
-        ),
+    #
+    # Which provider runs is decided from the keys before any of this is built,
+    # so two keys fail the boot rather than resolving to whichever SDK happened
+    # to construct first.
+    provider = selected_provider()
+    composio = (
+        composio_runtime(
+            default_user_id=os.environ.get(
+                "INTELLIGENCE_CHANNEL_NAME", DEFAULT_WORKSPACE_USER_ID
+            ),
+        )
+        if provider == PROVIDER_COMPOSIO
+        else None
     )
-    composio_tools: list = (
-        []
-        if composio is None
-        else build_composio_tools(composio.config, composio.cache, composio.effects)
+    arcade = (
+        arcade_runtime(
+            default_user_id=os.environ.get(
+                "INTELLIGENCE_CHANNEL_NAME", DEFAULT_WORKSPACE_USER_ID
+            ),
+        )
+        if provider == PROVIDER_ARCADE
+        else None
     )
+    # One pair of connected-app tools, from whichever provider is selected. The
+    # two builders produce the same two names, which is safe precisely because
+    # only one of them is ever called.
+    connected_app_tools: list = []
+    if composio is not None:
+        connected_app_tools = build_composio_tools(
+            composio.config, composio.cache, composio.effects
+        )
+    elif arcade is not None:
+        connected_app_tools = build_arcade_tools(
+            arcade.config, arcade.catalog, arcade.client_factory
+        )
 
     main_tools = (
-        [web_search, *internal_tools, *composio_tools]
+        [web_search, *internal_tools, *connected_app_tools]
         if has_web_search
-        else [*internal_tools, *composio_tools]
+        else [*internal_tools, *connected_app_tools]
     )
 
     agent_display_name = (
@@ -245,9 +278,12 @@ def build_agent():
     # Which apps exist is known here and was never passed on, so the model
     # answered questions about its own reach by guessing. It names apps only;
     # `search_my_tools` still owns which actions each one has.
+    # Only the selected provider's statement. An Arcade deployment handed the
+    # Composio one would be told it has no connected apps, which is false and
+    # is how a configured agent stops looking.
     system_prompt = system_prompt + composio_addendum(
         composio.config if composio is not None else None
-    )
+    ) + arcade_addendum(arcade.config if arcade is not None else None)
 
     checkpointer = MemorySaver()
     create_kwargs = {

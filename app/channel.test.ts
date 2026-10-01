@@ -5,6 +5,16 @@ import type {
 } from "@ag-ui/client";
 import { EventType } from "@ag-ui/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
+
+// The button asks the agent which provider it runs. A unit test has no agent,
+// so the answer is stubbed; each test that cares sets `provider.current`.
+const provider = vi.hoisted(() => ({
+  current: "composio" as "composio" | "arcade" | null | undefined,
+}));
+vi.mock("./tools/arcade-connect.js", async (original) => ({
+  ...(await original<typeof import("./tools/arcade-connect.js")>()),
+  lookupConnectedAppProvider: vi.fn(async () => provider.current),
+}));
 import {
   FakeAdapter,
   FakeAgent,

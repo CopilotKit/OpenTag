@@ -180,3 +180,54 @@ def composio_addendum(config) -> str:
         " until search_my_tools has returned it"
     )
     return "\n".join(lines) + "\n"
+
+
+def arcade_addendum(config) -> str:
+    """What an Arcade deployment is told about the apps it can reach.
+
+    Same job as `composio_addendum`, and the same two rules: name the apps,
+    never the actions. A model told nothing about which apps exist answers from
+    belief rather than searching, and a model left holding an app name invents
+    plausible action names from it.
+
+    Written separately rather than parameterised. The two configs carry
+    different shapes, and only one provider is ever registered so there is no
+    caller that needs both. What must not differ is the behaviour, which the
+    two prompt suites assert side by side.
+
+    Nothing here says "no connected apps". That sentence belongs to a
+    deployment that has none; telling a configured Arcade deployment it has
+    none is how an agent stops looking.
+    """
+    if config is None:
+        return ""
+
+    # As the runtime actually routes them. A name in both lists resolves to the
+    # personal identity only, and the reader has already removed it from the
+    # shared list — advertising it as shared would promise everybody access to
+    # something that runs only for whoever is speaking.
+    shared = tuple(getattr(config, "workspace_toolkits", ()) or ())
+    personal = tuple(getattr(config, "user_toolkits", ()) or ())
+    if not shared and not personal:
+        return ""
+
+    lines = [
+        "\n- Connected apps are available. Call search_my_tools to find an"
+        " action in them before answering whether you can do something"
+    ]
+    if shared:
+        lines.append(
+            f"- Shared with everyone here: {_named(shared)}. These are connected"
+            " once for the whole workspace"
+        )
+    if personal:
+        lines.append(
+            f"- Each person's own: {_named(personal)}. These run in the account"
+            " of whoever is speaking, and do nothing until that person connects"
+            " them"
+        )
+    lines.append(
+        "- This names apps, not actions. Never claim a specific action exists"
+        " until search_my_tools has returned it"
+    )
+    return "\n".join(lines) + "\n"

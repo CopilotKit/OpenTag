@@ -50,6 +50,15 @@ export default defineRailway(() => {
       COMPOSIO_APPROVALS: preserve(),
       COMPOSIO_WORKSPACE_USER_ID: preserve(),
       COMPOSIO_AUTH_CONFIGS: preserve(),
+      // Arcade is the alternative to Composio, read by the agent for the same
+      // reason. Setting both API keys fails the agent's boot on purpose, so
+      // these stay unset on a Composio deployment.
+      ARCADE_API_KEY: preserve(),
+      ARCADE_TOOLKITS: preserve(),
+      ARCADE_USER_TOOLKITS: preserve(),
+      ARCADE_APPROVALS: preserve(),
+      ARCADE_WORKSPACE_USER_ID: preserve(),
+      ARCADE_IDENTITY_NAMESPACE: preserve(),
       // The agent side of the shared secret the runtime presents; see the
       // runtime's copy below. Both services have to hold the same value or
       // every request the runtime makes comes back 401.
@@ -89,6 +98,13 @@ export default defineRailway(() => {
       INTELLIGENCE_CHANNEL_NAME: "open-tag",
       // The runtime side of the pair the agent declares above.
       AGENT_AUTH_HEADER: preserve(),
+      // Where a browser reaches this service, for per-person Arcade
+      // connections only. No public domain is declared here on purpose: a
+      // Composio deployment, or Arcade with shared apps only, needs none and
+      // should not grow one. An operator who wants per-person Arcade generates
+      // a domain on this service, and Railway then supplies it as
+      // RAILWAY_PUBLIC_DOMAIN, which the runtime reads when this is unset.
+      PUBLIC_URL: preserve(),
       PLAYWRIGHT_BROWSERS_PATH: "0",
       RAILPACK_DEPLOY_APT_PACKAGES:
         "fonts-liberation fonts-noto-color-emoji fonts-unifont libasound2 libatk-bridge2.0-0 libatk1.0-0 libatspi2.0-0 libcairo2 libcups2 libdbus-1-3 libdrm2 libexpat1 libfontconfig1 libfreetype6 libgbm1 libglib2.0-0 libnspr4 libnss3 libpango-1.0-0 libx11-6 libx11-xcb1 libxcb1 libxcomposite1 libxdamage1 libxext6 libxfixes3 libxkbcommon0 libxrandr2 libxrender1 libxshmfence1",

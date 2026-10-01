@@ -71,6 +71,14 @@ const RUNTIME_SECRET_KEYS = [
  */
 const COMPOSIO_AGENT_SECRET_KEYS = ["COMPOSIO_API_KEY"] as const;
 
+/**
+ * Arcade's key, declared on exactly the same terms as Composio's and for the
+ * same reason: an upgrade must not ask an existing secret for a field it lacks.
+ * The toolkit lists are the signal, because the agent refuses an Arcade key
+ * that names no app at all.
+ */
+const ARCADE_AGENT_SECRET_KEYS = ["ARCADE_API_KEY"] as const;
+
 function contextString(
   scope: Construct,
   key: string,
@@ -183,6 +191,45 @@ export class OpenTagStack extends cdk.Stack {
     // Either list on its own turns the integration on, and one key serves both.
     const composioConfigured =
       composioToolkits.length > 0 || composioUserToolkits.length > 0;
+    const arcadeToolkits = contextString(this, "arcadeToolkits", "");
+    const arcadeUserToolkits = contextString(this, "arcadeUserToolkits", "");
+    const arcadeIdentityNamespace = contextString(
+      this,
+      "arcadeIdentityNamespace",
+      "",
+    );
+    const publicUrl = contextString(this, "publicUrl", "");
+    const arcadeConfigured =
+      arcadeToolkits.length > 0 || arcadeUserToolkits.length > 0;
+
+    // Each of these is a deployment the agent would refuse at boot, or one that
+    // would boot and then fail the first person who tries to connect. Refusing
+    // at synth moves the failure to the moment somebody is looking at it, and
+    // before anything is rolled out.
+    if (composioConfigured && arcadeConfigured) {
+      throw new Error(
+        "Configure Composio or Arcade toolkits, not both. The agent refuses to " +
+          "start with both keys set, because switching providers strands every " +
+          "personal account connected to the old one.",
+      );
+    }
+    if (arcadeUserToolkits.length > 0 && arcadeIdentityNamespace.length === 0) {
+      throw new Error(
+        "arcadeUserToolkits needs arcadeIdentityNamespace. Arcade identities " +
+          "are global to an Arcade project, so without a namespace two " +
+          "deployments sharing a project would share each other's connected " +
+          "accounts.",
+      );
+    }
+    if (arcadeUserToolkits.length > 0 && publicUrl.length === 0) {
+      throw new Error(
+        "arcadeUserToolkits needs publicUrl: Arcade sends each person's " +
+          "browser back to the runtime to learn who they are. This stack " +
+          "creates no public ingress, so provide one that forwards HTTPS to " +
+          "the runtime container on port 3000 and pass its address here. " +
+          "Shared toolkits alone (arcadeToolkits) need none.",
+      );
+    }
     const githubAppId = contextString(this, "githubAppId", "");
     const githubAppInstallationId = contextString(
       this,
@@ -324,6 +371,20 @@ export class OpenTagStack extends cdk.Stack {
           "COMPOSIO_WORKSPACE_USER_ID",
           contextString(this, "composioWorkspaceUserId", ""),
         ),
+        ...optionalEnvironment("ARCADE_TOOLKITS", arcadeToolkits),
+        ...optionalEnvironment("ARCADE_USER_TOOLKITS", arcadeUserToolkits),
+        ...optionalEnvironment(
+          "ARCADE_APPROVALS",
+          contextString(this, "arcadeApprovals", ""),
+        ),
+        ...optionalEnvironment(
+          "ARCADE_WORKSPACE_USER_ID",
+          contextString(this, "arcadeWorkspaceUserId", ""),
+        ),
+        ...optionalEnvironment(
+          "ARCADE_IDENTITY_NAMESPACE",
+          arcadeIdentityNamespace,
+        ),
         OPENAI_MODEL: openAiModel,
         OPENAI_REASONING_EFFORT: openAiReasoningEffort,
         OPENAI_VERBOSITY: openAiVerbosity,
@@ -360,6 +421,9 @@ export class OpenTagStack extends cdk.Stack {
         ...(composioConfigured
           ? secretFields(applicationSecret, COMPOSIO_AGENT_SECRET_KEYS)
           : {}),
+        ...(arcadeConfigured
+          ? secretFields(applicationSecret, ARCADE_AGENT_SECRET_KEYS)
+          : {}),
         ...(githubAppPrivateKeySecret
           ? {
               GITHUB_APP_PRIVATE_KEY_BASE64:
@@ -387,6 +451,10 @@ export class OpenTagStack extends cdk.Stack {
         ...optionalEnvironment("MERMAID_URL", mermaidUrl),
         PLAYWRIGHT_BROWSERS_PATH: "/ms-playwright",
         PORT: "3000",
+        // Where a browser reaches the runtime, for per-person Arcade only. The
+        // runtime, not the agent: the agent holds the provider keys and keeps
+        // no public entry point.
+        ...optionalEnvironment("PUBLIC_URL", publicUrl),
       },
       healthCheck: {
         command: [

@@ -223,6 +223,7 @@ describe("readEnvironment", () => {
       "intelligenceGatewayWsUrl",
       "learningContainerId",
       "port",
+      "publicUrl",
     ]);
     // Nothing carried the values through under a different shape either.
     expect(JSON.stringify(environment)).not.toContain("xoxb-unused");
