@@ -168,6 +168,11 @@ export class OpenTagStack extends cdk.Stack {
       "openAiVerbosity",
       "low",
     );
+    const webSearchProvider = contextString(this, "webSearchProvider", "parallel");
+    if (!["parallel", "tavily", "none"].includes(webSearchProvider)) {
+      throw new Error("webSearchProvider must be parallel, tavily or none");
+    }
+    const parallelAuthenticated = contextBoolean(this, "parallelAuthenticated", false);
     const daytonaSnapshot = contextString(this, "daytonaSnapshot", "");
     const daytonaTtlMinutes = contextNumber(
       this,
@@ -280,6 +285,7 @@ export class OpenTagStack extends cdk.Stack {
       cpu: 1024,
       environment: {
         AGENT_DISPLAY_NAME: agentDisplayName,
+        WEB_SEARCH_PROVIDER: webSearchProvider,
         CORS_ALLOW_ORIGINS: contextString(
           this,
           "corsAllowOrigins",
@@ -357,6 +363,9 @@ export class OpenTagStack extends cdk.Stack {
       memoryReservationMiB: 1792,
       secrets: {
         ...secretFields(applicationSecret, AGENT_SECRET_KEYS),
+        ...(parallelAuthenticated
+          ? secretFields(applicationSecret, ["PARALLEL_API_KEY"])
+          : {}),
         ...(composioConfigured
           ? secretFields(applicationSecret, COMPOSIO_AGENT_SECRET_KEYS)
           : {}),

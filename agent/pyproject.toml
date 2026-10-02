@@ -16,6 +16,7 @@ dependencies = [
   "httpx>=0.27.0",
   "langchain>=1.2.4",
   "langchain-mcp-adapters>=0.3.0",
+  "mcp>=1.28.1",
   "langchain-openai>=1.1.7",
   "python-dotenv>=1.2.1",
   "pyjwt[crypto]>=2.10.1",
@@ -40,6 +41,7 @@ py-modules = [
   "internal_sources",
   "main",
   "tools",
+  "parallel_tools",
   "write_confirmation",
 ]
 

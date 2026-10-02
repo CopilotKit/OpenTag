@@ -299,3 +299,7 @@ CloudWatch Container Insights supplies cluster, service, task, CPU, memory,
 network, and storage metrics. The Forwarder supplies logs to Datadog. This stack
 does not install tracer libraries or a Datadog Agent sidecar, so Datadog APM
 request traces are not available.
+
+### Public-web provider
+
+Parallel is selected by default, using the free keyless Search MCP. Use `-c webSearchProvider=none` to disable it or `-c webSearchProvider=tavily` to use the existing `TAVILY_API_KEY` secret. Existing Tavily credentials do not override the default. For authenticated Parallel use, first add `PARALLEL_API_KEY` to the JSON secret, then set `-c parallelAuthenticated=true`; the stack only requests that secret field when explicitly enabled, so existing secrets need no new fields for the keyless default. Research inputs are sent to the selected provider; see the main setup guide for the data-sharing details.

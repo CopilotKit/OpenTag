@@ -27,6 +27,8 @@ export default defineRailway(() => {
       AGENT_DISPLAY_NAME: preserve(),
       OPENAI_API_KEY: preserve(),
       TAVILY_API_KEY: preserve(),
+      PARALLEL_API_KEY: preserve(),
+      WEB_SEARCH_PROVIDER: preserve(),
       DAYTONA_API_KEY: preserve(),
       DAYTONA_SNAPSHOT: preserve(),
       DAYTONA_TTL_MINUTES: preserve(),

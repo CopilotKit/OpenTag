@@ -81,7 +81,9 @@ or Channel slug.
 | `OPENAI_MODEL` | No | Defaults to `gpt-5.5` |
 | `OPENAI_REASONING_EFFORT` | No | Defaults to `low` |
 | `OPENAI_VERBOSITY` | No | Defaults to `low` |
-| `TAVILY_API_KEY` | No | Enables live web research |
+| `WEB_SEARCH_PROVIDER` | No | `parallel` (default), `tavily`, or `none` |
+| `PARALLEL_API_KEY` | No | Authenticated Parallel use; otherwise the free tier applies |
+| `TAVILY_API_KEY` | With `tavily` | Credentials for the explicit alternative |
 | `COMPOSIO_API_KEY` | No | Master switch for Composio toolkits. Absent means the feature is never constructed |
 | `COMPOSIO_TOOLKITS` | No | Toolkit slugs everyone shares one connection for |
 | `COMPOSIO_USER_TOOLKITS` | No | Toolkit slugs scoped to whoever sent the message. Each person connects their own account from a Slack thread; a non-empty `AGENT_AUTH_HEADER` is required before a link is minted |
@@ -126,8 +128,7 @@ Implementation jobs require a scoped brief with files, the exact change, and a
 test command; repair and merge jobs may inspect the checkout and CI logs to
 identify those details. Slack does not say "open the PR" unless the user named
 a PR. If Slack cuts the live update, the job may still be running. Without
-Tavily or internal-source
-credentials the agent still chats, triages, and renders supported UI
+internal-source credentials the agent still chats, triages, and renders supported UI
 components; planning and virtual files remain available for explicitly
 substantial work.
 
@@ -303,10 +304,13 @@ and UI rendering are never gated.
 
 ## Optional sources
 
-### Tavily
+### Public web research
 
-Set `TAVILY_API_KEY` to enable live web research. The `web_search` tool is not
-registered when the key is absent.
+Parallel is selected when `WEB_SEARCH_PROVIDER` is unset or blank. Its free Search MCP needs no key for light use. `web_search` discovers public sources; `web_fetch` reads selected URLs, returning excerpts and per-URL errors. Both preserve source links for citations. Source snippets remain capped at 3,000 characters each; the search tool returns up to five sources by default. Anonymous MCP search uses server-managed settings, so `max_results` bounds the returned tool context rather than upstream retrieval.
+
+Set `PARALLEL_API_KEY` for authenticated usage, subject to your Parallel account limits and billing. Queries, objectives, requested URLs, and a hashed conversation identifier are sent to Parallel. The tools do not forward whole conversations or connected-source credentials. Use public research inputs without secrets.
+
+To disable public-web research, set `WEB_SEARCH_PROVIDER=none`. To keep Tavily, explicitly set `WEB_SEARCH_PROVIDER=tavily` and `TAVILY_API_KEY`. Existing Tavily credentials alone no longer select the provider. An invalid provider or a Tavily selection without a key fails startup with an actionable error. No automatic fallback switches providers after an error. Restart the agent after any configuration change.
 
 ### GitHub
 
@@ -547,7 +551,7 @@ Production Intelligence URLs are literal configuration, the API key is
 preserved, and the Channel name is the literal `open-tag` on **both** services —
 the agent's copy is what shared Composio toolkits default their `user_id` to.
 `AGENT_DISPLAY_NAME` is preserved independently on both services and must match
-when overridden. `OPENAI_API_KEY` is required on `agent`; Tavily, Daytona/coder,
+when overridden. `OPENAI_API_KEY` is required on `agent`; authenticated Parallel/Tavily, Daytona/coder,
 GitHub, PostHog, Linear, and the paired remote Notion variables are optional
 preserved settings.
 

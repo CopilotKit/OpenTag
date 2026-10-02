@@ -117,6 +117,8 @@ describe("Railway deployment graph", () => {
       AGENT_DISPLAY_NAME: { type: "preserve" },
       OPENAI_API_KEY: { type: "preserve" },
       TAVILY_API_KEY: { type: "preserve" },
+      PARALLEL_API_KEY: { type: "preserve" },
+      WEB_SEARCH_PROVIDER: { type: "preserve" },
       GITHUB_PERSONAL_ACCESS_TOKEN: { type: "preserve" },
       GITHUB_CODER_TOKEN: { type: "preserve" },
       GITHUB_APP_ID: { type: "preserve" },
@@ -169,10 +171,12 @@ describe("Railway deployment graph", () => {
       "NOTION_MCP_AUTH_TOKEN",
       "NOTION_MCP_URL",
       "OPENAI_API_KEY",
+      "PARALLEL_API_KEY",
       "PORT",
       "POSTHOG_MCP_URL",
       "POSTHOG_PERSONAL_API_KEY",
       "TAVILY_API_KEY",
+      "WEB_SEARCH_PROVIDER",
     ]);
 
     const runtime = serviceNamed(graph, "runtime");
