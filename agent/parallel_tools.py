@@ -37,6 +37,24 @@ def _public_url(value: Any) -> bool:
         return False
 
 
+def _failure(error_type: str, message: str, http_status_code: int | None = None) -> dict[str, Any]:
+    error: dict[str, Any] = {"error_type": error_type, "message": message}
+    if http_status_code is not None:
+        error["http_status_code"] = http_status_code
+    return {"results": [], "errors": [error]}
+
+
+def _http_status(error: Exception) -> int | None:
+    # MCP's AnyIO task groups can wrap the HTTP exception in ExceptionGroup.
+    if isinstance(error, httpx.HTTPStatusError):
+        return error.response.status_code
+    if isinstance(error, ExceptionGroup):
+        for nested in error.exceptions:
+            if (status := _http_status(nested)) is not None:
+                return status
+    return None
+
+
 async def _call_parallel(name: str, arguments: dict[str, Any]) -> dict[str, Any]:
     headers = {"User-Agent": "opentag/0.4.1"}
     if key := os.environ.get("PARALLEL_API_KEY", "").strip():
@@ -50,7 +68,7 @@ async def _call_parallel(name: str, arguments: dict[str, Any]) -> dict[str, Any]
                         response = await session.call_tool(name, arguments)
         if response.isError:
             # Never pass server errors through: they can contain credentials or query text.
-            raise RuntimeError("Parallel returned a tool error; retry later or check provider limits")
+            return _failure("tool_error", "Parallel returned a tool error; retry later or check provider limits")
         payload = response.structuredContent
         if payload is None:
             text = next((part.text for part in response.content if part.type == "text"), None)
@@ -60,17 +78,26 @@ async def _call_parallel(name: str, arguments: dict[str, Any]) -> dict[str, Any]
         if not isinstance(payload, dict) or not isinstance(payload.get("results"), list):
             raise ValueError("Invalid tool result")
         return payload
-    except TimeoutError as error:
-        raise RuntimeError("Web research timed out after 45 seconds") from error
+    except TimeoutError:
+        return _failure("timeout", "Web research timed out after 45 seconds")
     except Exception as error:
-        raise RuntimeError("Parallel web research failed; check connectivity, credentials or provider limits") from error
+        # Expected provider failures must reach the model, not abort its graph.
+        # CancelledError is a BaseException and deliberately propagates.
+        status = _http_status(error)
+        if status == 429:
+            return _failure("rate_limit", "Parallel rate limit reached; retry later", status)
+        return _failure(
+            "http_error" if status is not None else "provider_error",
+            "Parallel web research failed; check connectivity, credentials or provider limits",
+            status,
+        )
 
 
 def _normalize(payload: dict[str, Any], limit: int) -> dict[str, Any]:
     warnings = payload.get("warnings") or []
     errors = payload.get("errors") or []
     if not isinstance(warnings, list) or not isinstance(errors, list):
-        raise RuntimeError("Parallel returned invalid warnings or extraction errors")
+        return {**_failure("invalid_response", "Parallel returned invalid warnings or extraction errors"), "warnings": [], "truncated": False}
     results = []
     dropped = 0
     truncated = False
@@ -91,10 +118,21 @@ def _normalize(payload: dict[str, Any], limit: int) -> dict[str, Any]:
         results.append({"url": result["url"], "title": (title or result["url"])[:300], "content": content[:3000]})
     if dropped:
         warnings = [*warnings, f"Skipped {dropped} malformed source entries"]
+    normalized_errors = []
+    for item in errors[:20]:
+        if not isinstance(item, dict):
+            continue
+        error = {"url": item.get("url"), "message": str(item.get("error") or item.get("message") or "Extraction failed")[:500]}
+        if isinstance(item.get("error_type"), str):
+            error["error_type"] = item["error_type"][:100]
+        status = item.get("http_status_code")
+        if type(status) is int and 100 <= status <= 599:
+            error["http_status_code"] = status
+        normalized_errors.append(error)
     return {
         "results": results[:limit],
         "warnings": [str(item)[:500] for item in warnings[:10]],
-        "errors": [{"url": item.get("url"), "message": str(item.get("error", item.get("message", "Extraction failed")))[:500]} for item in errors[:20] if isinstance(item, dict)],
+        "errors": normalized_errors,
         "truncated": truncated or len(results) > limit or dropped > 0 or len(warnings) > 10 or len(errors) > 20,
     }
 

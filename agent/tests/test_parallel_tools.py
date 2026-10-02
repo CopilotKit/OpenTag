@@ -1,4 +1,6 @@
 import asyncio
+import json
+import httpx
 from contextlib import asynccontextmanager
 from types import SimpleNamespace
 import pytest
@@ -64,7 +66,8 @@ def test_normalization_bounds_sources_preserves_warnings_and_empty_results():
     assert "Partial coverage" in result["warnings"][0]
     assert "Skipped 1" in result["warnings"][1]
     assert research._normalize({"results": []}, 5)["results"] == []
-    with pytest.raises(RuntimeError): research._normalize({"results": [], "errors": "bad"}, 5)
+    malformed = research._normalize({"results": [], "errors": "bad"}, 5)
+    assert malformed["errors"][0]["error_type"] == "invalid_response"
 
 
 def _transport(monkeypatch, response=None, failure=None):
@@ -100,14 +103,15 @@ def test_mcp_structured_and_text_results_and_optional_auth(monkeypatch):
 @pytest.mark.parametrize("response", [SimpleNamespace(isError=True), SimpleNamespace(isError=False, structuredContent={"results": "bad"}, content=[]), SimpleNamespace(isError=False, structuredContent=None, content=[])])
 def test_mcp_failures_are_not_empty_success(monkeypatch, response):
     _transport(monkeypatch, response)
-    with pytest.raises(RuntimeError, match="Parallel web research failed"):
-        asyncio.run(research._call_parallel("web_search", {}))
+    result = asyncio.run(research._call_parallel("web_search", {}))
+    assert result["results"] == []
+    assert result["errors"][0]["error_type"] in {"tool_error", "provider_error"}
 
 
 def test_timeout_and_cancellation(monkeypatch):
     _transport(monkeypatch, failure=TimeoutError())
-    with pytest.raises(RuntimeError, match="timed out"):
-        asyncio.run(research._call_parallel("web_search", {}))
+    result = asyncio.run(research._call_parallel("web_search", {}))
+    assert result["errors"][0]["error_type"] == "timeout"
     _transport(monkeypatch, failure=asyncio.CancelledError())
     with pytest.raises(asyncio.CancelledError):
         asyncio.run(research._call_parallel("web_search", {}))
@@ -127,3 +131,102 @@ def test_default_agent_registers_parallel_tools(monkeypatch):
     agent_mod.build_agent()
     assert [tool.name for tool in captured["tools"]] == ["web_search", "web_fetch"]
     assert "exactly three" in captured["system_prompt"]
+
+
+def test_fetch_preserves_live_error_fields_alongside_successful_sources(monkeypatch):
+    async def fake(*args):
+        return {
+            "results": [SOURCE],
+            "errors": [{
+                "url": "https://example.com/nonexistent",
+                "error_type": "http_error",
+                "http_status_code": 404,
+                "content": None,
+            }],
+        }
+    monkeypatch.setattr(research, "_call_parallel", fake)
+    result = asyncio.run(research.parallel_web_fetch.ainvoke({
+        **INPUT, "urls": [SOURCE["url"], "https://example.com/nonexistent"],
+    }, config=CONFIG))
+    assert result["results"][0]["content"] == "one\n\ntwo"
+    assert result["errors"] == [{
+        "url": "https://example.com/nonexistent",
+        "message": "Extraction failed",
+        "error_type": "http_error",
+        "http_status_code": 404,
+    }]
+
+
+@pytest.mark.parametrize("tool_name", ["web_search", "web_fetch"])
+@pytest.mark.parametrize("failure", ["rate_limit", "timeout", "malformed_payload", "malformed_errors", "malformed_warnings", "tool_error"])
+def test_compiled_graph_returns_provider_errors_through_real_mcp_transport(monkeypatch, tool_name, failure):
+    from langchain_core.messages import AIMessage, ToolMessage
+    from langgraph.graph import END, START, MessagesState, StateGraph
+    from langgraph.prebuilt import ToolNode
+
+    requests = []
+    secret = "private-provider-error-detail-never-returned"
+
+    async def respond(request):
+        if request.method != "POST":
+            return httpx.Response(405)
+        body = json.loads(request.content)
+        requests.append(body)
+        if body["method"] == "initialize":
+            result = {
+                "protocolVersion": body["params"]["protocolVersion"],
+                "capabilities": {"tools": {}},
+                "serverInfo": {"name": "parallel-fixture", "version": "1"},
+            }
+        elif body["method"].startswith("notifications/"):
+            return httpx.Response(202)
+        else:
+            assert body["method"] == "tools/call"
+            if failure == "rate_limit":
+                return httpx.Response(429, text=secret)
+            if failure == "timeout":
+                await asyncio.sleep(60)
+            payload = {"results": []}
+            if failure == "malformed_payload":
+                payload["results"] = secret
+            if failure == "malformed_errors":
+                payload["errors"] = secret
+            if failure == "malformed_warnings":
+                payload["warnings"] = secret
+            result = {
+                "isError": failure == "tool_error",
+                "content": [{"type": "text", "text": secret}],
+                "structuredContent": payload,
+            }
+        return httpx.Response(200, json={"jsonrpc": "2.0", "id": body["id"], "result": result})
+
+    if failure == "timeout":
+        monkeypatch.setattr(research, "TIMEOUT_SECONDS", 0.1)
+    client_class = httpx.AsyncClient
+    monkeypatch.setattr(research.httpx, "AsyncClient", lambda **kwargs: client_class(
+        **kwargs, transport=httpx.MockTransport(respond),
+    ))
+    builder = StateGraph(MessagesState)
+    builder.add_node("tools", ToolNode([research.parallel_web_search, research.parallel_web_fetch]))
+    builder.add_edge(START, "tools")
+    builder.add_edge("tools", END)
+    graph = builder.compile()
+    arguments = dict(INPUT)
+    if tool_name == "web_fetch":
+        arguments["urls"] = [SOURCE["url"]]
+    result = asyncio.run(graph.ainvoke({"messages": [AIMessage(content="", tool_calls=[{
+        "id": "research-call", "name": tool_name, "args": arguments,
+    }])]}, config=CONFIG))
+    message = result["messages"][-1]
+    assert isinstance(message, ToolMessage)
+    assert message.tool_call_id == "research-call"
+    payload = json.loads(message.content)
+    assert payload["results"] == []
+    assert payload["errors"]
+    assert secret not in message.content
+    if failure == "rate_limit":
+        assert payload["errors"][0]["error_type"] == "rate_limit"
+        assert payload["errors"][0]["http_status_code"] == 429
+    if failure == "timeout":
+        assert payload["errors"][0]["error_type"] == "timeout"
+    assert any(request["method"] == "tools/call" for request in requests)
