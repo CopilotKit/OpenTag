@@ -15,6 +15,7 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { CASES } from "./cases.js";
 import type { E2ECase } from "./cases.js";
+import { scheduleInterrupt } from "./interrupt.js";
 import {
   postAsUser,
   watchForReply,
@@ -109,16 +110,17 @@ async function runCase(spec: E2ECase): Promise<CaseResult> {
   let followUpResult: CaseResult | undefined;
 
   // Schedule a mid-stream interrupt if the case asks for one.
-  let interruptTimer: NodeJS.Timeout | undefined;
-  if (spec.interrupt && parentTs) {
-    interruptTimer = setTimeout(() => {
-      postAsUser(TEST_CHANNEL, spec.interrupt!.prompt, {
-        threadTs: parentTs,
-      }).catch((e: Error) =>
-        errors.push(`interrupt send failed: ${e.message}`),
-      );
-    }, spec.interrupt.afterMs);
-  }
+  const interrupt =
+    spec.interrupt && parentTs
+      ? scheduleInterrupt(
+          spec.interrupt.afterMs,
+          () =>
+            postAsUser(TEST_CHANNEL, spec.interrupt!.prompt, {
+              threadTs: parentTs,
+            }),
+          (message) => errors.push(message),
+        )
+      : undefined;
 
   const onSample = (s: { elapsedMs: number; text: string | undefined }) => {
     const text = s.text ?? "";
@@ -134,9 +136,6 @@ async function runCase(spec: E2ECase): Promise<CaseResult> {
     });
   };
 
-  if (interruptTimer === undefined) {
-    /* no-op */
-  }
   const result = flatMode
     ? await watchForChannelReply({
         channel: TEST_CHANNEL,
@@ -249,6 +248,12 @@ async function runCase(spec: E2ECase): Promise<CaseResult> {
     };
     errors.push(...iErrors);
   }
+
+  // The interrupt has been accounted for, so stop it being sent. A reply that beat afterMs would
+  // otherwise leave the timer armed for the rest of the run, and it would fire into this thread
+  // after the case was done: a message nobody sent, a bot turn nobody asked for, and a failure
+  // appended to a result already written to the report.
+  interrupt?.cancel();
 
   // If there's a follow-up, send it as a thread reply (no @mention) into
   // the same thread the first prompt created.
