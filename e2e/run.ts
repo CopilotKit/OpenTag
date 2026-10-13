@@ -16,6 +16,7 @@ import { join } from "node:path";
 import { CASES } from "./cases.js";
 import type { E2ECase } from "./cases.js";
 import { scheduleInterrupt } from "./interrupt.js";
+import type { ScheduledInterrupt } from "./interrupt.js";
 import {
   postAsUser,
   watchForReply,
@@ -87,7 +88,26 @@ function runExpectations(
   }
 }
 
+/**
+ * Runs one case and cancels its interrupt however the case ends. The main loop catches a case
+ * that throws and moves on to the next one, so without this a failed Slack call between
+ * scheduling and cancelling would leave the timer armed for the rest of the run.
+ */
 async function runCase(spec: E2ECase): Promise<CaseResult> {
+  let interrupt: ScheduledInterrupt | undefined;
+  try {
+    return await runCaseBody(spec, (scheduled) => {
+      interrupt = scheduled;
+    });
+  } finally {
+    interrupt?.cancel();
+  }
+}
+
+async function runCaseBody(
+  spec: E2ECase,
+  onScheduled: (interrupt: ScheduledInterrupt) => void,
+): Promise<CaseResult> {
   const errors: string[] = [];
   const samples: CaseResult["samples"] = [];
   const t0 = Date.now();
@@ -121,6 +141,7 @@ async function runCase(spec: E2ECase): Promise<CaseResult> {
           (message) => errors.push(message),
         )
       : undefined;
+  if (interrupt) onScheduled(interrupt);
 
   const onSample = (s: { elapsedMs: number; text: string | undefined }) => {
     const text = s.text ?? "";

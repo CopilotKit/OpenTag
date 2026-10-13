@@ -15,7 +15,7 @@ export type ScheduledInterrupt = {
 
 export function scheduleInterrupt(
   afterMs: number,
-  send: () => Promise<void>,
+  send: () => Promise<unknown>,
   onError: (message: string) => void,
 ): ScheduledInterrupt {
   const timer = setTimeout(() => {
