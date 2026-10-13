@@ -62,7 +62,7 @@ describe("handleConnectClick", () => {
     const request = vi.fn(async () => ({ ok: true as const, url: LINK }));
     const { ctx } = interaction({ id: "U2", kind: "human" });
 
-    await handleConnectClick("gmail", ctx, { environment, request });
+    await handleConnectClick({ toolkit: "gmail", provider: "composio" }, ctx, { environment, request });
 
     expect(request).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -80,7 +80,7 @@ describe("handleConnectClick", () => {
     const request = vi.fn(async () => ({ ok: true as const, url: LINK }));
     const { ctx } = interaction({ id: "B1", kind: "bot" });
 
-    await handleConnectClick("gmail", ctx, { environment, request });
+    await handleConnectClick({ toolkit: "gmail", provider: "composio" }, ctx, { environment, request });
 
     expect(request).toHaveBeenCalledWith(
       expect.objectContaining({ actorId: "B1", actorKind: "bot" }),
@@ -91,7 +91,7 @@ describe("handleConnectClick", () => {
     const request = vi.fn(async () => ({ ok: true as const, url: LINK }));
     const { ctx, postEphemeral, post } = interaction({ id: "U2", kind: "human" });
 
-    await handleConnectClick("gmail", ctx, { environment, request });
+    await handleConnectClick({ toolkit: "gmail", provider: "composio" }, ctx, { environment, request });
 
     expect(postEphemeral).toHaveBeenCalledTimes(1);
     expect(postEphemeral.mock.calls[0]![0]).toEqual({ id: "U2", kind: "human" });
@@ -107,7 +107,7 @@ describe("handleConnectClick", () => {
     const request = vi.fn(async () => ({ ok: true as const, url: LINK }));
     const { ctx, postEphemeral } = interaction({ id: "U2", kind: "human" });
 
-    await handleConnectClick("gmail", ctx, { environment, request });
+    await handleConnectClick({ toolkit: "gmail", provider: "composio" }, ctx, { environment, request });
 
     expect(postEphemeral.mock.calls[0]![2]).toEqual({ fallbackToDM: true });
   });
@@ -119,7 +119,7 @@ describe("handleConnectClick", () => {
     const { ctx, post } = interaction({ id: "U2", kind: "human" }, { ephemeral: null });
     const logged = vi.spyOn(console, "error").mockImplementation(() => {});
 
-    await handleConnectClick("gmail", ctx, { environment, request });
+    await handleConnectClick({ toolkit: "gmail", provider: "composio" }, ctx, { environment, request });
 
     expect(post).toHaveBeenCalledTimes(1);
     expect(logged).toHaveBeenCalled();
@@ -135,7 +135,7 @@ describe("handleConnectClick", () => {
     for (const ephemeral of [null, { ok: false, error: "no ephemeral" }] as Ephemeral[]) {
       const { ctx, post } = interaction({ id: "U2", kind: "human" }, { ephemeral });
 
-      await handleConnectClick("gmail", ctx, { environment, request });
+      await handleConnectClick({ toolkit: "gmail", provider: "composio" }, ctx, { environment, request });
 
       expect(JSON.stringify(post.mock.calls)).not.toContain(LINK);
     }
@@ -151,7 +151,7 @@ describe("handleConnectClick", () => {
     );
     const logged = vi.spyOn(console, "error").mockImplementation(() => {});
 
-    await handleConnectClick("gmail", ctx, { environment, request });
+    await handleConnectClick({ toolkit: "gmail", provider: "composio" }, ctx, { environment, request });
 
     expect(post).toHaveBeenCalledTimes(1);
     logged.mockRestore();
@@ -162,7 +162,7 @@ describe("handleConnectClick", () => {
     const request = vi.fn();
     const { ctx, postEphemeral, post } = interaction(undefined);
 
-    await handleConnectClick("gmail", ctx, { environment, request });
+    await handleConnectClick({ toolkit: "gmail", provider: "composio" }, ctx, { environment, request });
 
     expect(request).not.toHaveBeenCalled();
     expect(post).toHaveBeenCalledTimes(1);
@@ -175,7 +175,7 @@ describe("handleConnectClick", () => {
     const request = vi.fn();
     const { ctx, postEphemeral } = interaction(undefined);
 
-    await handleConnectClick("gmail", ctx, { environment, request });
+    await handleConnectClick({ toolkit: "gmail", provider: "composio" }, ctx, { environment, request });
 
     expect(everythingRendered(postEphemeral, vi.fn())).not.toContain("unknown");
     expect(postEphemeral).not.toHaveBeenCalled();
@@ -188,7 +188,7 @@ describe("handleConnectClick", () => {
     }));
     const { ctx, postEphemeral } = interaction({ id: "U2", kind: "human" });
 
-    await handleConnectClick("linear", ctx, { environment, request });
+    await handleConnectClick({ toolkit: "linear", provider: "composio" }, ctx, { environment, request });
 
     expect(postEphemeral).toHaveBeenCalledTimes(1);
     expect(postEphemeral.mock.calls[0]![2]).toEqual({ fallbackToDM: true });
@@ -204,7 +204,7 @@ describe("handleConnectClick", () => {
     const { ctx, post } = interaction({ id: "U2", kind: "human" }, { ephemeral: null });
     const logged = vi.spyOn(console, "error").mockImplementation(() => {});
 
-    await handleConnectClick("linear", ctx, { environment, request });
+    await handleConnectClick({ toolkit: "linear", provider: "composio" }, ctx, { environment, request });
 
     expect(JSON.stringify(post.mock.calls)).toContain(
       "Shared apps are connected by an operator.",
@@ -222,7 +222,7 @@ describe("handleConnectClick", () => {
     const logged = vi.spyOn(console, "error").mockImplementation(() => {});
 
     await expect(
-      handleConnectClick("gmail", ctx, { environment, request }),
+      handleConnectClick({ toolkit: "gmail", provider: "composio" }, ctx, { environment, request }),
     ).resolves.toBeUndefined();
     expect(logged).toHaveBeenCalled();
     expect(post).toHaveBeenCalledTimes(1);
@@ -238,7 +238,7 @@ describe("handleConnectClick", () => {
     const logged = vi.spyOn(console, "error").mockImplementation(() => {});
 
     await expect(
-      handleConnectClick("gmail", ctx, { environment, request }),
+      handleConnectClick({ toolkit: "gmail", provider: "composio" }, ctx, { environment, request }),
     ).resolves.toBeUndefined();
     logged.mockRestore();
   });
@@ -254,7 +254,7 @@ describe("handleConnectClick", () => {
     const logged = vi.spyOn(console, "error").mockImplementation(() => {});
 
     await expect(
-      handleConnectClick("gmail", ctx, {
+      handleConnectClick({ toolkit: "gmail", provider: "composio" }, ctx, {
         request,
         readEnvironment: environmentThatThrows,
       }),
@@ -272,10 +272,11 @@ describe("handleConnectClick", () => {
     const { ctx } = interaction({ id: "U2", kind: "human" });
     const logged = vi.spyOn(console, "error").mockImplementation(() => {});
 
-    await handleConnectClick("<https://evil.example|gmail>", ctx, {
-      environment,
-      request,
-    });
+    await handleConnectClick(
+      { toolkit: "<https://evil.example|gmail>", provider: "composio" },
+      ctx,
+      { environment, request },
+    );
 
     expect(request).not.toHaveBeenCalled();
     logged.mockRestore();
@@ -295,7 +296,7 @@ describe("handleConnectClick", () => {
     const { ctx, postEphemeral } = interaction({ id: "U2", kind: "human" });
     const logged = vi.spyOn(console, "error").mockImplementation(() => {});
 
-    await handleConnectClick("gmail", ctx, { environment, request });
+    await handleConnectClick({ toolkit: "gmail", provider: "composio" }, ctx, { environment, request });
 
     const ui = postEphemeral.mock.calls[0]![1] as Renderable;
     const rendered = JSON.stringify(renderSlackMessage(renderToIR(ui)));
@@ -319,7 +320,7 @@ describe("handleConnectClick", () => {
     }));
     const { ctx, postEphemeral } = interaction({ id: "U2", kind: "human" });
 
-    await handleConnectClick("google_calendar", ctx, { environment, request });
+    await handleConnectClick({ toolkit: "google_calendar", provider: "composio" }, ctx, { environment, request });
 
     const ui = postEphemeral.mock.calls[0]![1] as Renderable;
     const rendered = JSON.stringify(renderSlackMessage(renderToIR(ui)));
@@ -337,7 +338,7 @@ describe("handleConnectClick", () => {
     }));
     const { ctx, postEphemeral } = interaction({ id: "U2", kind: "human" });
 
-    await handleConnectClick("gmail", ctx, { environment, request });
+    await handleConnectClick({ toolkit: "gmail", provider: "composio" }, ctx, { environment, request });
 
     const ui = postEphemeral.mock.calls[0]![1] as Renderable;
     expect(JSON.stringify(renderSlackMessage(renderToIR(ui)))).toContain(
@@ -353,7 +354,7 @@ describe("handleConnectClick", () => {
     const { ctx, postEphemeral } = interaction({ id: "U2", kind: "human" });
     const logged = vi.spyOn(console, "error").mockImplementation(() => {});
 
-    await handleConnectClick("gmail", ctx, { environment, request });
+    await handleConnectClick({ toolkit: "gmail", provider: "composio" }, ctx, { environment, request });
 
     const ui = postEphemeral.mock.calls[0]![1] as Renderable;
     expect(JSON.stringify(renderSlackMessage(renderToIR(ui)))).not.toContain(
@@ -372,7 +373,7 @@ describe("handleConnectClick", () => {
     const { ctx, postEphemeral } = interaction({ id: "U2", kind: "human" });
     const logged = vi.spyOn(console, "error").mockImplementation(() => {});
 
-    await handleConnectClick("gmail", ctx, { environment, request });
+    await handleConnectClick({ toolkit: "gmail", provider: "composio" }, ctx, { environment, request });
 
     const ui = postEphemeral.mock.calls[0]![1] as Renderable;
     expect(JSON.stringify(renderSlackMessage(renderToIR(ui)))).not.toContain(
@@ -388,7 +389,7 @@ describe("handleConnectClick", () => {
     const { ctx } = interaction(undefined);
     const logged = vi.spyOn(console, "error").mockImplementation(() => {});
 
-    await handleConnectClick("gmail", ctx, { environment, request });
+    await handleConnectClick({ toolkit: "gmail", provider: "composio" }, ctx, { environment, request });
 
     expect(logged.mock.calls[0]![0]).toBe("[channel] recoverable error");
     expect(JSON.stringify(logged.mock.calls)).toContain("connect_click");

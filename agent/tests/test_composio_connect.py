@@ -156,6 +156,11 @@ def client(monkeypatch):
 
 
 def install_runtime(monkeypatch, sessions_by_user, **overrides):
+    # The key, not just the patched builder. The route asks which provider this
+    # deployment selected before it builds anything, and that question is
+    # answered from the environment — so a fixture that injects a runtime while
+    # leaving the key unset is describing a deployment that cannot exist.
+    monkeypatch.setenv("COMPOSIO_API_KEY", "ak_test")
     runtime, client = runtime_for(sessions_by_user, **overrides)
     monkeypatch.setattr(runtime_mod, "build_composio_runtime", lambda *a, **k: runtime)
     reset_composio_runtime()
@@ -213,6 +218,11 @@ def test_the_route_returns_a_link_for_the_named_person(client, monkeypatch):
 
 def test_the_route_reports_an_unconfigured_deployment(client, monkeypatch):
     monkeypatch.setenv("AGENT_AUTH_HEADER", "Bearer s3cret")
+    # Composio is the selected provider here, so this test reaches the branch it
+    # is about — a selected provider that still built no runtime — rather than
+    # being turned away earlier by the provider check and passing for a reason
+    # it does not assert.
+    monkeypatch.setenv("COMPOSIO_API_KEY", "ak_test")
     monkeypatch.setattr(runtime_mod, "build_composio_runtime", lambda *a, **k: None)
     reset_composio_runtime()
 
@@ -223,6 +233,30 @@ def test_the_route_reports_an_unconfigured_deployment(client, monkeypatch):
     )
 
     assert response.status_code == 503
+
+
+def test_the_composio_route_refuses_when_arcade_is_the_selected_provider(
+    client, monkeypatch
+):
+    # The case this guards is a card that outlived a provider change: a Connect
+    # button minted under Composio, clicked after the deployment switched to
+    # Arcade. A working Composio runtime is installed here on purpose, so the
+    # refusal can only come from the provider check — without it, the route
+    # would happily mint against the provider nobody selected.
+    monkeypatch.setenv("AGENT_AUTH_HEADER", "Bearer s3cret")
+    _runtime, composio = install_runtime(monkeypatch, {})
+    monkeypatch.delenv("COMPOSIO_API_KEY", raising=False)
+    monkeypatch.setenv("ARCADE_API_KEY", "arc_test")
+
+    response = client.post(
+        "/composio/connect",
+        json={"actor_id": "U1", "kind": "human", "platform": "slack", "toolkit": "gmail"},
+        headers={"Authorization": "Bearer s3cret"},
+    )
+
+    assert response.status_code == 503
+    # Nothing was minted, so no account was bound to anybody.
+    assert composio.created == []
 
 
 def test_health_stays_reachable_without_the_secret(client, monkeypatch):
