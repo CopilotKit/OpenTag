@@ -3,14 +3,27 @@
  * a header, then one row per page (📄 linked title + a greyed snippet and
  * optional last-edited), with dividers and a count footer.
  *
+ * Each page row renders as its own section (+ optional context + divider),
+ * so a long list produces many blocks — unlike `issue_list`, which folds
+ * every issue into a single fixed section. To avoid blowing past Slack's
+ * per-attachment block limit (and getting the whole message rejected with
+ * `invalid_attachments`), we cap the rendered rows at `MAX` and surface the
+ * overflow in the footer, mirroring `issue-list.tsx`'s approach.
+ *
  * The agent searches Notion via MCP and passes the pages it wants to
  * surface; the Slack formatting lives here.
  *
- * Authored with the `@copilotkit/bot-ui` JSX vocabulary.
+ * Authored with the `@copilotkit/channels` JSX vocabulary.
  */
 import { z } from "zod";
-import { Context, Divider, Header, Message, Section } from "@copilotkit/bot-ui";
-import type { BotNode } from "@copilotkit/bot-ui";
+import {
+  Context,
+  Divider,
+  Header,
+  Message,
+  Section,
+  type ChannelNode,
+} from "@copilotkit/channels";
 import { ACCENT } from "./_status.js";
 
 const pageSchema = z.object({
@@ -35,36 +48,46 @@ export const pageListSchema = z.object({
   pages: z.array(pageSchema).min(1).describe("The pages to render."),
 });
 
-export type PageListProps = z.infer<typeof pageListSchema>;
+type PageListProps = z.infer<typeof pageListSchema>;
 type Page = z.infer<typeof pageSchema>;
 
+/** Max pages rendered inline; the rest are summarized in the footer. */
+const MAX = 15;
+
 /** Render a list of Notion pages as a Block Kit card. */
-export function PageList({ heading, pages }: PageListProps): BotNode {
-  const rows: BotNode[] = [];
-  pages.forEach((page: Page, i: number) => {
+export function PageList({ heading, pages }: PageListProps): ChannelNode {
+  const shown = pages.slice(0, MAX);
+  const rows: ChannelNode[] = [];
+  shown.forEach((page: Page, i: number) => {
     const titleLink = page.url
       ? `[**${page.title}**](${page.url})`
       : `**${page.title}**`;
 
-    const meta = [
-      page.snippet,
-      page.edited
-        ? `🕒 edited ${page.edited}${page.editedBy ? ` by ${page.editedBy}` : ""}`
-        : null,
-    ]
-      .filter(Boolean)
-      .join("\n");
+    // `edited` and `editedBy` are independent schema fields — an agent may
+    // supply either one without the other, so compose them rather than
+    // gating the whole line on `edited` being present.
+    const editedLine =
+      page.edited || page.editedBy
+        ? `🕒 edited${page.edited ? ` ${page.edited}` : ""}${page.editedBy ? ` by ${page.editedBy}` : ""}`
+        : null;
+
+    const meta = [page.snippet, editedLine].filter(Boolean).join("\n");
 
     rows.push(<Section>{`📄  ${titleLink}`}</Section>);
     if (meta) rows.push(<Context>{meta}</Context>);
-    if (i < pages.length - 1) rows.push(<Divider />);
+    if (i < shown.length - 1) rows.push(<Divider />);
   });
+
+  const footer =
+    pages.length > MAX
+      ? `Showing ${MAX} of ${pages.length} pages`
+      : `${pages.length} page${pages.length === 1 ? "" : "s"}`;
 
   return (
     <Message accent={ACCENT.notion}>
       <Header>{`📚  ${heading ?? "Notion pages"}`}</Header>
       {rows}
-      <Context>{`${pages.length} page${pages.length === 1 ? "" : "s"}`}</Context>
+      <Context>{footer}</Context>
     </Message>
   );
 }

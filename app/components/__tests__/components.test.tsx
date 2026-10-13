@@ -1,6 +1,6 @@
 /**
  * Block Kit parity tests for the JSX render components. Each component is a
- * `@copilotkit/bot-ui` `ComponentFn`; we assert the full
+ * `@copilotkit/channels` `ComponentFn`; we assert the full
  * `renderSlackMessage(renderToIR(<… />))` output — both the `blocks` and the
  * attachment `accent` — against the legacy `defineSlackComponent` shapes.
  *
@@ -12,15 +12,16 @@
  * the old `defineSlackComponent` code produced.
  *
  * Status/priority glyphs are now platform-neutral unicode (✅ 🔵 🚨 🔴 etc.)
- * so they render identically on both Slack and Telegram.
+ * so they render identically on both Slack and Teams.
  */
 import { describe, it, expect } from "vitest";
-import { renderToIR } from "@copilotkit/bot-ui";
-import { renderSlackMessage } from "@copilotkit/bot-slack";
-import { renderTelegram } from "@copilotkit/bot-telegram";
+import { renderToIR } from "@copilotkit/channels";
+import { renderSlackMessage } from "@copilotkit/channels/slack";
+import { renderAdaptiveCard } from "@copilotkit/channels/teams";
 import { IssueList } from "../issue-list.js";
 import { IssueCard } from "../issue-card.js";
 import { PageList } from "../page-list.js";
+import { accentForIssues } from "../_status.js";
 
 describe("IssueList component", () => {
   it("renders exactly three blocks: header, a single section with one line per issue, and a count footer", () => {
@@ -120,6 +121,55 @@ describe("IssueList component", () => {
     expect(json).toContain("unassigned");
     // No urgent/high priority → Linear purple.
     expect(accent).toBe("#5E6AD2");
+  });
+
+  it("trims titles longer than TITLE_MAX (70 chars) with an ellipsis", () => {
+    const longTitle = "x".repeat(80);
+    const { blocks } = renderSlackMessage(
+      renderToIR(
+        <IssueList
+          issues={[{ identifier: "CPK-1", title: longTitle }]}
+        />,
+      ),
+    );
+    const section = blocks[1] as { text: { text: string } };
+    expect(section.text.text).toContain(`${"x".repeat(70)}…`);
+    expect(section.text.text).not.toContain("x".repeat(71));
+  });
+
+  it("includes priority in the per-row meta line, and omits it gracefully when absent", () => {
+    const { blocks } = renderSlackMessage(
+      renderToIR(
+        <IssueList
+          issues={[
+            {
+              identifier: "CPK-1",
+              title: "Has priority",
+              assignee: "Alem",
+              priority: "High",
+              updated: "2d ago",
+            },
+            { identifier: "CPK-2", title: "No priority" },
+          ]}
+        />,
+      ),
+    );
+    const section = blocks[1] as { text: { text: string } };
+    const lines = section.text.text.split("\n");
+    // Priority sits alongside assignee/updated in the meta, matching the
+    // existing " · " separator convention.
+    expect(lines[0]).toContain("Alem · High · 2d ago");
+    // No priority → no dangling separator, still falls back to unassigned.
+    expect(lines[1]).toContain("unassigned");
+    expect(lines[1]).not.toContain("·");
+  });
+});
+
+describe("accentForIssues", () => {
+  it("maps a list whose hottest priority is 'High' to the high (hot) accent", () => {
+    expect(
+      accentForIssues([{ priority: "Low" }, { priority: "High" }]),
+    ).toBe("#F2994A");
   });
 });
 
@@ -246,121 +296,94 @@ describe("PageList component", () => {
     // Notion-dark accent.
     expect(accent).toBe("#2F3437");
   });
-});
 
-// ── Telegram parity tests ────────────────────────────────────────────────────
-// These tests render the same IR through renderTelegram and assert that the
-// unicode status/priority glyphs appear correctly (no Slack `:shortcode:`
-// strings that Telegram would not expand).
-
-describe("IssueCard Telegram parity", () => {
-  it("renders unicode status and priority glyphs in Telegram output", () => {
-    const payload = renderTelegram(
+  it("renders the editor even when no human-readable `edited` timestamp is given", () => {
+    const { blocks } = renderSlackMessage(
       renderToIR(
-        <IssueCard
-          identifier="CPK-101"
-          title="Checkout 500s under load"
-          url="https://linear.app/copilotkit/issue/CPK-101"
-          state="In Progress"
-          assignee="Alem"
-          priority="Urgent"
-          team="CPK"
-        />,
-      ),
-    );
-    // renderTelegram returns a TelegramPayload with a `text` field (HTML string)
-    // and `parseMode: "HTML"` — confirmed from telegram.test.ts line:
-    //   expect(out.parseMode).toBe("HTML");
-    //   expect(out.text).toContain("<b>Status</b>");
-    expect(typeof payload.text).toBe("string");
-    // In-progress maps to the blue dot unicode glyph.
-    expect(payload.text).toContain("🔵");
-    // Urgent priority maps to the siren glyph.
-    expect(payload.text).toContain("🚨");
-    // Identifier and title text must appear in the output.
-    expect(payload.text).toContain("CPK-101");
-    expect(payload.text).toContain("Checkout 500s under load");
-    // No Slack mrkdwn shortcodes must appear.
-    expect(payload.text).not.toContain(":large_blue_circle:");
-    expect(payload.text).not.toContain(":rotating_light:");
-  });
-
-  it("renders 'done' unicode glyph for justCreated issue in Telegram output", () => {
-    const payload = renderTelegram(
-      renderToIR(
-        <IssueCard identifier="CPK-200" title="New bug" justCreated />,
-      ),
-    );
-    expect(typeof payload.text).toBe("string");
-    // justCreated uses the check-mark glyph.
-    expect(payload.text).toContain("✅");
-    expect(payload.text).toContain("CPK-200");
-    expect(payload.text).toContain("New bug");
-  });
-});
-
-describe("IssueList Telegram parity", () => {
-  it("renders unicode status glyphs for each issue in Telegram output", () => {
-    const payload = renderTelegram(
-      renderToIR(
-        <IssueList
-          heading="Open"
-          issues={[
+        <PageList
+          pages={[
             {
-              identifier: "CPK-101",
-              title: "Checkout 500s under load",
-              url: "https://linear.app/copilotkit/issue/CPK-101",
-              state: "In Progress",
-              assignee: "Alem",
-              priority: "Urgent",
-              updated: "2d ago",
-            },
-            {
-              identifier: "CPK-102",
-              title: "Login redirect loop",
-              url: "https://linear.app/copilotkit/issue/CPK-102",
-              state: "Todo",
-              assignee: "Sam",
-              priority: "High",
-              updated: "5h ago",
+              title: "Runbook without a timestamp",
+              editedBy: "Alem",
             },
           ]}
         />,
       ),
     );
-    expect(typeof payload.text).toBe("string");
-    // In-progress maps to the blue dot.
-    expect(payload.text).toContain("🔵");
-    // Todo/unknown maps to the orange dot.
-    expect(payload.text).toContain("🟠");
-    // Identifiers must be present.
-    expect(payload.text).toContain("CPK-101");
-    expect(payload.text).toContain("CPK-102");
-    // No Slack mrkdwn shortcodes.
-    expect(payload.text).not.toContain(":large_blue_circle:");
-    expect(payload.text).not.toContain(":large_orange_circle:");
+    const json = JSON.stringify(blocks);
+    // `editedBy` is an independent schema field from `edited` — it must not
+    // be silently dropped just because `edited` is absent.
+    expect(json).toContain("Alem");
+    expect(json).toContain("🕒 edited by Alem");
+  });
+
+  it("caps rendered pages at 15 and reports the overflow in the footer", () => {
+    const pages = Array.from({ length: 20 }, (_, i) => ({
+      title: `Page ${i + 1}`,
+    }));
+    const { blocks } = renderSlackMessage(
+      renderToIR(<PageList heading="Many" pages={pages} />),
+    );
+    const json = JSON.stringify(blocks);
+    expect(json).toContain("*Page 1*");
+    expect(json).toContain("*Page 15*");
+    expect(json).not.toContain("*Page 16*");
+    // Footer surfaces the overflow, mirroring issue-list's pattern.
+    expect(JSON.stringify(blocks[blocks.length - 1])).toContain(
+      "Showing 15 of 20 pages",
+    );
   });
 });
 
-describe("PageList Telegram parity", () => {
-  it("renders page titles and snippets in Telegram output", () => {
-    const payload = renderTelegram(
+describe("Microsoft Teams rendering parity", () => {
+  it("renders rich issue and page content as Adaptive Cards", () => {
+    const issue = renderAdaptiveCard(
+      renderToIR(
+        <IssueCard
+          identifier="CPK-101"
+          title="Checkout 500s under load"
+          state="In Progress"
+          priority="Urgent"
+        />,
+      ),
+    );
+    const issues = renderAdaptiveCard(
+      renderToIR(
+        <IssueList
+          heading="Open incidents"
+          issues={[
+            {
+              identifier: "CPK-102",
+              title: "Login redirect loop",
+              state: "Todo",
+              priority: "High",
+            },
+          ]}
+        />,
+      ),
+    );
+    const pages = renderAdaptiveCard(
       renderToIR(
         <PageList
           heading="Runbooks"
           pages={[
             {
               title: "Auth outage runbook",
-              url: "https://www.notion.so/abc",
               snippet: "Steps to mitigate auth provider downtime.",
-              edited: "3d ago",
             },
           ]}
         />,
       ),
     );
-    expect(typeof payload.text).toBe("string");
-    expect(payload.text).toContain("Auth outage runbook");
-    expect(payload.text).toContain("Steps to mitigate auth provider downtime.");
+
+    expect(issue.type).toBe("AdaptiveCard");
+    expect(JSON.stringify(issue)).toContain("🔵 CPK-101");
+    expect(JSON.stringify(issue)).toContain("🚨 Urgent");
+    expect(JSON.stringify(issues)).toContain("Open incidents");
+    expect(JSON.stringify(issues)).toContain("CPK-102");
+    expect(JSON.stringify(pages)).toContain("Auth outage runbook");
+    expect(JSON.stringify(pages)).toContain(
+      "Steps to mitigate auth provider downtime.",
+    );
   });
 });

@@ -2,13 +2,10 @@
  * `render_diagram` — the agent emits Mermaid source; we render it to a PNG
  * locally (headless Chromium) and deliver it to the thread via `ctx.thread.postFile`.
  * On invalid Mermaid the tool returns the parser error so the agent can fix
- * and retry rather than posting a broken image. After a successful upload we
- * also post a small JSX caption card (`<Context>`) so the tool doubles as a
- * render-tool demo.
+ * and retry rather than posting a broken image.
  */
 import { z } from "zod";
-import { Context } from "@copilotkit/bot-ui";
-import { defineBotTool } from "@copilotkit/bot";
+import { defineChannelTool } from "@copilotkit/channels";
 import { renderDiagram } from "../render/diagram.js";
 
 const schema = z.object({
@@ -33,23 +30,23 @@ function slug(s: string): string {
   );
 }
 
-export const renderDiagramTool = defineBotTool({
+export const renderDiagramTool = defineChannelTool({
   name: "render_diagram",
   description:
     "Render a Mermaid diagram as an image and post it to the conversation " +
     "thread. Pass Mermaid source (flowchart/sequence/state/etc). Use this to " +
-    "diagram a flow, architecture, or incident timeline. The image renders " +
-    "inline in the conversation.",
+    "diagram a flow, architecture, or incident timeline. Prefer top-down " +
+    "layouts and concise node labels for larger workflows so the result stays " +
+    "readable at Slack width. Use Mermaid classDef directives for restrained " +
+    "semantic color when the diagram has distinct stages, decisions, risks, or " +
+    "outcomes; favor CopilotKit's soft orange (#FFEEDB), lavender (#F3F3FC), " +
+    "yellow (#FFFBDB), and grey wash (#C9C9DA) fills. These hex values are " +
+    "Mermaid-compatible equivalents of the translucent brand washes. The " +
+    "image renders inline in the conversation.",
   parameters: schema,
   async handler({ title, mermaid }, ctx) {
     try {
       const png = await renderDiagram(mermaid);
-      // Post the caption as a HEADER first, then the image (see render-chart:
-      // a file upload's message lands a beat after `postFile` resolves, so
-      // caption-first keeps a stable caption → image order).
-      await ctx.thread.post(
-        <Context>{`📐  *${title ?? "Diagram"}* — diagram below.`}</Context>,
-      );
       const res = await ctx.thread.postFile({
         bytes: png,
         filename: `${slug(title ?? "diagram")}.png`,
@@ -62,6 +59,7 @@ export const renderDiagramTool = defineBotTool({
       return "Rendered and posted the diagram image to the thread.";
     } catch (e) {
       // Surface the Mermaid parse error so the agent can repair the source.
+      console.error("[render-diagram] render/upload failed", e);
       return `Diagram render failed: ${(e as Error).message}. Fix the Mermaid syntax and retry.`;
     }
   },

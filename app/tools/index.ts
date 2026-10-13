@@ -1,15 +1,17 @@
 /**
- * App-specific frontend tools — anything that's bot-specific, not
- * universal-Slack. Universal-Slack stuff (tagging, formatting,
- * conversation model) lives in the SDK and is auto-included by
- * `defaultSlackTools` (spread in `app/index.ts`).
+ * App-specific frontend tools. Provider defaults are added per turn by
+ * `app/channel-helpers.ts`.
  *
- * Add new tools here and re-export them through `appTools`. Wire the
- * array into `createBot({tools: [...defaultSlackTools, ...appTools]})`
- * in `app/index.ts`.
+ * Add new tools here and include them in `appTools`. Wire the array into
+ * `createChannel({ tools })`.
  */
+import {
+  blockCatalogTool,
+  isBlockCatalogEnabled,
+} from "./block-catalog.js";
+import { connectAppTool } from "./connect-app.js";
 import { readThreadTool } from "./read-thread.js";
-import { renderChartTool } from "./render-chart.js";
+import { createShowCapabilitiesTool } from "./capabilities.js";
 import { renderDiagramTool } from "./render-diagram.js";
 import { renderTableTool } from "./render-table.js";
 import { issueCardTool, issueListTool, pageListTool } from "./render-tools.js";
@@ -17,42 +19,49 @@ import {
   showIncidentTool,
   showStatusTool,
   showLinksTool,
+  showWorkPlanTool,
+  showDecisionBriefTool,
+  showKnowledgeSummaryTool,
 } from "./showcase-tools.js";
-import { confirmWriteTool } from "../human-in-the-loop/index.js";
-import type { BotTool } from "@copilotkit/bot";
+import type { ChannelTool } from "@copilotkit/channels";
+import { DEFAULT_AGENT_DISPLAY_NAME } from "../env.js";
 
 /**
- * Every tool is a plain `BotTool`: its handler receives the generic
- * `BotToolContext` (`{ thread, message?, user?, signal?, platform }`) the
+ * Every tool is a plain `ChannelTool`: its handler receives the generic
+ * `ChannelToolContext` (`{ thread, message?, user?, signal?, platform }`) the
  * adapter supplies at call time. Platform power (post/stream/postFile,
  * `thread.getMessages()`, `thread.lookupUser()`, …) is reached via the
  * `thread` methods, so there's no per-adapter context and no cast needed —
- * the array assigns straight into `createBot({ tools })`.
+ * the array assigns straight into `createChannel({ tools })`.
  */
-export const appTools: BotTool[] = [
-  readThreadTool,
-  renderChartTool,
-  renderDiagramTool,
-  renderTableTool,
-  issueCardTool,
-  issueListTool,
-  pageListTool,
-  showIncidentTool,
-  showStatusTool,
-  showLinksTool,
-  confirmWriteTool,
-];
+export function createAppTools(
+  agentDisplayName = DEFAULT_AGENT_DISPLAY_NAME,
+  env: NodeJS.ProcessEnv = process.env,
+): ChannelTool[] {
+  return [
+    readThreadTool,
+    createShowCapabilitiesTool(agentDisplayName),
+    renderDiagramTool,
+    renderTableTool,
+    issueCardTool,
+    issueListTool,
+    pageListTool,
+    showIncidentTool,
+    showStatusTool,
+    showLinksTool,
+    showWorkPlanTool,
+    showDecisionBriefTool,
+    showKnowledgeSummaryTool,
+    // Registered unconditionally. Which apps a person can connect is the
+    // agent's configuration, not the runtime's — on a two-service deployment the
+    // toolkit lists are set on the agent alone — so the surface offers the
+    // button and the agent decides when asking for one makes sense.
+    connectAppTool,
+    // Off by default, and *absent* rather than refusing when off: a tool the
+    // agent can see but must not call leaks into its reasoning and turns into
+    // "I can't do that here" instead of the topic not existing.
+    ...(isBlockCatalogEnabled(env) ? [blockCatalogTool] : []),
+  ];
+}
 
-export {
-  readThreadTool,
-  renderChartTool,
-  renderDiagramTool,
-  renderTableTool,
-  issueCardTool,
-  issueListTool,
-  pageListTool,
-  showIncidentTool,
-  showStatusTool,
-  showLinksTool,
-  confirmWriteTool,
-};
+export const appTools = createAppTools();

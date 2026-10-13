@@ -1,0 +1,13 @@
+{
+  "app": "pnpm exec tsx bin/opentag.ts",
+  "context": {
+    "@aws-cdk/core:defaultCrossStackReferences": "strong",
+    "appName": "opentag",
+    "environment": "production",
+    "sharedCluster": false,
+    "channelName": "open-tag",
+    "enableDatadog": true,
+    "datadogSite": "datadoghq.com",
+    "logRetentionDays": 30
+  }
+}

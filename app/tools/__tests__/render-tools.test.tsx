@@ -6,8 +6,8 @@
  * shape — i.e. the tool posted the right component.
  */
 import { describe, it, expect } from "vitest";
-import { renderToIR } from "@copilotkit/bot-ui";
-import { renderSlackMessage } from "@copilotkit/bot-slack";
+import { renderToIR } from "@copilotkit/channels";
+import { renderSlackMessage } from "@copilotkit/channels/slack";
 import { issueCardTool, issueListTool, pageListTool } from "../render-tools.js";
 
 /** A fake `thread` that records each posted Renderable. */
@@ -80,7 +80,10 @@ describe("issue_list render-tool", () => {
     expect(JSON.stringify(blocks)).toContain(
       "<https://linear.app/copilotkit/issue/CPK-101|*CPK-101*>",
     );
-    expect(JSON.stringify(blocks)).toContain("1 issue");
+    // Exact singular count — a substring `toContain("1 issue")` would also
+    // pass if the footer wrongly rendered the plural "1 issues".
+    expect(JSON.stringify(blocks)).not.toContain("1 issues");
+    expect(JSON.stringify(blocks)).toMatch(/\b1 issue\b/);
   });
 });
 
@@ -112,6 +115,9 @@ describe("page_list render-tool", () => {
     expect(JSON.stringify(blocks)).toContain(
       "<https://www.notion.so/abc|*Auth outage runbook*>",
     );
-    expect(JSON.stringify(blocks)).toContain("1 page");
+    // Exact singular count — a substring `toContain("1 page")` would also
+    // pass if the footer wrongly rendered the plural "1 pages".
+    expect(JSON.stringify(blocks)).not.toContain("1 pages");
+    expect(JSON.stringify(blocks)).toMatch(/\b1 page\b/);
   });
 });

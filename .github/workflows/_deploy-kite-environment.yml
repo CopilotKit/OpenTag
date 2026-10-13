@@ -1,0 +1,107 @@
+name: Kite / _Deploy environment
+
+on:
+  workflow_call:
+    inputs:
+      agent_image:
+        required: true
+        type: string
+      environment:
+        required: true
+        type: string
+      github_environment:
+        required: true
+        type: string
+      runtime_image:
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: kite-deploy-${{ inputs.environment }}
+  cancel-in-progress: ${{ inputs.environment == 'staging' }}
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    environment: ${{ inputs.github_environment }}
+    steps:
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@e6de054238d6b7531b4efff3b6587d9aade6a06c # v6.2.3
+        with:
+          aws-region: ${{ vars.AWS_REGION }}
+          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
+          role-session-name: kite-${{ inputs.environment }}-${{ github.run_id }}
+      - name: Register images and update ECS service
+        env:
+          AGENT_IMAGE: ${{ inputs.agent_image }}
+          DEPLOY_ENVIRONMENT: ${{ inputs.environment }}
+          RUNTIME_IMAGE: ${{ inputs.runtime_image }}
+        run: |
+          set -euo pipefail
+          [[ "$AGENT_IMAGE" =~ ^ghcr\.io/copilotkit/opentag-agent@sha256:[0-9a-f]{64}$ ]]
+          [[ "$RUNTIME_IMAGE" =~ ^ghcr\.io/copilotkit/opentag-runtime@sha256:[0-9a-f]{64}$ ]]
+          [[ "$DEPLOY_ENVIRONMENT" =~ ^(staging|prod|community)$ ]]
+          service="kite-$DEPLOY_ENVIRONMENT"
+          current_task_definition=$(aws ecs describe-services \
+            --cluster kite --services "$service" \
+            --query 'services[0].taskDefinition' --output text)
+          test "$current_task_definition" != None
+
+          current_response="$RUNNER_TEMP/current-task-definition-response.json"
+          current_json="$RUNNER_TEMP/current-task-definition.json"
+          next_json="$RUNNER_TEMP/next-task-definition.json"
+          aws ecs describe-task-definition \
+            --task-definition "$current_task_definition" \
+            --include TAGS > "$current_response"
+          jq '.taskDefinition' "$current_response" > "$current_json"
+          current_agent=$(jq -r '.containerDefinitions[] | select(.name == "agent") | .image' "$current_json")
+          current_runtime=$(jq -r '.containerDefinitions[] | select(.name == "runtime") | .image' "$current_json")
+
+          task_definition="$current_task_definition"
+          if [ "$current_agent" != "$AGENT_IMAGE" ] || [ "$current_runtime" != "$RUNTIME_IMAGE" ]; then
+            jq --arg agent "$AGENT_IMAGE" --arg runtime "$RUNTIME_IMAGE" '
+              .containerDefinitions |= map(
+                if .name == "agent" then .image = $agent
+                elif .name == "runtime" then .image = $runtime
+                else . end
+              )
+              | del(
+                  .taskDefinitionArn,
+                  .revision,
+                  .status,
+                  .requiresAttributes,
+                  .compatibilities,
+                  .registeredAt,
+                  .registeredBy
+                )
+            ' "$current_json" > "$next_json"
+            task_definition=$(aws ecs register-task-definition \
+              --cli-input-json "file://$next_json" \
+              --tags "$(jq -c '.tags' "$current_response")" \
+              --query 'taskDefinition.taskDefinitionArn' --output text)
+            aws ecs update-service \
+              --cluster kite \
+              --service "$service" \
+              --task-definition "$task_definition" \
+              --force-new-deployment >/dev/null
+          fi
+
+          aws ecs wait services-stable --cluster kite --services "$service"
+          deployed_task_definition=$(aws ecs describe-services \
+            --cluster kite --services "$service" \
+            --query 'services[0].taskDefinition' --output text)
+          test "$deployed_task_definition" = "$task_definition"
+          agent=$(aws ecs describe-task-definition --task-definition "$deployed_task_definition" \
+            --query "taskDefinition.containerDefinitions[?name=='agent'].image | [0]" --output text)
+          runtime=$(aws ecs describe-task-definition --task-definition "$deployed_task_definition" \
+            --query "taskDefinition.containerDefinitions[?name=='runtime'].image | [0]" --output text)
+          test "$agent" = "$AGENT_IMAGE"
+          test "$runtime" = "$RUNTIME_IMAGE"
+          running=$(aws ecs describe-services --cluster kite --services "$service" \
+            --query 'services[0].runningCount' --output text)
+          test "$running" = "1"

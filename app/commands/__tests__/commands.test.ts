@@ -1,14 +1,17 @@
 import { describe, it, expect, vi } from "vitest";
-import { renderToIR } from "@copilotkit/bot-ui";
-import type { BotNode } from "@copilotkit/bot-ui";
+import { renderToIR, type ChannelNode } from "@copilotkit/channels";
+import {
+  defaultSlackContext,
+  defaultSlackTools,
+} from "@copilotkit/channels/slack";
 import { appCommands } from "../index.js";
-import type { CommandContext } from "@copilotkit/bot";
+import type { CommandContext } from "@copilotkit/channels";
 
-function tags(node: BotNode | unknown, acc: string[] = []): string[] {
+function tags(node: ChannelNode | unknown, acc: string[] = []): string[] {
   if (!node || typeof node !== "object") return acc;
-  const n = node as BotNode;
+  const n = node as ChannelNode;
   if (typeof n.type === "string") acc.push(n.type);
-  for (const c of (n.props?.children as BotNode[] | undefined) ?? []) {
+  for (const c of (n.props?.children as ChannelNode[] | undefined) ?? []) {
     tags(c, acc);
   }
   return acc;
@@ -24,7 +27,11 @@ const byName = (name: string) => {
 function fakeThread() {
   return {
     runAgent: vi.fn(
-      async (_input?: { prompt?: string; context?: unknown }) => undefined,
+      async (_input?: {
+        prompt?: string;
+        tools?: unknown;
+        context?: unknown;
+      }) => undefined,
     ),
     post: vi.fn(async (_ui?: unknown) => ({ id: "m1" })),
   };
@@ -37,6 +44,8 @@ const ctx = (over: Partial<CommandContext>): CommandContext =>
     text: "",
     options: {},
     platform: "slack",
+    user: { id: "U1", name: "Ada" },
+    actor: { id: "U1", kind: "human", name: "Ada" },
     ...over,
   }) as CommandContext;
 
@@ -74,6 +83,57 @@ describe("example slash commands", () => {
     expect(thread.post).toHaveBeenCalledTimes(1);
   });
 
+  it("/agent reports a recoverable error after posting an apology", async () => {
+    const thread = fakeThread();
+    thread.runAgent.mockRejectedValueOnce(new Error("backend unavailable"));
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    await byName("agent").handler(
+      ctx({
+        command: "agent",
+        text: "why is prod down",
+        thread: thread as never,
+      }),
+    );
+
+    expect(consoleError).toHaveBeenCalledWith(
+      "[channel] recoverable error",
+      expect.objectContaining({
+        error: expect.any(Error),
+        context: {
+          operation: "command_agent_run_agent",
+          recovery: "posted_user_facing_error",
+        },
+        timestamp: expect.any(String),
+      }),
+    );
+    expect(thread.post).toHaveBeenCalledWith(
+      expect.stringMatching(/error/i),
+    );
+
+    consoleError.mockRestore();
+  });
+
+  it("/agent rejects loudly when its run and apology both fail", async () => {
+    const thread = fakeThread();
+    const runError = new Error("backend unavailable");
+    const postError = new Error("Slack unavailable");
+    thread.runAgent.mockRejectedValueOnce(runError);
+    thread.post.mockRejectedValueOnce(postError);
+
+    await expect(
+      byName("agent").handler(
+        ctx({
+          command: "agent",
+          text: "why is prod down",
+          thread: thread as never,
+        }),
+      ),
+    ).rejects.toMatchObject({
+      errors: [runError, postError],
+    });
+  });
+
   it("/triage runs the agent with a triage prompt", async () => {
     const thread = fakeThread();
     await byName("triage").handler(
@@ -85,7 +145,58 @@ describe("example slash commands", () => {
     );
   });
 
-  it("/preview posts an ephemeral draft and reports the native path", async () => {
+  it("/triage with text passes the note through in the triage prompt", async () => {
+    const thread = fakeThread();
+    await byName("triage").handler(
+      ctx({
+        command: "triage",
+        text: "checkout is failing",
+        thread: thread as never,
+      }),
+    );
+    expect(thread.runAgent).toHaveBeenCalledTimes(1);
+    expect(thread.runAgent.mock.calls[0]![0]).toMatchObject({
+      prompt:
+        "Triage this and propose Linear issues to file: checkout is failing",
+    });
+  });
+
+  it.each([
+    ["agent", "why is prod down"],
+    ["triage", "checkout is failing"],
+  ])(
+    "managed /%s uses its Slack command origin for defaults and sender context",
+    async (command, text) => {
+      const thread = {
+        ...fakeThread(),
+        platform: "intelligence",
+      };
+
+      await byName(command).handler(
+        ctx({
+          command,
+          text,
+          thread: thread as never,
+          platform: "slack",
+          user: { id: "U1", name: "Ada" },
+          actor: { id: "U1", kind: "human", name: "Ada" },
+        }),
+      );
+
+      const input = thread.runAgent.mock.calls[0]![0];
+      expect(input?.tools).toEqual(defaultSlackTools);
+      expect(input?.context).toEqual([
+        ...defaultSlackContext,
+        {
+          description: "Requesting slack user",
+          value: "Ada (slack id U1)",
+        },
+      ]);
+      expect(JSON.stringify(input)).not.toContain("intelligence user");
+    },
+  );
+
+  it("/preview posts an ephemeral draft on the native (non-fallback) path", async () => {
     const preview = appCommands.find((c) => c.name === "preview")!;
     expect(preview).toBeDefined();
     const postEphemeral = vi
@@ -98,12 +209,15 @@ describe("example slash commands", () => {
       text: "Login button is broken",
       options: {},
       user: { id: "U1", name: "Ada" },
+      actor: { id: "U1", kind: "human", name: "Ada" },
       platform: "slack",
     } as never);
     expect(postEphemeral).toHaveBeenCalledTimes(1);
-    const [user, , opts] = postEphemeral.mock.calls[0]!;
-    expect(user).toEqual({ id: "U1", name: "Ada" });
+    const [actor, , opts] = postEphemeral.mock.calls[0]!;
+    expect(actor).toEqual({ id: "U1", kind: "human", name: "Ada" });
     expect(opts).toEqual({ fallbackToDM: true });
+    // Native path (ok, no fallback) is silent — no follow-up narration post.
+    expect(post).not.toHaveBeenCalled();
   });
 
   it("/preview asks for a title when none is given", async () => {
@@ -116,10 +230,30 @@ describe("example slash commands", () => {
       text: "",
       options: {},
       user: { id: "U1" },
+      actor: { id: "U1", kind: "human" },
       platform: "slack",
     } as never);
     expect(post).toHaveBeenCalledWith(expect.stringContaining("Usage"));
     expect(postEphemeral).not.toHaveBeenCalled();
+  });
+
+  it("/preview with no provider actor says it can't tell who you are", async () => {
+    const preview = byName("preview");
+    const postEphemeral = vi.fn();
+    const post = vi.fn().mockResolvedValue({ id: "1" });
+    await preview.handler({
+      thread: { postEphemeral, post } as never,
+      command: "preview",
+      text: "Login broken",
+      options: {},
+      user: null,
+      actor: { id: "", kind: "unknown" },
+      platform: "slack",
+    } as never);
+    expect(postEphemeral).not.toHaveBeenCalled();
+    expect(post).toHaveBeenCalledWith(
+      expect.stringMatching(/couldn.t tell who you are/i),
+    );
   });
 
   it("/file-issue opens the rich modal on Slack", async () => {
@@ -132,6 +266,7 @@ describe("example slash commands", () => {
       text: "",
       options: {},
       user: { id: "U1" },
+      actor: { id: "U1", kind: "human" },
       platform: "slack",
       openModal,
     } as never);
@@ -140,6 +275,7 @@ describe("example slash commands", () => {
     const capturedView = openModal.mock.calls[0]![0];
     const ir = renderToIR(capturedView);
     const t = tags(ir[0]);
+    expect(ir[0]?.props.privateMetadata).toBe("slack");
     expect(t).toContain("modal_select");
     expect(t).toContain("modal_radio");
   });
@@ -154,13 +290,21 @@ describe("example slash commands", () => {
       text: "",
       options: {},
       user: { id: "U1" },
-      platform: "telegram",
-      openModal: undefined, // Telegram: no modal trigger
+      actor: { id: "U1", kind: "human" },
+      platform: "teams",
+      openModal: undefined,
     } as never);
     expect(post).toHaveBeenCalledWith(
       expect.stringMatching(/aren.t supported|chat/i),
     );
     expect(runAgent).toHaveBeenCalledTimes(1);
+    expect(runAgent.mock.calls[0]![0]?.tools).toBeUndefined();
+    expect(runAgent.mock.calls[0]![0]?.context).toEqual([
+      {
+        description: "Requesting teams user",
+        value: "U1 (teams id U1)",
+      },
+    ]);
   });
 
   it("/file-issue posts an error message when openModal resolves { ok: false }", async () => {
@@ -175,6 +319,7 @@ describe("example slash commands", () => {
       text: "",
       options: {},
       user: { id: "U1" },
+      actor: { id: "U1", kind: "human" },
       platform: "slack",
       openModal,
     } as never);
@@ -197,7 +342,8 @@ describe("example slash commands", () => {
       text: "Login broken",
       options: {},
       user: { id: "U1", name: "Ada" },
-      platform: "discord",
+      actor: { id: "U1", kind: "human", name: "Ada" },
+      platform: "teams",
     } as never);
     expect(postEphemeral).toHaveBeenCalledTimes(1);
     expect(post).toHaveBeenCalledTimes(1);
@@ -216,7 +362,8 @@ describe("example slash commands", () => {
       text: "Login broken",
       options: {},
       user: { id: "U1", name: "Ada" },
-      platform: "discord",
+      actor: { id: "U1", kind: "human", name: "Ada" },
+      platform: "teams",
     } as never);
     expect(postEphemeral).toHaveBeenCalledTimes(1);
     expect(post).toHaveBeenCalledTimes(1);

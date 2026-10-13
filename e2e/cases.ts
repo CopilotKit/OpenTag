@@ -86,6 +86,50 @@ export interface E2ECase {
   };
 }
 
+function confirmWriteCard(
+  raw: Array<Record<string, any>>,
+): {
+  buttons: Array<Record<string, any>>;
+  errors: string[];
+} {
+  const blocks = raw.flatMap((message) => [
+    ...((message["blocks"] as Array<Record<string, any>> | undefined) ?? []),
+    ...(
+      (message["attachments"] as
+        | Array<{ blocks?: Array<Record<string, any>> }>
+        | undefined) ?? []
+    ).flatMap((attachment) => attachment.blocks ?? []),
+  ]);
+  const header = blocks.find((block) => block["type"] === "header");
+  const headerText = String(
+    (header?.["text"] as { text?: string } | undefined)?.text ?? "",
+  );
+  const buttons = blocks
+    .filter((block) => block["type"] === "actions")
+    .flatMap(
+      (block) =>
+        (block["elements"] as Array<Record<string, any>> | undefined) ?? [],
+    )
+    .filter((element) => element["type"] === "button");
+  const buttonLabels = buttons.map((button) =>
+    String(
+      (button["text"] as { text?: string } | undefined)?.text ?? "",
+    ),
+  );
+  const errors: string[] = [];
+
+  if (!headerText.trim()) {
+    errors.push("confirm_write card has no Block Kit header");
+  }
+  for (const expected of ["Create", "Cancel"]) {
+    if (!buttonLabels.includes(expected)) {
+      errors.push(`confirm_write card has no ${expected} button`);
+    }
+  }
+
+  return { buttons, errors };
+}
+
 export const CASES: E2ECase[] = [
   // ── A. Trigger surface ──────────────────────────────────────────────
   {
@@ -355,76 +399,54 @@ export const CASES: E2ECase[] = [
     },
   },
   {
-    name: "E-restart-1 — confirm_write picker has resume values encoded in button.value (survives bridge restart)",
-    // The agent must call confirm_write before any write. Once the picker
-    // lands, we read it back via conversations.replies and verify each
-    // button carries a JSON-encoded resume payload in its `value` field.
-    // That's what Slack stores and what the bridge decodes on a "stale
-    // click" after a restart — the durable-action story. (The full
-    // kill→restart→click cycle is covered by e2e/restart-recovery.ts.)
+    name: "E-durable-1 — confirm_write buttons serialize action IDs and resume values",
+    // This live case does not restart the process. It reads the initial picker
+    // back through conversations.replies and verifies Slack stored durable
+    // action IDs plus JSON resume values. Handler re-registration with a shared
+    // store is covered in app/channel.test.ts; this does not claim persistence
+    // across an operating-system process restart.
     prompt:
       '<@U0B45V75NNR> file a Linear issue titled "Checkout 500s under load". ' +
-      "Use the confirm_write tool to ask me to approve it first.",
+      "The protected write must ask me to approve it before MCP runs.",
     sampleIntervalMs: 700,
     maxWaitMs: 20_000,
     expectations: {
       perReplyChecks: (_replies, raw) => {
-        const errs: string[] = [];
-        const buttons: Array<{ action_id?: string; value?: string }> = [];
-        for (const m of raw) {
-          // confirm_write wraps its blocks in a colored attachment, so the
-          // buttons live under attachments[].blocks; scan both.
-          const blocks = [
-            ...(m.blocks ?? []),
-            ...(
-              (m.attachments as Array<{ blocks?: any[] }> | undefined) ?? []
-            ).flatMap((a) => a.blocks ?? []),
-          ];
-          for (const b of blocks) {
-            if (b.type === "actions" && Array.isArray(b.elements)) {
-              for (const el of b.elements) {
-                if (el?.type === "button") buttons.push(el);
-              }
-            }
-          }
-        }
-        if (buttons.length < 2) {
-          errs.push(
-            `expected ≥2 confirm_write buttons (Create/Cancel); got ${buttons.length}`,
+        const { buttons, errors } = confirmWriteCard(raw);
+        for (const [label, confirmed] of [
+          ["Create", true],
+          ["Cancel", false],
+        ] as const) {
+          const btn = buttons.find(
+            (button) =>
+              (button["text"] as { text?: string } | undefined)?.text ===
+              label,
           );
-          return errs;
-        }
-        let sawConfirmTrue = false;
-        for (const btn of buttons) {
+          if (!btn) continue;
+          if (
+            typeof btn["action_id"] !== "string" ||
+            !btn["action_id"].startsWith("ck:")
+          ) {
+            errors.push(`${label} button has no durable ck: action_id`);
+          }
           if (!btn.value) {
-            errs.push(`button action_id=${btn.action_id} has no value field`);
+            errors.push(`${label} button has no value field`);
             continue;
           }
           try {
             const decoded = JSON.parse(btn.value);
-            if (
-              decoded &&
-              typeof decoded === "object" &&
-              "confirmed" in decoded
-            ) {
-              if (decoded.confirmed === true) sawConfirmTrue = true;
-            } else {
-              errs.push(
-                `button action_id=${btn.action_id} decoded to unexpected shape: ${btn.value}`,
+            if (decoded?.confirmed !== confirmed) {
+              errors.push(
+                `${label} button decoded to unexpected resume value: ${btn.value}`,
               );
             }
           } catch (e) {
-            errs.push(
-              `button action_id=${btn.action_id} value isn't valid JSON: ${(e as Error).message}`,
+            errors.push(
+              `${label} button value isn't valid JSON: ${(e as Error).message}`,
             );
           }
         }
-        if (!sawConfirmTrue) {
-          errs.push(
-            "no button encoded { confirmed: true } (the Create button)",
-          );
-        }
-        return errs;
+        return errors;
       },
     },
   },
@@ -432,25 +454,16 @@ export const CASES: E2ECase[] = [
     name: "E-hitl-1 — agent renders the confirm_write HITL Block Kit message",
     // Verifies the human-in-the-loop gate renders into the thread. We
     // can't simulate the button click via Slack's API, so this case only
-    // asserts that the Block Kit message lands; the click→resolve flow
-    // is covered by unit tests in the slack package, and the full
-    // restart cycle by e2e/restart-recovery.ts. The agent's run will be
-    // left dangling on the HITL wait for up to the component's timeoutMs.
+    // asserts that the initial Block Kit card lands with Create/Cancel.
+    // Click→resume handling and shared-store action re-registration are covered
+    // by the Channel unit tests.
     prompt:
-      '<@U0B45V75NNR> file a Linear issue titled "Test from e2e". Call the ' +
-      "confirm_write tool to ask me to approve it before creating anything.",
+      '<@U0B45V75NNR> file a Linear issue titled "Test from e2e". The ' +
+      "protected write must ask me to approve it before creating anything.",
     sampleIntervalMs: 700,
     maxWaitMs: 20_000,
     expectations: {
-      perReplyChecks: (replies) => {
-        const errs: string[] = [];
-        const joined = replies.join("\n").toLowerCase();
-        // The HITL fallback for confirm_write is "Approve: <action>".
-        if (!joined.includes("approve")) {
-          errs.push("no bot reply contained the confirm_write 'Approve' text");
-        }
-        return errs;
-      },
+      perReplyChecks: (_replies, raw) => confirmWriteCard(raw).errors,
     },
   },
   {

@@ -4,15 +4,23 @@
  * issues with several fields, metrics parsed from an uploaded CSV, side-by-side
  * comparisons — anything where a chart isn't the right shape.
  *
- * Authored as JSX over `@copilotkit/bot-ui`'s `<Table>/<Row>/<Cell>` vocabulary
+ * Authored as JSX over `@copilotkit/channels`'s `<Table>/<Row>/<Cell>` vocabulary
  * and posted via `thread.post`. If the platform rejects the native Table block,
  * we fall back to a column-aligned monospace (code-fenced) table posted as a
  * platform-neutral `<Message>` so the data always lands — the same look the
  * bridge gives GFM tables in prose.
  */
 import { z } from "zod";
-import { Message, Header, Section, Table, Row, Cell } from "@copilotkit/bot-ui";
-import { defineBotTool } from "@copilotkit/bot";
+import {
+  Message,
+  Header,
+  Section,
+  Table,
+  Row,
+  Cell,
+  Context,
+} from "@copilotkit/channels";
+import { defineChannelTool } from "@copilotkit/channels";
 
 const schema = z.object({
   title: z
@@ -39,7 +47,7 @@ const schema = z.object({
     .array(z.array(z.coerce.string()))
     .describe(
       "Data rows; each row is an array of cell values in column order " +
-        "(numbers are fine — they're rendered as text). Max 100 rows.",
+        "(numbers are fine — they're rendered as text). Max 99 rows.",
     ),
 });
 
@@ -65,6 +73,17 @@ export function clamp(
   if (rows.length > MAX_DATA_ROWS) {
     notes.push(`only the first ${MAX_DATA_ROWS} of ${rows.length} rows shown`);
   }
+  // Compare against the ORIGINAL declared column count, not the clamped
+  // `cols.length` — otherwise a well-formed table with >MAX_COLUMNS columns
+  // would have every row spuriously flagged as "extra cells dropped" (the
+  // column truncation itself is already reported above).
+  const extraCellRows = dataRows.filter((r) => r.length > columns.length).length;
+  if (extraCellRows > 0) {
+    notes.push(
+      `${extraCellRows} row(s) had extra cells beyond the ${columns.length} ` +
+        "columns; extras were dropped",
+    );
+  }
   return { cols, dataRows, notes };
 }
 
@@ -83,22 +102,40 @@ export function toMonospaceTable(cols: Column[], dataRows: string[][]): string {
   );
   const fmt = (row: string[]) =>
     "| " +
-    cols.map((_, c) => (row[c] ?? "").padEnd(widths[c] ?? 0)).join(" | ") +
+    cols
+      .map((col, c) => {
+        const cell = row[c] ?? "";
+        const width = widths[c] ?? 0;
+        if (col.align === "right") return cell.padStart(width);
+        if (col.align === "center") {
+          const total = Math.max(width - cell.length, 0);
+          const left = Math.floor(total / 2);
+          const right = total - left;
+          return " ".repeat(left) + cell + " ".repeat(right);
+        }
+        return cell.padEnd(width);
+      })
+      .join(" | ") +
     " |";
   return "```\n" + [fmt(header), ...body.map(fmt)].join("\n") + "\n```";
 }
 
-export const renderTableTool = defineBotTool({
+export const renderTableTool = defineChannelTool({
   name: "render_table",
   description:
     "Render tabular data as a table posted to the conversation thread. Pass " +
     "columns (each with a header and optional alignment) and rows (arrays of " +
     "cell values in column order). Use for 'show as a table' — issue lists " +
     "with several fields, metrics from a CSV, comparisons — when a chart " +
-    "isn't the right shape. Max 20 columns and 100 rows.",
+    "isn't the right shape. Max 20 columns and 99 rows.",
   parameters: schema,
   async handler({ title, columns, rows }, { thread }) {
-    const { cols, dataRows } = clamp(columns, rows);
+    const { cols, dataRows, notes } = clamp(columns, rows);
+    // When rows/columns were truncated, surface it both to the user (a
+    // trailing <Context> note under the table) and to the agent (appended to
+    // the returned status string), so a silent drop never happens.
+    const noteBlock = notes.length > 0 ? <Context>{notes.join("; ")}</Context> : null;
+    const noteSuffix = notes.length > 0 ? ` (${notes.join("; ")})` : "";
 
     const table = (
       <Message>
@@ -112,25 +149,43 @@ export const renderTableTool = defineBotTool({
             </Row>
           ))}
         </Table>
+        {noteBlock}
       </Message>
     );
 
     try {
       await thread.post(table);
-      return "Rendered the table for the user.";
-    } catch {
+      return `Rendered the table for the user.${noteSuffix}`;
+    } catch (err) {
       // Native Table block not accepted (platform unsupported) — post the same
       // data as a monospace code-fenced table via a platform-neutral <Message>
       // so it still lands on any adapter.
+      console.error(
+        "[render-table] native table post failed, falling back to monospace",
+        err,
+      );
       const mono = toMonospaceTable(cols, dataRows);
       const fallback = (
         <Message>
           {title ? <Header>{title}</Header> : null}
           <Section>{mono}</Section>
+          {noteBlock}
         </Message>
       );
-      await thread.post(fallback);
-      return "Rendered the table (monospace fallback) for the user.";
+      try {
+        await thread.post(fallback);
+        return `Rendered the table (monospace fallback) for the user.${noteSuffix}`;
+      } catch (fallbackErr) {
+        // Both the native table and the monospace fallback were rejected —
+        // likely the same transient/platform failure hit both posts. Return a
+        // clear status string instead of letting the handler throw, so the
+        // agent gets an actionable message rather than an opaque tool error.
+        console.error(
+          "[render-table] monospace fallback post also failed",
+          fallbackErr,
+        );
+        return `The table couldn't be posted (both native and monospace rendering failed).${noteSuffix}`;
+      }
     }
   },
 });

@@ -326,7 +326,7 @@ async function runCase(spec: E2ECase): Promise<CaseResult> {
 async function main() {
   if (!USER_TOKEN) {
     console.error(
-      "SLACK_USER_TOKEN missing in .env — run `pnpm exec tsx e2e/grab-user-token.ts` first.",
+      "SLACK_USER_TOKEN missing in .env — add an xoxp token with chat:write; see e2e/README.md.",
     );
     process.exit(1);
   }

@@ -1,0 +1,136 @@
+# Agent instructions
+
+OpenTag is meant to be cloned and customized, often with a coding agent driving.
+This file tells that agent where the authority lives, so it grounds work in the
+current API instead of in recalled patterns.
+
+## Skills to install before you start
+
+This repository vendors no skills. It installs them, because the CopilotKit CLI
+delivers them from one home and a vendored copy silently falls behind.
+
+| Task | Skill | Install |
+| --- | --- | --- |
+| Changing Channel code — `createChannel`, handlers, commands, JSX message UI, modals, human-in-the-loop, runtime wiring | `copilotkit-channels` | `npx copilotkit@latest skills install --skill copilotkit-channels` |
+| Getting Slack to answer for the first time, or diagnosing a Channel stuck at `setup_required` or a mention with no reply | `setup-slack-channel` | `npx copilotkit@latest skills install --skill setup-slack-channel` |
+| The whole setup path, including Microsoft Teams | `channels-setup` | `npx copilotkit@latest channels setup` |
+| Runtime internals — `CopilotRuntime`, agent runners, tools | `runtime` | `npx copilotkit@latest skills install --skill runtime` |
+
+`setup-slack-channel` is written **for this repository**. Its phases assume
+OpenTag's conventions — `app/channel.tsx`, `app/env.ts`,
+`INTELLIGENCE_CHANNEL_NAME`, a local agent on port 8123 — so prefer it here over
+a generic setup sequence.
+
+Always relay these with `@latest`. A bare `copilotkit` resolves to whatever is on
+PATH or already in the npx cache, and an older CLI fails with
+`Unknown option '--skill'`.
+
+Do not commit what `skills install` writes. `.agents/`, `.claude/skills`,
+`agent/skills`, and `skills-lock.json` are gitignored deliberately: those paths
+are install targets, so committing them means the next install overwrites tracked
+files.
+
+## Repository map
+
+| Area | Path | What it owns |
+| --- | --- | --- |
+| Runtime entrypoint | `server.ts` | Environment, Channels readiness, HTTP lifecycle, shutdown |
+| Composition | `app/index.ts` | Agent factory, managed Channel, runtime |
+| Channel surface | `app/channel.tsx` | Mentions, commands, components, modals, interrupts |
+| Environment contract | `app/env.ts` | Required variables and in-code defaults |
+| Rendered UI | `app/components/`, `app/tools/` | Issue cards, tables, charts, diagrams |
+| Agent | `agent/agent.py` | LangGraph deep agent served over AG-UI |
+| AG-UI adapter | `agent/agui.py` | Slack recursion limit and user-facing graph-stop handling |
+| Persona | `agent/prompts/` | `system.py` is the base system prompt |
+| Approval gate | `agent/write_confirmation.py` | Emits `confirm_write` before a Linear, Notion, Composio, or Arcade write |
+| Provider selection | `agent/connected_app_provider.py` | Picks Composio or Arcade from which API key is set; both set fails startup |
+| Composio | `agent/composio_tools/` | Toolkit sessions, per-person identity, effect classification, connect links. `state.py` also owns the trusted-actor rules for **both** providers |
+| Arcade | `agent/arcade_tools/` | Catalogue, per-action authorization, effect classification, outcome handling, connect tickets and browser verification |
+| Arcade connect pages | `app/arcade-browser-routes.ts` | The two public pages of the Arcade connect flow. They live on the runtime so the agent keeps no public entry point |
+| Coder | `agent/coding/` | GitHub credentials, Daytona sandbox, repository publish tools, coder prompt |
+| Coder skills | `agent/coding/skills/` | Committed skills. Do not put them in `agent/skills/` |
+| Deployment | `.railway/railway.ts` | Two services, declared as code |
+
+Reference docs: [`README.md`](./README.md) for the quick start,
+[`setup.md`](./setup.md) for the full environment contract, and
+[`docs/migration-kite.md`](./docs/migration-kite.md) for the internal `@kite`
+cutover.
+
+## Verify before claiming done
+
+```bash
+pnpm check-types
+pnpm test
+(cd agent && uv run pytest)
+node node_modules/railway/dist/iac/bin.js
+```
+
+Run the last one from the repository root, not from `agent/`. Report the commands
+you actually ran; do not claim a check that did not run.
+
+## Gotchas that cost the most time
+
+- **The runtime does not hot-reload Channel wiring.** After editing a handler,
+  the agent, or the Channel, restart the process and prove `online` again. A stale
+  process answering with the old behavior is indistinguishable from a change that
+  did not work, and it will send you debugging code that is already correct.
+- **`ready()` resolving is not health.** It also resolves on `setup_required`,
+  a valid degraded state. Only `controls.status()` distinguishes them, and
+  `/api/copilotkit/info` returning 200 says nothing about Slack.
+- **`LOG_LEVEL` defaults to `error` while every Channel lifecycle breadcrumb is
+  emitted at `warn`.** Run `LOG_LEVEL=debug pnpm runtime`. The line
+  `channel "<name>" requires setup` is the highest-value diagnostic here and is
+  discarded at the default level.
+- **Channel names claim deliveries.** Two runtimes declaring the same name in one
+  Intelligence project race per delivery and the loser is silently starved. Give a
+  local runtime its own project, key, and Channel name — never reuse `open-tag`.
+- **Socket Mode stays off on the Slack app.** With it on, Slack delivers events
+  over the socket and stops posting them to the Request URL, so Intelligence —
+  and therefore your runtime — receives nothing while the app still reads as
+  installed. Do not turn it on to "test locally"; there is nothing here that
+  needs it.
+- **Personal Composio toolkits are Slack-only, and need a non-empty
+  `AGENT_AUTH_HEADER` on both services.** The speaker arrives as
+  `forwardedProps.channelActor`, and `agent/composio_tools/state.py` is the one
+  place that decides what counts as an identity — `agent/agui.py` applies it to
+  every run. `agent/agent_auth.py` treats an empty secret as unconfigured and
+  refuses to mint a connect link on that basis.
+- **Composio and Arcade are exclusive, and personal Arcade needs a public
+  address.** Both API keys set stops the agent at boot by design. Personal Arcade
+  toolkits additionally need `ARCADE_IDENTITY_NAMESPACE`, the provider's own
+  OAuth app registered in Arcade, and a public address for the runtime — Arcade
+  sends the person's browser back to `/arcade/verify` to learn who they are.
+  Arcade's preconfigured providers only work for members of the Arcade project,
+  so testing the flow as yourself proves nothing; use a logged-out browser.
+- **Slash commands and modals are registered but unverified on the managed
+  path.** Delivery depends on the generated Slack manifest, which Intelligence
+  produces server-side — nothing in this repository decides it. Do not describe
+  them as working without sending a real command against your own Channel.
+- **Trigger routing is not symmetric.** A mentioned turn goes to `onMention` if
+  registered and falls back to `onMessage`; an unmentioned turn reaches
+  `onMessage` only. `onMention` subscribes the thread. Always verify with a
+  channel mention first, and remember that workspace-installed is not the same as
+  invited to a conversation.
+
+## Conventions
+
+- **Pinned SDK versions live in `package.json` and nowhere else.** Do not restate
+  `@copilotkit/channels` or `@copilotkit/runtime` versions in prose or in a test
+  assertion. Three copies of an earlier pin drifted at once when the deps were
+  bumped, and one broke the build. `app/cleanup.test.ts` asserts the pin *shape*
+  for this reason.
+- **No platform credential belongs here.** Intelligence owns the adapters, so no
+  Slack or Teams token, signing secret, or app token goes in this repository and
+  this app attaches no adapter of its own. It briefly held `SLACK_BOT_TOKEN` and
+  `SLACK_APP_TOKEN` so a Composio connect link could reach one person privately;
+  the managed adapter in the pair pinned in `package.json` does that itself, and
+  the pair was worse than useless — a second Slack ingress answered every message
+  twice, and its Socket Mode connection stopped Slack delivering events to
+  Intelligence from 24 August until it was turned off. Both tokens and the
+  adapter are gone from this repository; `app/server.test.ts` pins the removal.
+  One root `.env` configures both services; the Python agent loads it explicitly
+  for local development.
+- **`@copilotkit/channels` and `@copilotkit/runtime` upgrade together.** They ship
+  as a tested pair.
+- Commit messages follow the conventional prefixes already in the log (`feat:`,
+  `fix:`, `docs:`, `chore:`), scoped where it helps.
