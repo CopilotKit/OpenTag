@@ -57,7 +57,7 @@ CPU, memory, networking, logs, and every other task setting remain unchanged.
 Configuration changes are separate, intentional CDK deployments.
 
 Community's application secret must keep GitHub, PostHog, Linear, and Notion
-credentials empty. Its only optional research credential is `TAVILY_API_KEY`.
+credentials empty. Parallel research works keylessly by default. Optional `PARALLEL_API_KEY` enables authenticated use; `WEB_SEARCH_PROVIDER=tavily` selects the alternative with `TAVILY_API_KEY`, and `none` disables web research.
 
 ## Repository protection
 

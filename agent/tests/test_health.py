@@ -8,6 +8,7 @@ from composio_tools.runtime import reset_composio_runtime  # noqa: E402
 def test_health_ok(monkeypatch):
     monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
     monkeypatch.delenv("TAVILY_API_KEY", raising=False)
+    monkeypatch.setenv("WEB_SEARCH_PROVIDER", "none")
     monkeypatch.delenv("GITHUB_PERSONAL_ACCESS_TOKEN", raising=False)
     monkeypatch.delenv("POSTHOG_PERSONAL_API_KEY", raising=False)
     monkeypatch.delenv("LINEAR_API_KEY", raising=False)
@@ -26,6 +27,7 @@ def test_health_ok(monkeypatch):
 def test_server_exposes_opentag_metadata(monkeypatch):
     monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
     monkeypatch.delenv("TAVILY_API_KEY", raising=False)
+    monkeypatch.setenv("WEB_SEARCH_PROVIDER", "none")
     monkeypatch.delenv("GITHUB_PERSONAL_ACCESS_TOKEN", raising=False)
     monkeypatch.delenv("POSTHOG_PERSONAL_API_KEY", raising=False)
     monkeypatch.delenv("LINEAR_API_KEY", raising=False)
@@ -115,6 +117,7 @@ def test_the_refusal_never_repeats_what_the_request_said(monkeypatch):
 def test_build_agent_without_tavily(monkeypatch, capsys):
     monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
     monkeypatch.delenv("TAVILY_API_KEY", raising=False)
+    monkeypatch.setenv("WEB_SEARCH_PROVIDER", "none")
     monkeypatch.delenv("GITHUB_PERSONAL_ACCESS_TOKEN", raising=False)
     monkeypatch.delenv("POSTHOG_PERSONAL_API_KEY", raising=False)
     monkeypatch.delenv("LINEAR_API_KEY", raising=False)
@@ -128,6 +131,7 @@ def test_build_agent_without_tavily(monkeypatch, capsys):
 def test_build_agent_with_tavily(monkeypatch, capsys):
     monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
     monkeypatch.setenv("TAVILY_API_KEY", "tvly-test")
+    monkeypatch.setenv("WEB_SEARCH_PROVIDER", "tavily")
     monkeypatch.delenv("GITHUB_PERSONAL_ACCESS_TOKEN", raising=False)
     monkeypatch.delenv("POSTHOG_PERSONAL_API_KEY", raising=False)
     monkeypatch.delenv("LINEAR_API_KEY", raising=False)
@@ -157,6 +161,7 @@ def test_build_agent_does_not_expose_a_bypassable_manual_confirmation_tool(
 
     monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
     monkeypatch.delenv("TAVILY_API_KEY", raising=False)
+    monkeypatch.setenv("WEB_SEARCH_PROVIDER", "none")
     monkeypatch.delenv("DAYTONA_API_KEY", raising=False)
     monkeypatch.delenv("GITHUB_CODER_TOKEN", raising=False)
     monkeypatch.delenv("GITHUB_PERSONAL_ACCESS_TOKEN", raising=False)
@@ -188,6 +193,7 @@ def test_build_agent_registers_composio_tools_only_when_configured(monkeypatch):
             return self
 
     def build(env):
+        monkeypatch.setenv("WEB_SEARCH_PROVIDER", "none")
         for name in (
             "TAVILY_API_KEY",
             "DAYTONA_API_KEY",

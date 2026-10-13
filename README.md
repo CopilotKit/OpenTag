@@ -10,6 +10,8 @@
 [![Managed by CopilotKit Intelligence](https://img.shields.io/badge/managed%20by-CopilotKit%20Intelligence-1e293b)](https://docs.copilotkit.ai/channels)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](./LICENSE)
 
+<a href="https://trendshift.io/repositories/65816?utm_source=trendshift-badge&amp;utm_medium=badge&amp;utm_campaign=badge-trendshift-65816" target="_blank" rel="noopener noreferrer"><img src="https://trendshift.io/api/badge/trendshift/repositories/65816/daily?language=TypeScript" alt="CopilotKit%2FOpenTag | Trendshift" width="250" height="55"/></a>
+
 </div>
 
 https://github.com/user-attachments/assets/46fb9854-7540-4756-a33f-fe97810f80d4
@@ -186,7 +188,7 @@ AGENT_DISPLAY_NAME=OpenTag
 ```
 
 Both the Node runtime and the Python agent load this one root `.env`; Railway
-supplies the same values as service variables. Tavily, GitHub, PostHog, Linear,
+supplies the same values as service variables. Parallel search works without a key by default. GitHub, PostHog, Linear,
 and Notion are optional — see [Optional research
 sources](#optional-research-sources).
 
@@ -321,12 +323,13 @@ runtime (Node + CopilotRuntime with embedded Channels)
           ▼
 agent (Python + LangGraph deepagents)
           ├── OpenAI
-          ├── Tavily (optional)
+          ├── Parallel web research (default; configurable)
           ├── GitHub MCP (optional, read-only)
           ├── PostHog MCP (optional, read-only)
           ├── Linear MCP (optional)
           ├── Notion MCP (optional remote server)
-          └── Composio toolkits (optional; shared or per-person accounts)
+          └── Composio or Arcade toolkits (optional, one or the other;
+              shared or per-person accounts)
 ```
 
 | You run                                                | CopilotKit Intelligence manages                |
@@ -339,6 +342,12 @@ Neither of those legs is Socket Mode, and neither needs a tunnel or a public URL
 of your own. Slack reaches Intelligence over HTTPS, authenticated by the signing
 secret Intelligence holds. Intelligence reaches your runtime over a websocket
 your process opens outbound, authenticated by `INTELLIGENCE_API_KEY`.
+
+There is exactly one exception, and you opt into it: **per-person Arcade
+toolkits.** Arcade sends each person's browser back through your own service to
+learn who they are, so that one configuration needs a public address for the
+runtime. The agent, which holds the provider keys, stays private even then.
+Composio, and Arcade with shared toolkits only, need nothing public.
 
 There is one canonical runtime host: [`server.ts`](./server.ts).
 [`app/index.ts`](./app/index.ts) composes one `CopilotKitIntelligence`, one
@@ -374,11 +383,14 @@ knowledge work, and renders UI from model knowledge.
 
 | Variable                                   | Enables                                                          |
 | ------------------------------------------ | ---------------------------------------------------------------- |
-| `TAVILY_API_KEY`                           | Live web research                                                |
+| `WEB_SEARCH_PROVIDER` | `parallel` (default), `tavily`, or `none` |
+| `PARALLEL_API_KEY` | Optional authenticated Parallel usage |
+| `TAVILY_API_KEY` | Required only with explicit `WEB_SEARCH_PROVIDER=tavily` |
 | `GITHUB_PERSONAL_ACCESS_TOKEN`             | Read-only repository, code, PR, and CI search                    |
 | `POSTHOG_PERSONAL_API_KEY`                 | PostHog analytics, read-only (use the **MCP Server** key preset) |
 | `LINEAR_API_KEY`                           | Hosted Linear MCP                                                |
 | `COMPOSIO_API_KEY`                         | Composio toolkits, under one shared team account or under each person's own (per-person accounts are Slack-only and need `AGENT_AUTH_HEADER`; see setup.md) |
+| `ARCADE_API_KEY`                           | Arcade toolkits instead of Composio — never both, or the agent will not start. Per-action authorization; per-person accounts additionally need a public address for the runtime (see setup.md) |
 | `NOTION_MCP_URL` + `NOTION_MCP_AUTH_TOKEN` | Remote Notion MCP; setting only one disables it                  |
 | `DAYTONA_API_KEY` + a PAT or GitHub App    | Coding subagent: edit in Daytona, then push and publish a draft PR after `confirm_write` |
 
@@ -471,3 +483,7 @@ Questions, forks worth showing off, and bug reports are all welcome:
 ## License
 
 [MIT](./LICENSE) © CopilotKit
+
+### Public web search
+
+The default agent uses its [Search MCP](https://docs.parallel.ai/integrations/mcp/search-mcp) for source discovery and selected-page reading, with no extra API key for light use. Tool objectives, queries and requested URLs are sent to Parallel; private conversation content should not be included in research inputs. Add `PARALLEL_API_KEY` for authenticated usage and higher limits. Set `WEB_SEARCH_PROVIDER=none` to disable public-web tools, or `tavily` with `TAVILY_API_KEY` to retain Tavily search. A pre-existing Tavily key does not override the new default. Restart the agent after changing configuration. See [setup](setup.md#public-web-research) for details.

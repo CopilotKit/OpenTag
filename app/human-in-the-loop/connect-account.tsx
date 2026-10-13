@@ -15,10 +15,27 @@ import {
 } from "@copilotkit/channels";
 import type { InteractionContext, Renderable } from "@copilotkit/channels";
 import { reportRecoverableError } from "../channel-helpers.js";
+import { appNameOf, normalizeArcadeTarget } from "../tools/arcade-connect.js";
 import { normalizeToolkit } from "../tools/composio-connect.js";
 
-/** What the button carries. The toolkit only — never an id, never a link. */
-export type ConnectRequest = { toolkit: string };
+/**
+ * What the button carries. What to connect and who mints it — never an id,
+ * never a link.
+ *
+ * `provider` is recorded rather than looked up at click time so a card that
+ * outlived a provider change refuses itself, instead of being answered by
+ * whichever client still happens to be configured. A card from before this
+ * field existed has none, and is treated as Composio's — which is what every
+ * one of them was.
+ *
+ * `toolkit` is Composio's unit (an app, lowercase) and `target` is Arcade's (a
+ * qualified action). Exactly one is set, by the provider that minted the card.
+ */
+export type ConnectRequest = {
+  toolkit?: string;
+  target?: string;
+  provider?: "composio" | "arcade";
+};
 
 /**
  * Mint and deliver the link for whoever clicked.
@@ -42,11 +59,11 @@ export type ConnectRequest = { toolkit: string };
  */
 async function connect(
   interaction: InteractionContext<ConnectRequest>,
-  toolkit: string,
+  request: ConnectRequest,
 ) {
   try {
     const { handleConnectClick } = await import("../tools/connect-click.js");
-    await handleConnectClick(toolkit, interaction);
+    await handleConnectClick(request, interaction);
   } catch (error) {
     // The one outcome this card is shaped to avoid. `handleConnectClick`
     // reports the failures it can name — a request that came back refused, a
@@ -59,7 +76,7 @@ async function connect(
     // below report non-delivery by *returning*, so the old fixed
     // `told_the_clicker_privately` was written into the log on the exact runs
     // where nobody was told.
-    const recovery = await tellTheClicker(interaction, toolkit);
+    const recovery = await tellTheClicker(interaction, request);
     reportRecoverableError(error, {
       operation: "connect_account_click",
       recovery,
@@ -83,19 +100,23 @@ async function connect(
  */
 async function tellTheClicker(
   interaction: InteractionContext<ConnectRequest>,
-  toolkit: string,
+  request: ConnectRequest,
 ): Promise<string> {
   // Rendered into a card, so it gets the treatment every value that reaches a
-  // rendered surface from outside this repository gets. The slug is checked at
-  // both entry points already; a card re-derived from stored props is a third
-  // route in, and this is the one place on it that renders the value.
-  const slug = normalizeToolkit(toolkit);
+  // rendered surface from outside this repository gets. Both units are checked
+  // at their entry points already; a card re-derived from stored props is a
+  // third route in, and this is the one place on it that renders the value.
+  const named =
+    request.provider === "arcade"
+      ? normalizeArcadeTarget(request.target ?? "") !== null
+      : normalizeToolkit(request.toolkit ?? "") !== null;
+  const label = requestLabel(request);
   const notice: Renderable = (
     <ConnectFailed
       message={
-        slug === null
-          ? "I could not start that connection. Please try again."
-          : `I could not start the ${slug} connection. Please try again.`
+        named
+          ? `I could not start the ${label} connection. Please try again.`
+          : "I could not start that connection. Please try again."
       }
     />
   );
@@ -135,8 +156,31 @@ async function tellTheClicker(
   }
 }
 
-export function ConnectAccount({ toolkit }: { toolkit: string }) {
-  const label = toolkit.charAt(0).toUpperCase() + toolkit.slice(1);
+/**
+ * The app a request is about, for showing somebody.
+ *
+ * Composio names an app directly; Arcade names an action, whose app is the half
+ * before the dot. Both are already validated by the time they reach a card —
+ * this only chooses which to read, it does not make anything safe.
+ */
+export function requestLabel(request: ConnectRequest): string {
+  const name = request.target
+    ? appNameOf(request.target)
+    : (request.toolkit ?? "");
+  return name.charAt(0).toUpperCase() + name.slice(1);
+}
+
+/**
+ * `toolkit` is how every card posted before `request` existed stored its props,
+ * and a click re-renders the card from those. Reading only `request` threw on
+ * them, and the Channel swallows that, so the button did nothing.
+ */
+export function ConnectAccount(props: {
+  request?: ConnectRequest;
+  toolkit?: string;
+}) {
+  const request: ConnectRequest = props.request ?? { toolkit: props.toolkit };
+  const label = requestLabel(request);
   return (
     <Message accent="#010507">
       <Header>{`🔗 Connect ${label}`}</Header>
@@ -145,10 +189,10 @@ export function ConnectAccount({ toolkit }: { toolkit: string }) {
       </Section>
       <Actions>
         <Button
-          value={{ toolkit }}
+          value={request}
           style="primary"
           onClick={(interaction: InteractionContext<ConnectRequest>) =>
-            connect(interaction, toolkit)
+            connect(interaction, request)
           }
         >
           {`Connect ${label}`}
