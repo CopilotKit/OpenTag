@@ -12,6 +12,7 @@ from .system import (
 from .tools import (
     TOOLS_PROMPT,
     DEFAULT_INTERNAL_SOURCES,
+    arcade_addendum,
     composio_addendum,
     tools_prompt,
     CODING_ON_ADDENDUM,
@@ -55,6 +56,7 @@ __all__ = [
     "build_base_system_prompt",
     "build_system_prompt",
     "tools_prompt",
+    "arcade_addendum",
     "composio_addendum",
     "current_date_context",
     "current_date_prompt",

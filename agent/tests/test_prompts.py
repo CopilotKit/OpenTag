@@ -46,7 +46,7 @@ def test_prompt_describes_read_only_github_search():
 
 
 def test_prompt_describes_direct_optional_web_search():
-    assert "web_search(query, max_results=5)" in WEB_SEARCH_TOOL_ADDENDUM
+    assert "web_search (use its declared argument schema)" in WEB_SEARCH_TOOL_ADDENDUM
     assert "source snippets" in WEB_SEARCH_TOOL_ADDENDUM
     assert "do NOT have a live web research tool" in NO_WEB_SEARCH_TOOL_ADDENDUM
 

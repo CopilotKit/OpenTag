@@ -9,6 +9,17 @@
 import { describe, expect, it, vi } from "vitest";
 import { connectAppTool } from "../connect-app.js";
 
+// The button asks the agent which provider it runs. A unit test has no agent,
+// so the answer is stubbed; each test that cares sets `provider.current`.
+const provider = vi.hoisted(() => ({
+  current: "composio" as "composio" | "arcade" | null | undefined,
+}));
+vi.mock("../arcade-connect.js", async (original) => ({
+  ...(await original<typeof import("../arcade-connect.js")>()),
+  lookupConnectedAppProvider: vi.fn(async () => provider.current),
+}));
+
+
 function context() {
   const post = vi.fn(async (_ui: unknown) => ({ id: "m1" }));
   return { ctx: { thread: { post }, platform: "slack" } as never, post };
@@ -21,7 +32,7 @@ describe("connect_app", () => {
     const result = await connectAppTool.handler({ toolkit: "gmail" }, ctx);
 
     expect(post).toHaveBeenCalledTimes(1);
-    expect(String(result)).toContain("gmail");
+    expect(String(result)).toContain("Gmail");
   });
 
   it("lowercases and trims what the model passed", async () => {
@@ -50,7 +61,7 @@ describe("connect_app", () => {
     const result = await connectAppTool.handler({ toolkit }, ctx);
 
     expect(post).not.toHaveBeenCalled();
-    expect(String(result)).toMatch(/not an app name|No app was named/);
+    expect(String(result)).toMatch(/not something I can connect|Nothing was named/);
   });
 
   it("does not echo the rejected name back into the conversation", async () => {
@@ -84,7 +95,7 @@ describe("connect_app", () => {
     const result = await connectAppTool.handler({ toolkit: "   " }, ctx);
 
     expect(post).not.toHaveBeenCalled();
-    expect(String(result)).toContain("No app was named");
+    expect(String(result)).toContain("Nothing was named");
   });
 
   it("tells the agent not to claim the account is connected yet", async () => {

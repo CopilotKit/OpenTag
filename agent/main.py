@@ -14,6 +14,15 @@ from pydantic import BaseModel
 from agent import build_agent
 from agent_auth import authorizes_capability, configured_secret, is_authorized
 from agui import AGENT_DESCRIPTION, AGENT_NAME, build_agui_agent
+from arcade_tools.connect import ConnectRefused as ArcadeConnectRefused
+from arcade_tools.connect import start_connection
+from arcade_tools.runtime import arcade_runtime
+from arcade_tools.verify import verify_flow
+from connected_app_provider import (
+    PROVIDER_ARCADE,
+    PROVIDER_COMPOSIO,
+    selected_provider,
+)
 from composio_tools.config import DEFAULT_WORKSPACE_USER_ID
 from composio_tools.connect import ConnectRefused, connect_link
 from composio_tools.runtime import composio_runtime
@@ -133,6 +142,17 @@ def composio_connect(body: ConnectRequest, request: Request):
     if not authorizes_capability(request.headers.get("authorization")):
         return JSONResponse({"error": "unauthorized"}, status_code=401)
 
+    # This route only ever serves Composio. Asked explicitly rather than left to
+    # fall out of an absent key, because the case it guards is a card that
+    # outlived a provider change: a button minted under Composio, clicked after
+    # the deployment switched to Arcade, must be refused rather than answered by
+    # whichever runtime still happens to build.
+    if selected_provider() != PROVIDER_COMPOSIO:
+        return JSONResponse(
+            {"error": "Composio is not configured on this deployment."},
+            status_code=503,
+        )
+
     runtime = composio_runtime(
         # The default spelled once, in the module that resolves it. A present
         # but empty `INTELLIGENCE_CHANNEL_NAME` reaches here as the empty
@@ -165,6 +185,250 @@ def composio_connect(body: ConnectRequest, request: Request):
     if isinstance(result, ConnectRefused):
         return JSONResponse({"error": result.reason}, status_code=400)
     return {"redirectUrl": result.url}
+
+
+class ArcadeConnectRequest(BaseModel):
+    """One person, one action. No link comes in; exactly one goes out.
+
+    `target` rather than `toolkit`, because Arcade authorizes per action: the
+    scopes it asks for are the ones that action needs, not everything the app
+    could ever do.
+    """
+
+    actor_id: str
+    platform: str
+    target: str
+    #: The clicker's `ProviderActor.kind`, refused when absent for the same
+    #: reason as the Composio route: a runtime too old to send it cannot say
+    #: whether a person clicked, and "I could not tell" is not a reason to mint
+    #: a bearer capability.
+    kind: str | None = None
+    #: The clicker's display name, for the start page's "this link is for"
+    #: line. Display only.
+    display_name: str | None = None
+
+
+@app.post("/arcade/connect")
+def arcade_connect(body: ArcadeConnectRequest, request: Request):
+    """Start connecting one person's own account.
+
+    The same shape and the same rules as the Composio route beside it, because
+    what makes a connect link dangerous is not which provider minted it.
+    """
+    if configured_secret() is None:
+        print(
+            "[ERROR] /arcade/connect refused: no AGENT_AUTH_HEADER is set on "
+            "the agent, so it has no secret to check and will mint nothing",
+            file=sys.stderr,
+        )
+        return JSONResponse(
+            {
+                "error": "Connecting your own account needs a shared secret set "
+                "on both this app and its agent, and the agent has not set one. "
+                "Ask whoever runs this deployment."
+            },
+            status_code=503,
+        )
+    if not authorizes_capability(request.headers.get("authorization")):
+        return JSONResponse({"error": "unauthorized"}, status_code=401)
+
+    runtime = _selected_arcade_runtime()
+    if runtime is None:
+        return JSONResponse(
+            {"error": "Arcade is not configured on this deployment."},
+            status_code=503,
+        )
+
+    actor = {
+        "id": body.actor_id,
+        "platform": body.platform,
+        "kind": body.kind,
+    }
+    identity = actor_key(actor) if is_personal_kind(actor) else None
+    if identity is None:
+        return JSONResponse({"error": actor_refusal(actor)}, status_code=400)
+
+    result = start_connection(
+        runtime.config,
+        runtime.client_factory,
+        runtime.pending_flows,
+        identity=identity,
+        target=body.target,
+        resolve_action=lambda toolkit: _first_action(runtime.catalog, toolkit),
+        display_name=body.display_name,
+    )
+    if isinstance(result, ArcadeConnectRefused):
+        return JSONResponse({"error": result.reason}, status_code=400)
+    if result.already_connected:
+        return {"alreadyConnected": True}
+    # The ticket only. The link is built by the surface, which is the half that
+    # knows its own public address — this service does not have one, and should
+    # not need to learn one to hand out a ticket.
+    return {"ticket": result.ticket}
+
+
+def _first_action(catalog, toolkit: str) -> str | None:
+    """One action from `toolkit`, to authorize against when an app was named.
+
+    Arcade authorizes per action and has no call for "connect this app", so
+    connecting an app means authorizing one of its actions. Which one does not
+    change who ends up connected; it changes only the scopes asked for up
+    front, and any action that later needs more will ask again.
+    """
+    try:
+        for definition in catalog.definitions(toolkit):
+            name = definition.get("qualified_name")
+            if isinstance(name, str) and name:
+                return name
+    except Exception as error:  # noqa: BLE001 - provider errors vary
+        print(
+            f"[arcade] could not list {toolkit} to pick an action to connect: {error}",
+            file=sys.stderr,
+        )
+    return None
+
+
+@app.get("/connected-apps/provider")
+def connected_app_provider_route(request: Request):
+    """Which connected-app provider this deployment runs, if any.
+
+    The Connect button asks, so the card it posts is minted for the provider
+    that is actually running. It used to infer the provider from the shape of
+    the name the model passed — a dotted action meant Arcade, a bare app name
+    meant Composio — and the first live run named an app on an Arcade
+    deployment, so the card went to a provider that was not configured.
+
+    Selection stays here; this reports the answer and takes none. Behind the
+    shared secret when one is set, like the rest of this service.
+    """
+    if not is_authorized(request.url.path, request.headers.get("authorization")):
+        return JSONResponse({"error": "unauthorized"}, status_code=401)
+    return {"provider": selected_provider()}
+
+
+class ArcadeClaimRequest(BaseModel):
+    """One ticket, handed back by the browser that was given the link."""
+
+    ticket: str
+
+
+@app.post("/arcade/claim")
+def arcade_claim(body: ArcadeClaimRequest, request: Request):
+    """Spend a ticket, and say where that person is going next.
+
+    Called by the surface, not by a browser. The surface owns the public
+    address and the cookie; this service owns who the ticket belongs to and
+    never tells anybody — it answers with an opaque handle instead, so the
+    identity does not cross the wire and cannot be replayed at the next step.
+    """
+    refusal = _capability_guard("/arcade/claim")
+    if refusal is not None:
+        return refusal
+    if not authorizes_capability(request.headers.get("authorization")):
+        return JSONResponse({"error": "unauthorized"}, status_code=401)
+
+    runtime = _selected_arcade_runtime()
+    if runtime is None:
+        return JSONResponse(
+            {"error": "Arcade is not configured on this deployment."},
+            status_code=503,
+        )
+
+    claimed = runtime.pending_flows.claim_ticket(body.ticket)
+    if claimed is None:
+        return JSONResponse({"error": "unknown_ticket"}, status_code=404)
+
+    return {
+        "providerUrl": claimed.provider_url,
+        "browserHandle": runtime.pending_flows.remember_browser(claimed.identity),
+        # Shown on the start page so a forwarded link says who it was made for.
+        # The name the clicker's own surface sent; the identity key stays here.
+        "displayName": claimed.display_name,
+    }
+
+
+class ArcadeConfirmRequest(BaseModel):
+    """One browser coming back, named only by the handle it was issued."""
+
+    browser_handle: str | None = None
+    flow_id: str | None = None
+
+
+@app.post("/arcade/confirm")
+def arcade_confirm(body: ArcadeConfirmRequest, request: Request):
+    """Tell Arcade whose authorization just completed.
+
+    The identity is resolved here, from a handle this service issued, and is
+    never accepted from the caller. That is the same rule the graph follows
+    before running a personal tool: the surface can say which browser came
+    back, but only this service can say who that is.
+    """
+    refusal = _capability_guard("/arcade/confirm")
+    if refusal is not None:
+        return refusal
+    if not authorizes_capability(request.headers.get("authorization")):
+        return JSONResponse({"error": "unauthorized"}, status_code=401)
+
+    runtime = _selected_arcade_runtime()
+    if runtime is None:
+        return JSONResponse(
+            {"error": "Arcade is not configured on this deployment."},
+            status_code=503,
+        )
+
+    result = verify_flow(
+        runtime.pending_flows,
+        runtime.client_factory,
+        flow_id=body.flow_id,
+        browser_handle=body.browser_handle,
+    )
+    return {
+        "outcome": result.outcome.value,
+        "redirectTo": result.redirect_to,
+        "message": result.message,
+        "clearCookie": result.clear_cookie,
+    }
+
+
+def _capability_guard(route: str):
+    """Refuse a capability route that has no secret to check.
+
+    Checked by each such route rather than by the middleware, because the
+    middleware enforces only when a secret is configured — and there is no
+    configuration in which handing a capability to an unauthenticated caller
+    is intended.
+    """
+    if configured_secret() is not None:
+        return None
+    print(
+        f"[ERROR] {route} refused: no AGENT_AUTH_HEADER is set on the agent, "
+        "so it has no secret to check",
+        file=sys.stderr,
+    )
+    return JSONResponse(
+        {
+            "error": "Connecting your own account needs a shared secret set on "
+            "both this app and its agent, and the agent has not set one. Ask "
+            "whoever runs this deployment."
+        },
+        status_code=503,
+    )
+
+
+def _selected_arcade_runtime():
+    """The Arcade runtime, but only when Arcade is the selected provider.
+
+    Asked explicitly rather than left to fall out of an absent key. The case it
+    guards is a link or a card that outlived a provider change: minted under
+    Arcade, opened after the deployment switched to Composio.
+    """
+    if selected_provider() != PROVIDER_ARCADE:
+        return None
+    return arcade_runtime(
+        default_user_id=os.environ.get(
+            "INTELLIGENCE_CHANNEL_NAME", DEFAULT_WORKSPACE_USER_ID
+        )
+    )
 
 
 def actor_refusal(actor: Mapping[str, Any]) -> str:

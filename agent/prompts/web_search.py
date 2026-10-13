@@ -2,7 +2,7 @@
 
 WEB_SEARCH_TOOL_ADDENDUM = """
 
-Live web research is available via web_search(query, max_results=5):
+Live web research is available via web_search (use its declared argument schema):
 - You MUST call web_search before answering when a request depends on facts
   that may have changed or happened after your training data. This includes
   current/latest/recent claims, news, sports results or schedules, elections
@@ -18,7 +18,7 @@ Live web research is available via web_search(query, max_results=5):
   for the result instead of claiming that the tournament has not happened
 - Do not search for timeless facts, casual conversation, writing, translation,
   or summarization when the user has already supplied all necessary material
-- Start with one focused query and search again only when a material gap remains
+- Start with one focused search call and search again only when a material gap remains
 - The tool returns source snippets with URLs; synthesize the evidence and cite
   the useful sources rather than dumping raw results
 """
