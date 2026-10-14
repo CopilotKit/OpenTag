@@ -1,5 +1,17 @@
 # Changelog
 
+## v0.5.0
+
+- docs: explain personal toolkit setup and approval behavior (d5ea8cf)
+- chore(deploy): wire Composio through supported environments (cebdcb8)
+- feat(channel): add personal app connection and durable approvals (0021f57)
+- feat(composio): move personal toolkits into the agent (ddc7f47)
+
+### Container images
+
+- `ghcr.io/copilotkit/opentag-agent:v0.5.0`
+- `ghcr.io/copilotkit/opentag-runtime:v0.5.0`
+
 ## v0.4.1
 
 - fix: harden coder publish replay safety (5c03e70)
