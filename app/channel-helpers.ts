@@ -69,7 +69,9 @@ export function reportRecoverableError(
   });
 }
 
-const TOKEN_RE = /(ghp|github_pat|gho)_[A-Za-z0-9_]+/g;
+// Same families as `agent/coding/sandbox.py`. GitHub App auth mints `ghs_`
+// installation tokens, so the narrower pattern let those through to Slack.
+const TOKEN_RE = /(ghp|github_pat|gho|ghs|ghu|ghr)_[A-Za-z0-9_]+/g;
 
 function errorText(error: unknown): string {
   if (error instanceof AggregateError) {
