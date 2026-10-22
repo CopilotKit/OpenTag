@@ -159,6 +159,7 @@ The AG-UI endpoint is `http://localhost:8123/`; `/health` reports the
 | `INTELLIGENCE_GATEWAY_WS_URL` | No | Defaults to `wss://realtime.intelligence.copilotkit.ai` |
 | `AGENT_AUTH_HEADER` | No | Shared secret between runtime and agent. Sent as `Authorization`; the agent checks it when set to a non-empty value, and **requires** a non-empty one before minting a Composio or Arcade connect link |
 | `PUBLIC_URL` | For personal Arcade only | Where a browser can reach this service. Falls back to `RAILWAY_PUBLIC_DOMAIN`. Composio deployments and shared-only Arcade need none |
+| `OPENBOT_PAIRING` | No | `true` when `AGENT_URL` points at OpenBot. Adds the structured `openbot.sender` context entry OpenBot requires on every turn; see [Pairing with OpenBot](#pairing-with-openbot). Defaults to `false` |
 | `PORT` | No | Channel HTTP port; defaults to `3000` |
 | `LOG_LEVEL` | No | Defaults to `error`. Channel lifecycle breadcrumbs are emitted at `warn`, so set `warn` or lower to see them |
 | `MERMAID_URL` | No | Overrides the Mermaid browser bundle URL used by diagram rendering |
@@ -308,6 +309,36 @@ Before a Linear or Notion mutation reaches MCP, a Python interceptor emits
 `confirm_write`. The Channel posts an approval card, and the button resumes the
 graph with the user's decision. The MCP handler runs only after approval. Reads
 and UI rendering are never gated.
+
+## Pairing with OpenBot
+
+[OpenBot](https://github.com/CopilotKit/openbot) can be the agent behind this
+Channel, so people talk to their own OpenBot Bot from Slack or Teams. OpenBot
+holds no Slack app of its own; it answers OpenTag's AG-UI requests and decides
+whose Bot a turn reaches from who sent it.
+
+Point the runtime at OpenBot and turn the pairing on:
+
+```bash
+export AGENT_URL=https://openbot.example.com/api/delivery/webhooks/opentag/agent
+export AGENT_AUTH_HEADER="Bearer <OPENTAG_SHARED_SECRET from OpenBot>"
+export OPENBOT_PAIRING=true
+```
+
+The Python agent is not used in this setup. With the pairing on, each turn
+carries one extra context entry, `openbot.sender`, a JSON object naming the
+sender as the Channel's `provider:tenant:actor` user id, the platform event id,
+whether the app was mentioned, and the conversation (`{ id, kind }`) as
+Intelligence reported it. OpenBot reads the conversation to tell a direct
+message from a shared one: link codes are only redeemed in a direct message,
+and an answer that may draw on someone's private context is only posted there.
+
+A person links their Slack account from their Bot's page in OpenBot, which
+shows a one-time `link <code>` message to send to this app in a direct message.
+
+Not yet implemented here: OpenBot's proactive sends (`POST /openbot/deliver`)
+and channel-membership checks (`POST /openbot/membership`). Until they are,
+replies OpenBot routes outside the live turn, and Slack triggers, do not work.
 
 ## Optional sources
 

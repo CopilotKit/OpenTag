@@ -217,7 +217,11 @@ afterEach(async () => {
 });
 
 function makeChannel(
-  options: { agent?: FakeAgent; agentDisplayName?: string } = {},
+  options: {
+    agent?: FakeAgent;
+    agentDisplayName?: string;
+    openbotPairing?: boolean;
+  } = {},
 ) {
   const adapter = new FakeAdapter({ platform: "intelligence" });
   const stateStore = new MemoryStore();
@@ -227,6 +231,7 @@ function makeChannel(
     "opentag",
     agent,
     options.agentDisplayName,
+    { openbotPairing: options.openbotPairing },
   );
   channel.ɵruntime.addAdapter(adapter);
   channels.push(channel);
@@ -758,6 +763,79 @@ describe("createOpenTagChannel", () => {
         value: "Ada (teams id T1)",
       },
     ]);
+  });
+
+  it("tells OpenBot who the turn is from, and where, when paired", async () => {
+    const { adapter, agent, channel } = makeChannel({ openbotPairing: true });
+
+    await channel.ɵruntime.start();
+    await adapter.getSink().onTurn({
+      conversationKey: "c1",
+      replyTarget: {},
+      userText: "hello",
+      platform: "slack",
+      eventId: "Ev0001",
+      actor: { id: "U1", kind: "human", name: "Ada" },
+      identityContext: {
+        tenant: { id: "T0123" },
+        installation: { id: "A0INSTALL" },
+        conversation: { id: "D0ABCDEFGH", kind: "im" },
+        trigger: "message",
+        event: { id: "Ev0001" },
+        raw: {},
+      },
+      operation: {
+        kind: "created",
+        logicalMessageId: "m1",
+        revisionId: "m1",
+        mentioned: true,
+      },
+    });
+
+    const context = (agent as CapturingAgent).calls[0]?.context ?? [];
+    // The readable label stays: it is the agent-facing half, and OpenBot reads
+    // only the structured entry.
+    expect(context).toContainEqual({
+      description: "Requesting slack user",
+      value: "Ada (slack id U1)",
+    });
+    const senders = context.filter(
+      ({ description }) => description === "openbot.sender",
+    );
+    expect(senders).toHaveLength(1);
+    expect(JSON.parse(senders[0]!.value)).toEqual({
+      user: "slack:T0123:U1",
+      event: "Ev0001",
+      mentioned: true,
+      conversation: { id: "D0ABCDEFGH", kind: "im" },
+    });
+  });
+
+  it("adds nothing for OpenBot when not paired", async () => {
+    const { adapter, agent, channel } = makeChannel();
+
+    await channel.ɵruntime.start();
+    await adapter.getSink().onTurn({
+      conversationKey: "c1",
+      replyTarget: {},
+      userText: "hello",
+      platform: "slack",
+      eventId: "Ev0002",
+      actor: { id: "U1", kind: "human", name: "Ada" },
+      identityContext: {
+        tenant: { id: "T0123" },
+        installation: { id: "A0INSTALL" },
+        conversation: { id: "D0ABCDEFGH", kind: "im" },
+        trigger: "message",
+        event: { id: "Ev0002" },
+        raw: {},
+      },
+    });
+
+    const context = (agent as CapturingAgent).calls[0]?.context ?? [];
+    expect(
+      context.some(({ description }) => description === "openbot.sender"),
+    ).toBe(false);
   });
 
   it("injects managed content parts as the current agent prompt", async () => {

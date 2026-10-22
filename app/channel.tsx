@@ -15,6 +15,10 @@ import { appCommands } from "./commands/index.js";
 import { IssueCard, IssueList, PageList } from "./components/index.js";
 import { createAppContext } from "./context/app-context.js";
 import { DEFAULT_AGENT_DISPLAY_NAME } from "./env.js";
+import {
+  createTurnConversations,
+  openbotSenderContext,
+} from "./openbot-sender.js";
 import { ConnectAccount } from "./human-in-the-loop/index.js";
 import { createConfirmWrite } from "./human-in-the-loop/confirm-write.js";
 import { createApprovalDecisions } from "./human-in-the-loop/approval-decisions.js";
@@ -122,7 +126,11 @@ export function createOpenTagChannel(
   name: string,
   agent: ChannelAgent,
   agentDisplayName = DEFAULT_AGENT_DISPLAY_NAME,
+  options: { openbotPairing?: boolean } = {},
 ): Channel {
+  // Only when paired: unpaired, the Channel keeps the stock `"platform"`
+  // strategy and every other agent sees exactly the context it always did.
+  const turns = options.openbotPairing ? createTurnConversations() : undefined;
   const decisions = createApprovalDecisions(() => {
     const store = channel.adapters.find(
       (adapter) => adapter.stateStore,
@@ -134,7 +142,7 @@ export function createOpenTagChannel(
   const channel = createChannel({
     name,
     agent,
-    identifyUser: "platform",
+    identifyUser: turns ? turns.identifyUser : "platform",
     tools: createAppTools(agentDisplayName),
     context: [...createAppContext(agentDisplayName)],
     commands: appCommands,
@@ -163,7 +171,15 @@ export function createOpenTagChannel(
     conditionalTools: ChannelTool[],
   ) => {
     try {
-      await thread.runAgent(managedRunInput(message, conditionalTools));
+      await thread.runAgent(
+        managedRunInput(
+          message,
+          conditionalTools,
+          turns
+            ? openbotSenderContext(message, turns.take(message.eventId))
+            : [],
+        ),
+      );
     } catch (error) {
       try {
         await thread.post(
