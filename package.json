@@ -26,7 +26,7 @@
     "playwright": "^1.49.0",
     "tsx": "^4.19.2",
     "undici": "^6.28.1",
-    "zod": "^3.25.76"
+    "zod": "^4.6.6"
   },
   "devDependencies": {
     "@types/node": "^22.10.0",
