@@ -31,7 +31,10 @@ dependencies = [
   # Floors, not bare names: a bare requirement resolves to whatever the index
   # offers on the day the image is built, and the lockfile hides that until
   # somebody regenerates it. These are the releases the lock resolves today.
-  "daytona>=0.204.0",
+  # Daytona also has a ceiling: 2.0 moved every type out of the package root,
+  # so `from daytona import CreateSandboxFromSnapshotParams` and
+  # `import langchain_daytona` both raise ImportError on it.
+  "daytona>=0.232.0,<1",
   "langchain-daytona>=0.0.7",
 ]
 

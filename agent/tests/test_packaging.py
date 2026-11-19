@@ -34,6 +34,13 @@ KNOWN_PACKAGE_ROOTS = frozenset({"coding", "composio_tools", "prompts"})
 #: `sandbox` and `manage_connections` arguments this repository passes.
 COMPOSIO_SESSIONS_FLOOR = (0, 17, 0)
 
+#: Daytona 2.0 moved every type out of the package root into version
+#: namespaces (`daytona.v0`, `daytona.v2`). `from daytona import
+#: CreateSandboxFromSnapshotParams` in `coding/sandbox.py` raises `ImportError`
+#: there, and so does `import langchain_daytona` in every release up to 0.0.9.
+#: `1.0.1` is an old, unrelated release. Below `1` keeps a re-resolve on 0.x.
+DAYTONA_CEILING = (1,)
+
 #: Floors that are not a matter of taste: the earliest release carrying an API
 #: this repository actually calls.
 REQUIRED_FLOORS = {"composio": COMPOSIO_SESSIONS_FLOOR}
@@ -221,6 +228,21 @@ def test_every_dependency_declares_a_lower_bound():
     )
 
     assert unbounded == []
+
+
+def upper_bound(requirement: str) -> tuple[int, ...] | None:
+    """The `<` ceiling in a requirement, as a comparable tuple, or `None`."""
+    match = re.search(r"<(?!=)\s*(\d+(?:\.\d+)*)", requirement)
+    return tuple(int(part) for part in match.group(1).split(".")) if match else None
+
+
+def test_daytona_is_held_below_the_namespaced_sdk():
+    ceiling = upper_bound(declared_dependencies()["daytona"])
+
+    assert ceiling is not None and ceiling <= DAYTONA_CEILING, (
+        "daytona needs an upper bound: 2.0 removed the root imports this "
+        "repository and langchain-daytona use"
+    )
 
 
 def test_pinned_apis_declare_a_floor_that_has_them():
