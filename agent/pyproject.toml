@@ -33,7 +33,9 @@ dependencies = [
   # somebody regenerates it. These are the releases the lock resolves today.
   # Daytona also has a ceiling: 2.0 moved every type out of the package root,
   # so `from daytona import CreateSandboxFromSnapshotParams` and
-  # `import langchain_daytona` both raise ImportError on it.
+  # `import langchain_daytona` both raise ImportError on it. The ceiling is
+  # `<1`, not `<2`, because 1.0.1 is an old release nothing here was checked
+  # against; it keeps the resolver on the 0.x line.
   "daytona>=0.232.0,<1",
   "langchain-daytona>=0.0.7",
 ]
