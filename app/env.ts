@@ -25,6 +25,11 @@ export interface AppEnvironment {
    * a second thing to configure.
    */
   publicUrl?: string;
+  /**
+   * OpenBot is the agent at `AGENT_URL`, so each turn also carries the
+   * structured `openbot.sender` entry OpenBot requires (`OPENBOT_PAIRING`).
+   */
+  openbotPairing?: boolean;
 }
 
 /**
@@ -53,6 +58,14 @@ function required(env: NodeJS.ProcessEnv, name: string): string {
     throw new Error(`Missing required env var: ${name}`);
   }
   return value;
+}
+
+/** `true`/`1` turn a flag on; unset or blank leaves it off; anything else is a typo. */
+function readFlag(env: NodeJS.ProcessEnv, name: string): boolean {
+  const value = env[name]?.trim().toLowerCase();
+  if (!value || value === "false" || value === "0") return false;
+  if (value === "true" || value === "1") return true;
+  throw new Error(`Invalid ${name}: "${env[name]}". Use true or false.`);
 }
 
 export function parsePort(
@@ -103,5 +116,6 @@ export function readEnvironment(
     // default every other variable here falls back to.
     port: parsePort(env.PORT?.trim() || undefined),
     publicUrl: readPublicUrl(env),
+    openbotPairing: readFlag(env, "OPENBOT_PAIRING"),
   };
 }

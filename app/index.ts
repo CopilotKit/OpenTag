@@ -59,6 +59,7 @@ export function createOpenTagApplication(
       environment.channelName,
       agent,
       environment.agentDisplayName,
+      { openbotPairing: environment.openbotPairing },
     ),
   ];
   const runtimeHost = createOpenTagRuntime({ environment, channels });

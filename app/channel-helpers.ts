@@ -28,10 +28,17 @@ export function promptFromMessage(
 export function managedRunInput(
   message: IncomingMessage,
   conditionalTools: ChannelTool[] = [],
+  extraContext: ContextEntry[] = [],
 ) {
+  const input = platformRunInput(
+    message.platform,
+    message.actor,
+    conditionalTools,
+  );
   return {
     prompt: promptFromMessage(message),
-    ...platformRunInput(message.platform, message.actor, conditionalTools),
+    ...input,
+    context: [...input.context, ...extraContext],
   };
 }
 

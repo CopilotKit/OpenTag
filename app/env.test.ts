@@ -222,6 +222,7 @@ describe("readEnvironment", () => {
       "intelligenceApiUrl",
       "intelligenceGatewayWsUrl",
       "learningContainerId",
+      "openbotPairing",
       "port",
       "publicUrl",
     ]);
@@ -246,4 +247,34 @@ describe("parsePort", () => {
       expect(() => parsePort(raw)).toThrow(`Invalid PORT: "${raw}"`);
     },
   );
+
+  describe("OPENBOT_PAIRING", () => {
+    it("is off unless set", () => {
+      expect(readEnvironment(requiredEnvironment).openbotPairing).toBe(false);
+      expect(
+        readEnvironment({ ...requiredEnvironment, OPENBOT_PAIRING: " " })
+          .openbotPairing,
+      ).toBe(false);
+    });
+
+    it.each(["true", "TRUE", "1", " true\n"])("is on for %j", (value) => {
+      expect(
+        readEnvironment({ ...requiredEnvironment, OPENBOT_PAIRING: value })
+          .openbotPairing,
+      ).toBe(true);
+    });
+
+    it.each(["false", "0"])("is off for %j", (value) => {
+      expect(
+        readEnvironment({ ...requiredEnvironment, OPENBOT_PAIRING: value })
+          .openbotPairing,
+      ).toBe(false);
+    });
+
+    it("refuses a value that is neither, rather than guessing", () => {
+      expect(() =>
+        readEnvironment({ ...requiredEnvironment, OPENBOT_PAIRING: "yes" }),
+      ).toThrow('Invalid OPENBOT_PAIRING: "yes"');
+    });
+  });
 });
