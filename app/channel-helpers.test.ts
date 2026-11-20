@@ -154,4 +154,16 @@ describe("userFacingRunError", () => {
     expect(text).not.toContain("ghp_LIVESECRET99");
     expect(text).toContain("ghp_[redacted]");
   });
+
+  it.each(["ghs", "ghu", "ghr"])(
+    "redacts a %s_ GitHub App token from the reason",
+    (prefix) => {
+      const secret = `${prefix}_LIVESECRET99`;
+      const text = userFacingRunError(
+        new Error(`git push failed for https://x-access-token:${secret}@github.com/o/r`),
+      );
+      expect(text).not.toContain(secret);
+      expect(text).toContain(`${prefix}_[redacted]`);
+    },
+  );
 });
