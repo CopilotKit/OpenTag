@@ -4,6 +4,11 @@
 
 **An open-source, self-hosted knowledge-work agent for Slack and Microsoft Teams — connected tools and generative UI included.**
 
+**From the team behind [OpenBot](https://open.bot)**, CopilotKit's open-source, self-hostable workspace for AI coworkers. OpenBot is designed to reach Slack and Teams through OpenTag ([how the pairing works](https://github.com/CopilotKit/OpenBot/blob/main/docs/configuration.md#slack-and-microsoft-teams-opentag-pairing)). OpenTag's side of that pairing is still in progress.
+
+[![Try OpenBot at open.bot](https://img.shields.io/badge/Try_OpenBot-open.bot_%E2%86%92-6E6AE0?style=for-the-badge&labelColor=3A3466)](https://open.bot)
+[![OpenBot on GitHub](https://img.shields.io/github/stars/CopilotKit/OpenBot?style=for-the-badge&logo=github&label=OpenBot%20on%20GitHub&labelColor=3A3466&color=6E6AE0)](https://github.com/CopilotKit/OpenBot)
+
 [**See it work**](#see-it-work) · [**Quick start**](#quick-start) · [**Make it yours**](#make-it-yours) · [**Channels SDK**](https://github.com/CopilotKit/channels-sdk)
 
 [![Built with Channels SDK](https://img.shields.io/badge/built%20with-Channels%20SDK-6430AB)](https://github.com/CopilotKit/channels-sdk)
