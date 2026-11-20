@@ -93,7 +93,9 @@ def _stringify(value) -> str:
     if isinstance(value, bool):
         return "Yes" if value else "No"
     if isinstance(value, (list, tuple)):
-        return ", ".join(str(v) for v in value)
+        # Each item the way it would read on its own: a list of objects is
+        # still JSON, not Python's repr of it.
+        return ", ".join(_stringify(v) for v in value)
     if isinstance(value, dict):
         return json.dumps(value, ensure_ascii=False, default=str)
     return str(value)

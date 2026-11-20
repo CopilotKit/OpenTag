@@ -104,6 +104,23 @@ def test_summarize_args_joins_lists_and_compacts_nested_values():
     }
 
 
+def test_summarize_args_renders_list_items_like_top_level_values():
+    fields = summarize_args(
+        {
+            "pages": [{"title": "Q3 plan"}, {"title": "Q4 plan"}],
+            "flags": [True, False],
+        }
+    )
+
+    assert fields == [
+        {
+            "label": "Pages",
+            "value": '{"title": "Q3 plan"}, {"title": "Q4 plan"}',
+        },
+        {"label": "Flags", "value": "Yes, No"},
+    ]
+
+
 def test_summarize_args_truncates_an_overlong_value():
     fields = summarize_args({"description": "x" * 400})
 
